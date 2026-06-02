@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Export SQLite data to the Excel workbook's Unedited Report sheet.
+"""Export SQLite data to the Excel workbook's Current List sheet.
 
-Usage:
-    python -m automation.export_to_workbook --db PATH --excel-path PATH
+Writes ALL columns (A through AG, skipping computed R/S/T) so the
+workbook's pivot table and formulas have the full dataset.
 """
+
 import logging
 import sqlite3
 import sys
@@ -14,70 +15,136 @@ from openpyxl import load_workbook
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-UNEDITED_SHEET = "Unedited Report"
+CURRENT_LIST_SHEET = "Current List"
+
+# Column layout: (excel_column_letter, db_field_name, value_formatter)
+# Covers A through AG, skipping R/S/T (computed by workbook formulas).
+# Column AH and beyond are also computed or unused.
+EXPORT_COLUMNS = [
+    ("A",  "detailing_due_date",            "date"),
+    ("B",  "dept_due_date_previous",        "str"),
+    ("C",  "com_number",                    "str"),
+    ("D",  "manufacturing_location",        "str"),
+    ("E",  "detailer",                      "str"),
+    ("F",  "job_name",                      "str"),
+    ("G",  "top_level_number",              "str"),
+    ("H",  "description",                   "str"),
+    ("I",  "build_date",                    "date"),
+    ("J",  "build_cycle",                   "int"),
+    ("K",  "department_hours",              "float"),
+    ("L",  "percent_complete",              "percent"),
+    ("M",  "remaining_hours",               "float"),
+    ("N",  "actual_hours",                  "float"),
+    ("O",  "week_ending_friday",            "date"),
+    ("P",  "notes",                         "str"),
+    ("Q",  "late",                          "int"),
+    # R, S, T are COMPUTED — workbook formulas, skip
+    ("U",  "checking_status",               "str"),
+    ("V",  "target_dept_hours",             "float"),
+    ("W",  "iec_internal_hours",            "float"),
+    ("X",  "unit_detailing_start_date",     "date"),
+    ("Y",  "unit_moved_to_checking_date",   "date"),
+    ("Z",  "unit_detailing_completion_date","date"),
+    ("AA", "actual_hours_to_detail_unit",   "float"),
+    ("AB", "hour_variance",                 "float"),
+    ("AC", "remaining_demand",              "float"),
+    ("AD", "same_as",                       "str"),
+    ("AE", "dr_checks",                     "str"),
+    ("AF", "dvl_checks",                    "str"),
+    ("AG", "hours_checking",                "float"),
+]
+
+
+def _format_value(val, fmt: str):
+    """Convert a Python value to the appropriate Excel cell value."""
+    if val is None:
+        return None
+    if fmt == "date":
+        if isinstance(val, str):
+            # ISO date string — convert to datetime for Excel
+            from datetime import datetime
+            try:
+                return datetime.strptime(val, "%Y-%m-%d")
+            except ValueError:
+                return val
+        return val  # already a date/datetime object
+    if fmt == "percent":
+        # Store as 0.0–1.0 decimal (Excel displays as percentage)
+        return val
+    if fmt == "float":
+        return float(val) if val is not None else None
+    if fmt == "int":
+        return int(val) if val is not None else None
+    return str(val) if val else None
 
 
 def export_to_workbook(db_path: str, excel_path: str) -> int:
-    """Export all units from SQLite to the workbook's Unedited Report sheet.
-    
+    """Export all units from SQLite to the workbook's Current List sheet.
+
     Returns the number of rows exported.
     """
-    # Read from SQLite
+    # Read all columns from SQLite
+    db_fields = [col[1] for col in EXPORT_COLUMNS]
+    select_cols = ", ".join(db_fields)
+
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    cur.execute("""
-        SELECT com_number, detailing_due_date, manufacturing_location, job_name,
-               top_level_number, description, build_date, build_cycle,
-               department_hours, percent_complete, week_ending_friday
-        FROM units
-        ORDER BY detailing_due_date
-    """)
+    cur.execute(f"SELECT {select_cols} FROM units ORDER BY detailing_due_date")
     rows = cur.fetchall()
     conn.close()
 
     log.info(f"Read {len(rows)} rows from SQLite")
 
-    # Write to workbook
+    # Open workbook
     wb = load_workbook(excel_path, data_only=False, keep_vba=True)
-    ws = wb[UNEDITED_SHEET]
+
+    # Find the Current List sheet
+    if CURRENT_LIST_SHEET not in wb.sheetnames:
+        available = ", ".join(wb.sheetnames)
+        raise ValueError(
+            f"Sheet '{CURRENT_LIST_SHEET}' not found. Available: {available}"
+        )
+    ws = wb[CURRENT_LIST_SHEET]
+
+    # Read header row to map column letters to actual column indices
+    # The header row (row 1) should have the column names
+    header_map = {}
+    for cell in ws[1]:
+        if cell.value:
+            header_map[str(cell.value).strip()] = cell.column
 
     # Clear old data (keep header row)
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row or 1):
-        for cell in row:
-            cell.value = None
+    if ws.max_row and ws.max_row > 1:
+        ws.delete_rows(2, ws.max_row)
 
-    # Write header
-    headers = [
-        "DeptDueDate", "COMNumber", "ManufacturingLocation", "JobName",
-        "TopLevelNumber", "Description", "BuildDate", "AssyCycle",
-        "DepartmentHours", "PercentComplete", "WeekEndingFriday"
-    ]
-    for col_idx, header in enumerate(headers, start=1):
-        ws.cell(row=1, column=col_idx, value=header)
+    # Build a mapping: for each export column, find the target column index
+    # by matching the db_field_name to the header row value
+    col_index_map = []
+    for col_letter, db_field, fmt in EXPORT_COLUMNS:
+        # Try to find by header name first
+        target_col = header_map.get(db_field)
+        if target_col is None:
+            # Fall back to column letter
+            from openpyxl.utils import column_index_from_string
+            target_col = column_index_from_string(col_letter)
+        col_index_map.append((target_col, db_field, fmt))
 
-    # Write data
-    for row_idx, row in enumerate(rows, start=2):
-        ws.cell(row=row_idx, column=1, value=row["detailing_due_date"])
-        ws.cell(row=row_idx, column=2, value=row["com_number"])
-        ws.cell(row=row_idx, column=3, value=row["manufacturing_location"])
-        ws.cell(row=row_idx, column=4, value=row["job_name"])
-        ws.cell(row=row_idx, column=5, value=row["top_level_number"])
-        ws.cell(row=row_idx, column=6, value=row["description"])
-        ws.cell(row=row_idx, column=7, value=row["build_date"])
-        ws.cell(row=row_idx, column=8, value=row["build_cycle"])
-        ws.cell(row=row_idx, column=9, value=row["department_hours"])
-        ws.cell(row=row_idx, column=10, value=row["percent_complete"])
-        ws.cell(row=row_idx, column=11, value=row["week_ending_friday"])
+    # Write data rows
+    for row_idx, db_row in enumerate(rows, start=2):
+        for col_idx, (target_col, db_field, fmt) in enumerate(col_index_map):
+            raw_val = db_row[db_field]
+            cell_value = _format_value(raw_val, fmt)
+            ws.cell(row=row_idx, column=target_col, value=cell_value)
 
     wb.save(excel_path)
-    log.info(f"Exported {len(rows)} rows to {excel_path}")
+    log.info(f"Exported {len(rows)} rows to {excel_path} ({CURRENT_LIST_SHEET} sheet)")
     return len(rows)
 
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Export SQLite to Excel workbook")
+    parser = argparse.ArgumentParser(description="Export SQLite to Excel Current List")
     parser.add_argument("--db", required=True, help="Path to SQLite database")
     parser.add_argument("--excel-path", required=True, help="Path to Excel workbook")
     args = parser.parse_args()
