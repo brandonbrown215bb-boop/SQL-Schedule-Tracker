@@ -131,6 +131,10 @@ class MainWindow(QMainWindow):
         self._error_dialog_threshold = 3
         self._error_dialog_window_seconds = 10.0
 
+        self._current_theme_name: str = "light"
+        self._current_cvd: str = "none"
+        self._current_hc: bool = False
+
         self._init_status_bar()
         self._init_central_layout()
         self._init_left_panel()
