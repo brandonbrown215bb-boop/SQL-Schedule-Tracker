@@ -131,7 +131,6 @@ class MainWindow(QMainWindow):
         self._error_dialog_threshold = 3
         self._error_dialog_window_seconds = 10.0
 
-        self._init_theme(config, config_path)
         self._init_status_bar()
         self._init_central_layout()
         self._init_left_panel()
@@ -142,6 +141,7 @@ class MainWindow(QMainWindow):
         self._setup_multi_user_sync()
         self._setup_auto_refresh()
         self._build_help_menu()
+        self._init_theme(config, config_path)
         self._check_onboarding()
         self._load_data_async(force_reload=False)
 

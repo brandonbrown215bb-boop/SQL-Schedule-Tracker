@@ -272,7 +272,8 @@ _INPUT = """\
         color: {text_primary};
         border: 1px solid {border};
         border-radius: 5px;
-        padding: 3px 8px;
+        padding: 4px 8px;
+        min-height: 22px;
         font-size: 12px;
         selection-background-color: {bg_selected};
     }}
@@ -284,7 +285,8 @@ _INPUT = """\
         color: {text_primary};
         border: 1px solid {border};
         border-radius: 5px;
-        padding: 3px 8px;
+        padding: 4px 8px;
+        min-height: 22px;
         font-size: 12px;
         selection-background-color: {bg_selected};
     }}
