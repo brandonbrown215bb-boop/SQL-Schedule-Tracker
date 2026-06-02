@@ -71,6 +71,7 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         dept_due_date_previous=_parse_date(row["dept_due_date_previous"]),
         detailing_due_date=_parse_date(row["detailing_due_date"]),
         build_date=_parse_date(row["build_date"]),
+        updated_at=row["updated_at"] or "",
     )
 
 

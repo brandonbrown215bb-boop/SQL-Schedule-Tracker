@@ -61,6 +61,10 @@ class Unit:
     detailing_due_date: date | None = None
     build_date: date | None = None
 
+    # Optimistic locking — set by db.py from SQLite updated_at column.
+    # Compared in writer.py before saving to detect concurrent edits.
+    updated_at: str = field(default="", compare=False, repr=False)
+
     # Internal cache/sync metadata. Not persisted as Unit fields in Excel.
     excel_row: int | None = field(default=None, compare=False, repr=False)
     fingerprint: str = field(default="", compare=False, repr=False)

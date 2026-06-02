@@ -412,8 +412,12 @@ class MainWindow(QMainWindow):
 
         logger.error("Save error: %s", error_msg)
 
-        # Keep the form populated with the unsaved data so the user can
-        # retry after reconnecting. Do NOT revert the form.
+        # Detect optimistic lock conflict
+        if "was modified by another user" in error_msg:
+            self._show_conflict_dialog(error_msg)
+            return
+
+        # Generic error (network, disk, etc.) — keep form data for retry
         QMessageBox.warning(
             self,
             "Save Failed",
@@ -422,6 +426,89 @@ class MainWindow(QMainWindow):
             f"Check your network connection and try saving again.",
         )
         self.status_bar.showMessage("Save failed — check network connection", 8000)
+
+    def _show_conflict_dialog(self, error_msg: str) -> None:
+        """Show conflict resolution dialog after optimistic lock failure."""
+
+        com_number = self.current_unit.com_number if self.current_unit else "?"
+
+        # Reload the current unit from DB to get remote values
+        remote_unit = None
+        try:
+            from data.db import get_db
+            conn = get_db(self.db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM units WHERE com_number = ?", (com_number,))
+            row = cur.fetchone()
+            if row:
+                from data.db import row_to_unit
+                remote_unit = row_to_unit(row)
+        except Exception as e:
+            logger.warning("Could not reload unit for conflict dialog: %s", e)
+
+        # Build local values dict from the form's current unit
+        local_values = self._unit_to_dict(self.current_unit) if self.current_unit else {}
+        remote_values = self._unit_to_dict(remote_unit) if remote_unit else {}
+
+        modified_at = remote_unit.updated_at if remote_unit else "unknown"
+
+        dlg = ConflictDialog(
+            com_number=com_number,
+            local_values=local_values,
+            remote_values=remote_values,
+            modified_by="another user",
+            modified_at=modified_at,
+            parent=self,
+        )
+        dlg.exec_()
+
+        if dlg.overwrite:
+            # Force-save: clear updated_at so the WHERE clause doesn't check it
+            logger.info("User chose to overwrite conflict for COM %s", com_number)
+            self.current_unit.updated_at = ""
+            self._start_save_worker(self.current_unit)
+        elif dlg.reload:
+            # Reload: replace the in-memory unit with the DB version
+            logger.info("User chose to reload COM %s after conflict", com_number)
+            if remote_unit:
+                self._replace_unit_in_memory(remote_unit)
+                self.edit_form.set_unit(remote_unit)
+                self.timeline_panel.set_unit(remote_unit)
+                self.calendar_panel.refresh(self.units)
+                self.list_panel.refresh(self.units)
+            self.status_bar.showMessage("Reloaded from database", 5000)
+        # else: cancel — do nothing, user keeps form as-is
+
+    @staticmethod
+    def _unit_to_dict(unit: Unit) -> dict:
+        """Convert a Unit to a dict of displayable field values."""
+        return {
+            "job_name": unit.job_name,
+            "contract_number": unit.contract_number,
+            "description": unit.description,
+            "detailer": unit.detailer,
+            "checking_status": unit.checking_status,
+            "department_hours": unit.department_hours,
+            "actual_hours": unit.actual_hours,
+            "target_department_hours": unit.target_department_hours,
+            "iec_internal_hours": unit.iec_internal_hours,
+            "percent_complete": unit.percent_complete,
+            "unit_detailing_start_date": unit.unit_detailing_start_date,
+            "unit_moved_to_checking_date": unit.unit_moved_to_checking_date,
+            "unit_detailing_completion_date": unit.unit_detailing_completion_date,
+            "dept_due_date_previous": unit.dept_due_date_previous,
+            "detailing_due_date": unit.detailing_due_date,
+            "build_date": unit.build_date,
+        }
+
+    def _replace_unit_in_memory(self, new_unit: Unit) -> None:
+        """Replace a unit in self.units list by com_number."""
+        for i, u in enumerate(self.units):
+            if u.com_number == new_unit.com_number:
+                self.units[i] = new_unit
+                if self.current_unit and self.current_unit.com_number == new_unit.com_number:
+                    self.current_unit = new_unit
+                return
 
     def _active_save_worker_running(self) -> bool:
         """Return True while the active worker's thread is still alive."""
