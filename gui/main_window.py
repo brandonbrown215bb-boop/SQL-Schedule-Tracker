@@ -370,7 +370,7 @@ class MainWindow(QMainWindow):
 
     def on_save_unit(self, unit: Unit):
         """Save unit to SQLite asynchronously and refresh UI."""
-        self._commit_unit_to_memory(unit)
+        # Don't commit to memory yet — wait for save to succeed
         self._start_save_worker(unit)
 
     def _start_save_worker(self, unit: Unit) -> None:
@@ -388,13 +388,15 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _on_save_finished(self) -> None:
-        """Handle successful save — refresh UI."""
+        """Handle successful save — commit to memory and refresh UI."""
         worker = self.sender()
         if worker:
             self._retire_save_worker(worker)
 
         unit = self.current_unit
         if unit:
+            # Now commit to memory — save succeeded
+            self._commit_unit_to_memory(unit)
             self.calendar_panel.refresh(self.units)
             self.list_panel.refresh(self.units)
             self.timeline_panel.set_unit(unit)
@@ -402,15 +404,24 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"✓ Saved COM {unit.com_number}", 3000)
 
     def _on_save_error(self, error_msg: str) -> None:
-        """Handle save error."""
+        """Handle save error — keep form data so user can retry."""
         worker = self.sender()
         if worker:
             self._save_worker_errors[worker] = error_msg
             self._retire_save_worker(worker)
 
         logger.error("Save error: %s", error_msg)
-        QMessageBox.warning(self, "Save Error", f"Failed to save:\n{error_msg}")
-        self.status_bar.showMessage("Save failed", 5000)
+
+        # Keep the form populated with the unsaved data so the user can
+        # retry after reconnecting. Do NOT revert the form.
+        QMessageBox.warning(
+            self,
+            "Save Failed",
+            f"Could not save to database:\n{error_msg}\n\n"
+            f"Your changes are still in the form. "
+            f"Check your network connection and try saving again.",
+        )
+        self.status_bar.showMessage("Save failed — check network connection", 8000)
 
     def _active_save_worker_running(self) -> bool:
         """Return True while the active worker's thread is still alive."""
