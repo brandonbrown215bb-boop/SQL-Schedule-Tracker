@@ -16,6 +16,7 @@ class ClearableDateEdit(QDateEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setFocusPolicy(Qt.ClickFocus)
         self.setCalendarPopup(True)
         self.setSpecialValueText(" — ")
         self.setDate(self._UNSET)
@@ -82,30 +83,37 @@ class EditForm(QWidget):
         self.form.addRow(self._create_h_line())
 
         self.dept_hours_spin = QDoubleSpinBox()
+        self.dept_hours_spin.setFocusPolicy(Qt.ClickFocus)
         self.dept_hours_spin.setMaximum(99999.0)
         self.dept_hours_spin.setDecimals(2)
         self.dept_hours_spin.setSingleStep(0.25)
         self.form.addRow(QLabel("Dept Hours:"), self.dept_hours_spin)
 
         self.target_hours_spin = QDoubleSpinBox()
+        self.target_hours_spin.setFocusPolicy(Qt.ClickFocus)
         self.target_hours_spin.setMaximum(99999.0)
         self.target_hours_spin.setDecimals(2)
         self.target_hours_spin.setSingleStep(0.25)
+        self.target_hours_spin.setReadOnly(True)
+        self.target_hours_spin.setToolTip("Auto-calculated: Dept Hours − IEC Internal Hours")
         self.form.addRow(QLabel("Target Hours:"), self.target_hours_spin)
 
         self.iec_hours_spin = QDoubleSpinBox()
+        self.iec_hours_spin.setFocusPolicy(Qt.ClickFocus)
         self.iec_hours_spin.setMaximum(99999.0)
         self.iec_hours_spin.setDecimals(2)
         self.iec_hours_spin.setSingleStep(0.25)
         self.form.addRow(QLabel("IEC Internal Hours:"), self.iec_hours_spin)
 
         self.percent_spin = QDoubleSpinBox()
+        self.percent_spin.setFocusPolicy(Qt.ClickFocus)
         self.percent_spin.setMaximum(100.0)
         self.percent_spin.setDecimals(1)
         self.percent_spin.setSuffix("%")
         self.form.addRow(QLabel("% Complete:"), self.percent_spin)
 
         self.actual_hours_spin = QDoubleSpinBox()
+        self.actual_hours_spin.setFocusPolicy(Qt.ClickFocus)
         self.actual_hours_spin.setMaximum(99999.0)
         self.actual_hours_spin.setDecimals(2)
         self.actual_hours_spin.setSingleStep(0.25)
@@ -157,6 +165,10 @@ class EditForm(QWidget):
                 f.dateChanged.connect(self._mark_dirty) if isinstance(f, QDateEdit) else None
                 if isinstance(f, QDoubleSpinBox):
                     f.valueChanged.connect(self._mark_dirty)
+
+        # --- Auto-calculate Target Hours = Dept Hours - IEC Hours ---
+        self.dept_hours_spin.valueChanged.connect(self._update_target_hours)
+        self.iec_hours_spin.valueChanged.connect(self._update_target_hours)
 
         # --- Buttons ---
         button_row = QHBoxLayout()
@@ -307,6 +319,12 @@ class EditForm(QWidget):
             return
         self._dirty = True
         self.dirty_changed.emit(True)
+
+    def _update_target_hours(self) -> None:
+        """Auto-calculate target hours = dept hours - IEC hours."""
+        dept = self.dept_hours_spin.value()
+        iec = self.iec_hours_spin.value()
+        self.target_hours_spin.setValue(max(0.0, dept - iec))
 
     def _set_date(self, widget: QDateEdit, d: date | None):
         if d is not None:

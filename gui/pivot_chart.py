@@ -139,11 +139,12 @@ class PivotTableView(QWidget):
             # % complete bar (cyan) — fills remaining space in hours area
             pct_max_w = max(hours_area_w - alloc_w - 4, 8)  # at least 8px for 0%
             pct_bar_w = max(pct_max_w * (pct / 100.0), 8 if pct >= 0 else 0)
+            hours_remaining = alloc * (1.0 - pct / 100.0)
             self._draw_segment(
                 p, hours_x + alloc_w + 2, y, pct_bar_w, self.BAR_HEIGHT,
                 pct, 100.0,
                 QColor(COLORS["pct_complete"]),
-                f"{pct:.0f}%",
+                f"{hours_remaining:.0f} hrs left",
             )
 
             # ── Units half (right 50%) ──

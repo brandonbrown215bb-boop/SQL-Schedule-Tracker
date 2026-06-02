@@ -19,12 +19,13 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QDate, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QFont
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDateEdit,
     QDialog,
     QDialogButtonBox,
     QGroupBox,
@@ -48,6 +49,7 @@ from data.loader import unit_fingerprint
 COLUMN_DEFS: list[tuple[str, str, int, bool]] = [
     ("com_number",              "COM",              70,  True),
     ("detailing_due_date",      "Due Date",         80,  True),
+    ("dept_due_date_previous",  "Prev Due",         80,  True),
     ("job_name",                "Job Name",         180, True),
     ("detailer",                "Detailer",         100, True),
     ("status_color",            "Status",           50,  True),
@@ -137,11 +139,11 @@ class UnitListModel:
         self,
         status: str = "All",
         detailer: str = "All",
-        date_preset: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
         com_search: str = "",
     ) -> None:
         """Apply all active filters with AND logic."""
-        today = date.today()
         result = list(self._all_units)
 
         if status != "All":
@@ -150,8 +152,24 @@ class UnitListModel:
         if detailer != "All":
             result = [u for u in result if u.detailer == detailer]
 
-        if date_preset and date_preset != "All":
-            result = self._filter_by_date(result, date_preset, today)
+        if date_from and date_to:
+            result = [
+                u for u in result
+                if u.detailing_due_date is not None
+                and date_from <= u.detailing_due_date <= date_to
+            ]
+        elif date_from:
+            result = [
+                u for u in result
+                if u.detailing_due_date is not None
+                and u.detailing_due_date >= date_from
+            ]
+        elif date_to:
+            result = [
+                u for u in result
+                if u.detailing_due_date is not None
+                and u.detailing_due_date <= date_to
+            ]
 
         if com_search:
             query = com_search.lower().strip()
@@ -159,6 +177,7 @@ class UnitListModel:
                 u for u in result
                 if query in u.com_number.lower()
                 or query in u.job_name.lower()
+                or query in u.contract_number.lower()
             ]
 
         self._filtered_units = result
@@ -337,20 +356,28 @@ class ListPanel(QWidget):
         row1.addWidget(self.detailer_combo, 1)
         filter_layout.addLayout(row1)
 
-        # Row 2: Date range + COM search (with debounce)
+        # Row 2: Date range + Search
         row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Due:"))
-        self.date_combo = QComboBox()
-        for label, value in DATE_FILTER_PRESETS:
-            self.date_combo.addItem(label, value)
-        self.date_combo.currentIndexChanged.connect(self._on_filter_changed)
-        row2.addWidget(self.date_combo)
+        row2.addWidget(QLabel("Due from:"))
+        self.date_from = QDateEdit()
+        self.date_from.setCalendarPopup(True)
+        self.date_from.setDate(QDate.currentDate().addDays(-30))
+        self.date_from.setDisplayFormat("MM/dd/yyyy")
+        self.date_from.dateChanged.connect(self._on_filter_changed)
+        row2.addWidget(self.date_from)
+
+        row2.addWidget(QLabel("to:"))
+        self.date_to = QDateEdit()
+        self.date_to.setCalendarPopup(True)
+        self.date_to.setDate(QDate.currentDate().addDays(90))
+        self.date_to.setDisplayFormat("MM/dd/yyyy")
+        self.date_to.dateChanged.connect(self._on_filter_changed)
+        row2.addWidget(self.date_to)
 
         row2.addWidget(QLabel("Search:"))
         self.com_search = QLineEdit()
-        self.com_search.setPlaceholderText("COM # or job name...")
+        self.com_search.setPlaceholderText("COM #, job name, or contract #...")
         self.com_search.setClearButtonEnabled(True)
-        # Debounce: wait 200ms after last keystroke before filtering
         self._search_debounce = QTimer(self)
         self._search_debounce.setSingleShot(True)
         self._search_debounce.setInterval(200)
@@ -432,11 +459,12 @@ class ListPanel(QWidget):
         # Apply current filters and sort before diffing
         status = self.status_combo.currentData() or "All"
         detailer = self.detailer_combo.currentData() or "All"
-        date_preset = self.date_combo.currentData()
+        date_from = self.date_from.date().toPyDate()
+        date_to = self.date_to.date().toPyDate()
         com_search = self.com_search.text()
         self._model.apply_filters(
             status=status, detailer=detailer,
-            date_preset=date_preset, com_search=com_search,
+            date_from=date_from, date_to=date_to, com_search=com_search,
         )
         self._model.sort_by(self._sort_column, self._sort_ascending)
 
@@ -592,6 +620,10 @@ class ListPanel(QWidget):
                     item.setForeground(QBrush(QColor("#dc2626")))
                     item.setFont(bold_font)
 
+                # Previous due date — always bold when present
+                if key == "dept_due_date_previous" and value:
+                    item.setFont(bold_font)
+
                 item.setData(Qt.UserRole, unit)
                 self.table.setItem(row_idx, col_idx, item)
 
@@ -645,13 +677,15 @@ class ListPanel(QWidget):
 
         status = self.status_combo.currentData() or "All"
         detailer = self.detailer_combo.currentData() or "All"
-        date_preset = self.date_combo.currentData()
+        date_from = self.date_from.date().toPyDate()
+        date_to = self.date_to.date().toPyDate()
         com_search = self.com_search.text()
 
         self._model.apply_filters(
             status=status,
             detailer=detailer,
-            date_preset=date_preset,
+            date_from=date_from,
+            date_to=date_to,
             com_search=com_search,
         )
         self._model.sort_by(self._sort_column, self._sort_ascending)
@@ -719,6 +753,9 @@ class ListPanel(QWidget):
                     item.setForeground(QBrush(QColor("#dc2626")))
                     item.setFont(bold_font)
 
+                if key == "dept_due_date_previous" and value:
+                    item.setFont(bold_font)
+
                 item.setData(Qt.UserRole, unit)
                 self.table.setItem(row_idx, col_idx, item)
 
@@ -734,7 +771,8 @@ class ListPanel(QWidget):
         """Reset all filter widgets to defaults."""
         self.status_combo.setCurrentIndex(0)
         self.detailer_combo.setCurrentIndex(0)
-        self.date_combo.setCurrentIndex(0)
+        self.date_from.setDate(QDate.currentDate().addDays(-30))
+        self.date_to.setDate(QDate.currentDate().addDays(90))
         self.com_search.clear()
         # _on_filter_changed fires from com_search.clear()
 
