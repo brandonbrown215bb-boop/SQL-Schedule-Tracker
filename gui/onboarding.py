@@ -93,7 +93,7 @@ class OnboardingOverlay(QWidget):
         self.on_skip = on_skip
 
         # Make this widget cover the entire parent
-        self.setGeometry(parent.rect())
+        self.setGeometry(0, 0, parent.width(), parent.height())
         self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
@@ -222,8 +222,7 @@ class OnboardingOverlay(QWidget):
 
         if target and target.isVisible():
             # Map target geometry to overlay coordinates.
-            # Avoid QWidget.mapTo() which can segfault on some Linux/Qt builds.
-            # Instead, manually walk the parent chain summing positions.
+            # mapTo() is safe here because showEvent has already fired.
             tl = self._map_widget_to_overlay(target, QPoint(0, 0))
             br = self._map_widget_to_overlay(
                 target, QPoint(target.width(), target.height()))
@@ -242,15 +241,17 @@ class OnboardingOverlay(QWidget):
     def _map_widget_to_overlay(widget, point: QPoint) -> QPoint:
         """Map *point* from *widget*'s local coords to the overlay's coords.
 
-        Walks the parent chain manually so we never call QWidget.mapTo(),
-        which can segfault when the widget tree is not fully realized.
+        Uses QWidget.mapTo() which correctly accounts for layout margins,
+        spacing, and DPI scaling. Safe to call after showEvent (the overlay
+        must be visible/realized).
         """
-        result = QPoint(point)
-        w = widget
-        while w is not None:
-            result += w.pos()
-            w = w.parentWidget()
-        return result
+        # Walk up to the top-level window, then map from widget to window
+        # The overlay is a direct child of the window, same as the widget's
+        # ancestor chain, so mapTo(window) gives us overlay-relative coords.
+        window = widget
+        while window.parentWidget() is not None:
+            window = window.parentWidget()
+        return widget.mapTo(window, point)
 
     def _position_callout(self, target_rect: QRect, position: str):
         """Position the callout bubble relative to the target widget."""

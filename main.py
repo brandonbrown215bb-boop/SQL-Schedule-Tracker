@@ -3,6 +3,19 @@ import os
 import sys
 import traceback
 
+# Enable DPI awareness on Windows before QApplication is created.
+# Without this, coordinates from mapTo/pos() may be scaled incorrectly
+# on displays with >100% resolution scaling.
+if sys.platform == "win32":
+    try:
+        from ctypes import windll
+        windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+    except Exception:
+        try:
+            windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
 # When running as a PyInstaller --windowed build, sys.stderr is None
 # which crashes faulthandler.enable(). Redirect to a log file instead.
 if sys.stderr is None:
