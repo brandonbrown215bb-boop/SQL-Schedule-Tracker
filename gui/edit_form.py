@@ -209,7 +209,7 @@ class EditForm(QWidget):
                 self.contract_edit.setText("")
                 self.description_edit.setText("")
                 # self.detailer_edit.setText("") # REMOVED: Replaced with QComboBox
-                self.detailer_edit.setCurrentText("") # Set current text for QComboBox
+                self.detailer_edit.setCurrentIndex(0)
                 self.checking_status_edit.setText("")
                 self.dept_hours_spin.setValue(0)
                 self.target_hours_spin.setValue(0)
@@ -232,7 +232,10 @@ class EditForm(QWidget):
             self.job_name_edit.setText(unit.job_name)
             self.contract_edit.setText(unit.contract_number)
             self.description_edit.setText(unit.description)
-            self.detailer_edit.setCurrentText(unit.detailer)
+            if unit.detailer and self.detailer_edit.findText(unit.detailer) >= 0:
+                self.detailer_edit.setCurrentText(unit.detailer)
+            else:
+                self.detailer_edit.setCurrentIndex(0)
             self.checking_status_edit.setText(unit.checking_status)
 
 
@@ -266,12 +269,14 @@ class EditForm(QWidget):
 
         # Preserve fields from the original unit that aren't in the form
         orig = self.current_unit
+        detailer_txt = self.detailer_edit.currentText().strip()
+        detailer = "" if self.detailer_edit.currentIndex() == 0 else detailer_txt
         updated = Unit(
             com_number=com_number,
             job_name=self.job_name_edit.text(),
             contract_number=self.contract_edit.text(),
             description=self.description_edit.text(),
-            detailer=self.detailer_edit.currentText(),
+            detailer=detailer,
             checking_status=self.checking_status_edit.text(),
             department_hours=self.dept_hours_spin.value(),
             target_department_hours=self.target_hours_spin.value(),
