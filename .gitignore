@@ -1,0 +1,56 @@
+# Virtual environments
+venv/
+.venv/
+.test_venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# IDE and editor files
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Application-specific
+*.log
+_backup_*/
+backup_*/
+App/
+
+# Runtime generated files
+_output.txt
+_verify_result.txt
+_create_result.txt
+_setup_log.txt
+
+# SQLite database binary
+*.db
+
+# Legacy/local files not for repo
+*.xlsm
+*.csv
+*.spec
+_check_path.py
+_create_venv.py
+_setup_venv.py
+_test_import.py
+_verify.py
+code_review_report.md
+scheduling_dashboard.png
+setup.bat

@@ -1,0 +1,96 @@
+[project]
+name = "unit-tracker"
+version = "0.1.0"
+description = "Desktop application for viewing and editing schedule data stored in an Excel workbook"
+requires-python = ">=3.10"
+dependencies = [
+    "openpyxl>=3.1.0",
+    "PyQt5>=5.15.0",
+    "PyYAML>=6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests that require the real Excel file",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = [".", "tests"]
+exclude = [
+    "venv",
+    ".venv",
+    ".test_venv",
+    "build",
+    "dist",
+    "App",
+    "backup_*",
+    "__pycache__",
+    ".vs",
+    ".vscode",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+    "RUF",    # ruff-specific rules
+]
+ignore = [
+    "E501",   # line-length (handled by formatter)
+    "N802",   # function name lowercase (Qt overrides like keyPressEvent)
+    "N803",   # argument name lowercase (Qt conventions)
+    "N806",   # variable name lowercase (Qt conventions)
+    "B008",   # function call in defaults (Qt signals)
+    "RUF012", # mutable class args (dataclass defaults)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "S101",   # assert allowed in tests
+    "T201",   # print allowed in tests
+]
+"gui/*" = [
+    "N802",   # Qt overrides don't follow PEP8 naming
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["automation", "data", "gui"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+exclude = [
+    "venv",
+    ".venv",
+    ".test_venv",
+    "build",
+    "dist",
+    "App",
+    "backup_*",
+]

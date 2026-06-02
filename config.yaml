@@ -1,0 +1,135 @@
+csv_output_dir: P:/Detailing Schedule 2019/UnitTracker/csv_cache
+default_detailers:
+- — Unassigned —
+- Jackie H
+- Tommy N
+- Matthew S
+- Matthew E
+- Carl M
+- Stewart D
+- David K
+- Katie D
+- Kris L
+- Emilio P
+- Timothy B
+- Jeremy B
+- Brandon B
+- Tracy V
+- Tanner D
+detailer_schedules:
+  Brandon B:
+  - 1
+  - 2
+  - 3
+  - 4
+  Carl M:
+  - 0
+  - 1
+  - 2
+  - 3
+  David K:
+  - 0
+  - 1
+  - 2
+  - 3
+  Emilio P:
+  - 0
+  - 1
+  - 2
+  - 3
+  Jackie H:
+  - 0
+  - 1
+  - 2
+  - 3
+  Jeremy B:
+  - 0
+  - 1
+  - 2
+  - 3
+  Katie D:
+  - 0
+  - 1
+  - 2
+  - 3
+  Kris L:
+  - 0
+  - 1
+  - 2
+  - 3
+  Matthew E:
+  - 1
+  - 2
+  - 3
+  - 4
+  Matthew S:
+  - 1
+  - 2
+  - 3
+  - 4
+  Stewart D:
+  - 1
+  - 2
+  - 3
+  - 4
+  Tanner D:
+  - 0
+  - 1
+  - 2
+  - 3
+  Timothy B:
+  - 1
+  - 2
+  - 3
+  - 4
+  Tommy N:
+  - 1
+  - 2
+  - 3
+  - 4
+  Tracy V:
+  - 0
+  - 1
+  - 2
+  - 3
+  default:
+  - 0
+  - 1
+  - 2
+  - 3
+excel_path: /run/media/pigeon/890dd7cb-9753-4f6b-b8e6-58c98e531754/Downloads/Schedule-Viewer-App/SCHDetailingReport_all_plants_MASTER
+  - Copy.xlsm
+multi_user:
+  enabled: false
+  fallback_mode: block
+  machine: ''
+  username: ''
+sheet_name: Current List
+sqlite_path: /run/media/pigeon/890dd7cb-9753-4f6b-b8e6-58c98e531754/Downloads/Schedule-Viewer-App-v2/schedule.db
+status_labels:
+  gray: Unassigned (0%)
+  green: Released (100%)
+  orange: Checked & Returned (95%)
+  purple: Ready for Checking (90%)
+  red: Overdue
+  yellow: In Progress (1-89%)
+ui:
+  auto_refresh_minutes: 0
+  colorblind_mode: none
+  high_contrast: true
+  last_view: calendar
+  list_sort_ascending: true
+  list_sort_column: detailing_due_date
+  list_visible_columns:
+  - com_number
+  - detailing_due_date
+  - job_name
+  - detailer
+  - status_color
+  - percent_complete
+  onboarding_completed: true
+  splitter_sizes:
+  - 750
+  - 426
+  theme: dark
+unedited_reports_dir: P:/Detailing Schedule 2019/Unedited Reports

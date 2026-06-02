@@ -1,0 +1,19 @@
+{
+    "pythonPath": "/home/linuxbrew/.linuxbrew/Cellar/python@3.14/3.14.5/bin/python3.14",
+    "extraPaths": [
+        "/home/pigeon/.local/lib/python3.14/site-packages"
+    ],
+    "include": [
+        "**/*.py"
+    ],
+    "exclude": [
+        "venv",
+        "build",
+        "__pycache__",
+        "App",
+        "backup_*"
+    ],
+    "pythonVersion": "3.14",
+    "reportMissingImports": false,
+    "reportMissingTypeStubs": false
+}
