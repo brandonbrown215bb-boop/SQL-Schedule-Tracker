@@ -1,9 +1,16 @@
 # main.py
-import faulthandler
 import os
 import sys
 import traceback
 
+# When running as a PyInstaller --windowed build, sys.stderr is None
+# which crashes faulthandler.enable(). Redirect to a log file instead.
+if sys.stderr is None:
+    _log_dir = os.path.join(os.path.expanduser("~"), ".unit_tracker")
+    os.makedirs(_log_dir, exist_ok=True)
+    sys.stderr = open(os.path.join(_log_dir, "error.log"), "a", encoding="utf-8")
+
+import faulthandler
 faulthandler.enable()
 
 import yaml
@@ -22,24 +29,32 @@ def _validate_config_paths(config: dict, config_path: str, application_path: str
         config["sqlite_path"] = os.path.join(application_path, db_path)
 
 
+def _safe_print(msg: str) -> None:
+    """Print that works in both console and --windowed mode."""
+    try:
+        print(msg)
+    except (OSError, ValueError):
+        pass  # stdout is None in windowed mode
+
+
 def main():
-    print("Application starting...")
+    _safe_print("Application starting...")
 
     if getattr(sys, "frozen", False):
         application_path = os.path.dirname(sys.executable)
-        print(f"Running as frozen executable. Application path: {application_path}")
+        _safe_print(f"Running as frozen executable. Application path: {application_path}")
     else:
         application_path = os.path.dirname(os.path.abspath(__file__))
-        print(f"Running as script. Application path: {application_path}")
+        _safe_print(f"Running as script. Application path: {application_path}")
 
     config_path = os.path.join(application_path, "config.yaml")
-    print(f"Looking for config.yaml at: {config_path}")
+    _safe_print(f"Looking for config.yaml at: {config_path}")
 
     app = QApplication(sys.argv)
-    print("QApplication created.")
+    _safe_print("QApplication created.")
 
     if not os.path.exists(config_path):
-        print(f"Error: config.yaml not found at {config_path}")
+        _safe_print(f"Error: config.yaml not found at {config_path}")
         QMessageBox.critical(
             None,
             "Configuration Error",
@@ -52,13 +67,13 @@ def main():
         config = yaml.safe_load(f)
 
     if not isinstance(config, dict):
-        print("Error: config.yaml did not parse as a mapping.")
+        _safe_print("Error: config.yaml did not parse as a mapping.")
         QMessageBox.critical(
-            None, "Configuration Error", "config.yaml did not parse as a valid mapping (dict)."
+            None, "Configuration Error", "config.yaml did not parse as a valid mapping (dict).",
         )
         sys.exit(1)
 
-    print("config.yaml loaded successfully.")
+    _safe_print("config.yaml loaded successfully.")
 
     # Validate paths
     _validate_config_paths(config, config_path, application_path)
@@ -84,13 +99,12 @@ def main():
         QMessageBox.critical(None, "Database Error", f"Failed to connect to SQLite:\n{e}")
         sys.exit(1)
 
-    print(f"Connected to SQLite: {db_path}")
+    _safe_print(f"Connected to SQLite: {db_path}")
 
-    # Pass config_path separately — do not inject into the config dict
     window = MainWindow(config, config_path=config_path, db_path=db_path)
-    print("MainWindow created.")
+    _safe_print("MainWindow created.")
     window.show()
-    print("MainWindow shown. Entering event loop...")
+    _safe_print("MainWindow shown. Entering event loop...")
 
     exit_code = app.exec_()
     close_db()
