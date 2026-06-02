@@ -31,7 +31,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QPushButton, QTableWidget,
+    QWidget, QPushButton, QTableWidget,
     QComboBox, QLineEdit, QDateEdit, QDoubleSpinBox,
     QCalendarWidget, QFrame, QGroupBox,
 )
@@ -514,22 +514,6 @@ def apply_theme(widget: QWidget, theme_name: str,
     tokens = THEMES[theme_name]
     if high_contrast:
         tokens = boost_contrast(theme_name)
-
-    # Set a base stylesheet on the QApplication so all widgets — including
-    # plain QWidget containers that have no type-specific handler — get the
-    # correct background and text color.  More specific handlers below will
-    # override these defaults per widget type.
-    app = QApplication.instance()
-    if app is not None:
-        app.setStyleSheet(f"""
-            QFrame, QGroupBox {{
-                background: {tokens['bg_secondary']};
-                border: 1px solid {tokens['border']};
-                border-radius: 6px;
-            }}
-        """)
-
-    # Set backgrounds on plain QWidget panels that have no type-specific handler.
 
     # Set backgrounds on plain QWidget panels that have no type-specific handler.
     for name in ("left_panel", "right_panel"):
