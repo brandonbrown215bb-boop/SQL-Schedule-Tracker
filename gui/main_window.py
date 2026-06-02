@@ -723,6 +723,12 @@ class MainWindow(QMainWindow):
         pull_csv_btn.clicked.connect(self._pull_csv)
         row1.addWidget(pull_csv_btn)
 
+        pull_ssrs_btn = QPushButton("\U0001f310 Pull SSRS")
+        pull_ssrs_btn.setObjectName("pull_ssrs_btn")
+        pull_ssrs_btn.setToolTip("Fetch latest data from SSRS ReportServer and import into SQLite")
+        pull_ssrs_btn.clicked.connect(self._pull_ssrs)
+        row1.addWidget(pull_ssrs_btn)
+
         refresh_btn = QPushButton("\U0001f504 Refresh")
         refresh_btn.setObjectName("refresh_btn")
         refresh_btn.setToolTip("Reload data from SQLite database")
@@ -883,6 +889,58 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Import Error", f"Failed:\n{e}")
             self.status_bar.showMessage("Import failed", 5000)
+
+    def _pull_ssrs(self):
+        """Fetch CSV from SSRS ReportServer and import into SQLite."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        ssrs_url = self.config.get("ssrs_url", "")
+        if not ssrs_url:
+            QMessageBox.warning(
+                self,
+                "SSRS URL Missing",
+                "No ssrs_url configured in config.yaml.\n"
+                "Add the SSRS ReportServer endpoint URL under the ssrs_url key.",
+            )
+            return
+
+        lookback = self.config.get("ssrs_lookback_days", 30)
+        lookahead = self.config.get("ssrs_lookahead_days", 365)
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm SSRS Pull",
+            f"Fetch latest data from SSRS?\n\n"
+            f"URL: {ssrs_url}\n"
+            f"Date range: {lookback} days back → {lookahead} days forward\n\n"
+            f"This will upsert all report rows into the SQLite database.\n"
+            f"Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        self.status_bar.showMessage("Fetching SSRS data...")
+        try:
+            from automation.import_atomsvc import run_ssrs_import
+            stats = run_ssrs_import(
+                db_path=self.db_path,
+                ssrs_url=ssrs_url,
+                lookback_days=lookback,
+                lookahead_days=lookahead,
+            )
+            self.status_bar.showMessage(
+                f"✓ SSRS import complete — {stats['inserted']} inserted, "
+                f"{stats['updated']} updated, {stats['errors']} errors",
+                8000,
+            )
+            self._refresh_data()
+        except Exception as e:
+            logger.exception("SSRS pull failed")
+            QMessageBox.warning(self, "SSRS Import Error", f"Failed:\n{e}")
+            self.status_bar.showMessage("SSRS import failed", 5000)
 
     def keyPressEvent(self, a0) -> None:
         if a0 is None:
