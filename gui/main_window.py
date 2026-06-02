@@ -735,6 +735,12 @@ class MainWindow(QMainWindow):
         refresh_btn.clicked.connect(self._refresh_data)
         row1.addWidget(refresh_btn)
 
+        export_btn = QPushButton("\U0001f4be Export Excel")
+        export_btn.setObjectName("export_btn")
+        export_btn.setToolTip("Export SQLite data to Excel workbook (Unedited Report sheet)")
+        export_btn.clicked.connect(self._export_excel)
+        row1.addWidget(export_btn)
+
         outer.addLayout(row1)
 
         # Row 2: Sync queue status widget (hidden when idle)
@@ -941,6 +947,53 @@ class MainWindow(QMainWindow):
             logger.exception("SSRS pull failed")
             QMessageBox.warning(self, "SSRS Import Error", f"Failed:\n{e}")
             self.status_bar.showMessage("SSRS import failed", 5000)
+
+    def _export_excel(self):
+        """Export SQLite data to the Excel workbook's Unedited Report sheet."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        excel_path = self.config.get("excel_path", "")
+        if not excel_path:
+            # Try to construct from unedited_reports_dir
+            reports_dir = self.config.get("unedited_reports_dir", "")
+            if reports_dir:
+                excel_path = os.path.join(reports_dir, "SCHDetailingReport_all_plants_MASTER.xlsm")
+
+        if not excel_path or not os.path.exists(excel_path):
+            # Ask user to pick the file
+            excel_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select Excel Workbook",
+                os.path.dirname(excel_path) if excel_path else "",
+                "Excel Files (*.xlsm *.xlsx);;All Files (*)",
+            )
+            if not excel_path:
+                return
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Export",
+            f"Export SQLite data to:\n{excel_path}\n\n"
+            f"This will overwrite the 'Unedited Report' sheet.\n"
+            f"Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        self.status_bar.showMessage("Exporting to Excel...")
+        try:
+            from automation.export_to_workbook import export_to_workbook
+            row_count = export_to_workbook(self.db_path, excel_path)
+            self.status_bar.showMessage(
+                f"✓ Exported {row_count} rows to Excel", 8000,
+            )
+        except Exception as e:
+            logger.exception("Excel export failed")
+            QMessageBox.warning(self, "Export Error", f"Failed:\n{e}")
+            self.status_bar.showMessage("Export failed", 5000)
 
     def keyPressEvent(self, a0) -> None:
         if a0 is None:

@@ -135,4 +135,5 @@ ui:
 ssrs_url: http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHDetailingReport
 ssrs_lookback_days: 30
 ssrs_lookahead_days: 365
+excel_path: P:/Detailing Schedule 2019/UnitTracker/SCHDetailingReport_all_plants_MASTER.xlsm
 unedited_reports_dir: P:/Detailing Schedule 2019/Unedited Reports
