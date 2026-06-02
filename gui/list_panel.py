@@ -429,6 +429,17 @@ class ListPanel(QWidget):
         self._model = UnitListModel(units)
         self._populate_detailer_combo()
 
+        # Apply current filters and sort before diffing
+        status = self.status_combo.currentData() or "All"
+        detailer = self.detailer_combo.currentData() or "All"
+        date_preset = self.date_combo.currentData()
+        com_search = self.com_search.text()
+        self._model.apply_filters(
+            status=status, detailer=detailer,
+            date_preset=date_preset, com_search=com_search,
+        )
+        self._model.sort_by(self._sort_column, self._sort_ascending)
+
         new_units = self._model.filtered_units
 
         # US-020b: Use incremental diff for large tables
