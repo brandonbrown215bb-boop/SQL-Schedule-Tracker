@@ -132,7 +132,7 @@ ui:
   - 750
   - 426
   theme: dark
-ssrs_url: http://j030m1p3/ReportServer?/Custom/Production%20Control/SCHDetailingReport
+ssrs_url: http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHDetailingReport
 ssrs_lookback_days: 30
 ssrs_lookahead_days: 365
 unedited_reports_dir: P:/Detailing Schedule 2019/Unedited Reports

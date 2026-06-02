@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.parse
 from datetime import datetime, timedelta
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -76,21 +77,100 @@ def build_ssrs_url(
 
 
 def fetch_csv_from_ssrs(url: str, timeout: int = 60) -> str:
-    """Fetch CSV from SSRS URL, return path to temp file."""
+    """Fetch CSV from SSRS URL, return path to temp file.
+
+    Tries multiple auth methods:
+      1. requests + requests-ntlm (Windows NTLM auth)
+      2. requests with explicit credentials (Basic/Digest)
+      3. urllib (no auth, for open endpoints)
+    """
     log.info(f"Fetching SSRS CSV: {url[:120]}...")
+
+    # Try curl with NTLM negotiation (Windows 10+ has curl built in)
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["curl", "-s", "--ntlm", "--negotiate", "-u", ":", url],
+            capture_output=True, timeout=timeout,
+        )
+        if result.returncode == 0 and result.stdout:
+            tmp_path = os.path.join(tempfile.gettempdir(), "_ssrs_pull.csv")
+            with open(tmp_path, "wb") as tmp:
+                tmp.write(result.stdout)
+            log.info(f"Downloaded {len(result.stdout)} bytes (curl NTLM)")
+            return tmp_path
+        else:
+            log.warning(f"curl failed (rc={result.returncode}): {result.stderr[:200]}")
+    except FileNotFoundError:
+        pass  # curl not available
+    except Exception as e:
+        log.warning(f"curl failed: {e}")
+
+    # Try requests+ntlm
+    try:
+        import requests
+        from requests_ntlm import HttpNtlmAuth
+
+        # Use current Windows credentials
+        session = requests.Session()
+        # Try without explicit credentials first (uses current user's token)
+        resp = session.get(url, timeout=timeout)
+        if resp.status_code == 401:
+            # Fall back to NTLM with empty creds (uses current Windows session)
+            resp = session.get(url, timeout=timeout, auth=HttpNtlmAuth("", ""))
+        resp.raise_for_status()
+
+        tmp_path = os.path.join(tempfile.gettempdir(), "_ssrs_pull.csv")
+        with open(tmp_path, "wb") as tmp:
+            tmp.write(resp.content)
+        log.info(f"Downloaded {len(resp.content)} bytes (requests+ntlm)")
+        return tmp_path
+    except ImportError:
+        pass  # requests or requests_ntlm not installed
+    except Exception as e:
+        log.warning(f"requests+ntlm failed: {e}")
+
+    # Try win32com on Windows (uses IE/Windows credentials automatically)
+    try:
+        import win32com.client
+        import pythoncom
+
+        pythoncom.CoInitialize()
+        try:
+            xmlhttp = win32com.client.Dispatch("WinHttp.WinHttpRequest.5.1")
+            xmlhttp.Open("GET", url, False)
+            xmlhttp.SetRequestHeader("Accept", "text/csv")
+            xmlhttp.Send()
+
+            if xmlhttp.Status == 200:
+                data = xmlhttp.ResponseBody
+                tmp_path = os.path.join(tempfile.gettempdir(), "_ssrs_pull.csv")
+                with open(tmp_path, "wb") as tmp:
+                    tmp.write(bytes(data))
+                log.info(f"Downloaded {len(data)} bytes (win32com)")
+                return tmp_path
+            else:
+                log.warning(f"win32com returned status {xmlhttp.Status}")
+        finally:
+            pythoncom.CoUninitialize()
+    except ImportError:
+        pass  # win32com not available
+    except Exception as e:
+        log.warning(f"win32com failed: {e}")
+
+    # Last resort: plain urllib (works if SSRS allows anonymous or if
+    # the user has a valid session cookie in the default credential cache)
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             data = resp.read()
+        tmp_path = os.path.join(tempfile.gettempdir(), "_ssrs_pull.csv")
+        with open(tmp_path, "wb") as tmp:
+            tmp.write(data)
+        log.info(f"Downloaded {len(data)} bytes (urllib)")
+        return tmp_path
     except Exception as e:
-        log.error(f"SSRS fetch failed: {e}")
+        log.error(f"All auth methods failed. Last error: {e}")
         raise
-
-    # Write to temp file
-    tmp_path = os.path.join(tempfile.gettempdir(), "_ssrs_pull.csv")
-    with open(tmp_path, "wb") as tmp:
-        tmp.write(data)
-    log.info(f"Downloaded {len(data)} bytes to {tmp_path}")
-    return tmp_path
 
 
 def run_ssrs_import(
@@ -146,7 +226,7 @@ def main():
                         help="strftime format for date params (default: %%m/%%d/%%Y)")
     args = parser.parse_args()
 
-    url = args.ssrs_url or "http://j030m1p3/ReportServer?/Custom/Production%20Control/SCHDetailingReport&rs:Format=CSV"
+    url = args.ssrs_url or "http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHDetailingReport&rs:Format=CSV"
 
     t0 = time.perf_counter()
     stats = run_ssrs_import(
