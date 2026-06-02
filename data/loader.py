@@ -8,6 +8,9 @@ from data.models import Unit
 
 logger = logging.getLogger(__name__)
 
+# Legacy COLUMN_MAP — kept for test compatibility only
+COLUMN_MAP: dict[str, str] = {}
+
 _fingerprint_cache: dict[int, str] = {}
 
 

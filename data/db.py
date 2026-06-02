@@ -17,9 +17,10 @@ _local = threading.local()
 
 def get_db(db_path: str | None = None) -> sqlite3.Connection:
     """Get a per-thread SQLite connection.
-    
+
     Stores db_path globally on first call, then creates one connection
-    per thread via threading.local().
+    per thread via threading.local(). If called with a different path,
+    the connection is recreated.
     """
     global _db_path
     if db_path is not None:
@@ -27,13 +28,15 @@ def get_db(db_path: str | None = None) -> sqlite3.Connection:
     if _db_path is None:
         raise RuntimeError("Database path not provided. Call get_db(path) first.")
     conn = getattr(_local, "conn", None)
-    if conn is None:
+    # Recreate connection if path changed or doesn't exist
+    if conn is None or getattr(_local, "db_path", None) != _db_path:
         conn = sqlite3.connect(_db_path)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.row_factory = sqlite3.Row
         _local.conn = conn
-        logger.info(f"SQLite connection opened for thread {threading.current_thread().name}")
+        _local.db_path = _db_path
+        logger.info(f"SQLite connection opened for thread {threading.current_thread().name}: {_db_path}")
     return conn
 
 

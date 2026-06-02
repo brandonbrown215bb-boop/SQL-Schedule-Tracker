@@ -123,7 +123,6 @@ class TestMilestones:
             "Detailing Complete",
             "Dept Due (prev)",
             "Detailing Due",
-            "Build Date",
         ]
 
     def test_milestones_include_none_dates(self):
@@ -136,7 +135,7 @@ class TestMilestones:
             checking_status="F",
         )
         milestones = unit.milestones
-        assert len(milestones) == 6
+        assert len(milestones) == 5
         for _, d in milestones:
             assert d is None
 
