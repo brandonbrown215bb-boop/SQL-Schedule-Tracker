@@ -3,6 +3,10 @@
 
 Writes ALL columns (A through AG, skipping computed R/S/T) so the
 workbook's pivot table and formulas have the full dataset.
+
+Strategy: overwrite existing rows in place, then add or trim rows to match.
+This preserves the pivot table's data source range and any external links
+that reference specific row positions.
 """
 
 import logging
@@ -11,6 +15,7 @@ import sys
 import time
 
 from openpyxl import load_workbook
+from openpyxl.utils import column_index_from_string
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -19,7 +24,6 @@ CURRENT_LIST_SHEET = "Current List"
 
 # Column layout: (excel_column_letter, db_field_name, value_formatter)
 # Covers A through AG, skipping R/S/T (computed by workbook formulas).
-# Column AH and beyond are also computed or unused.
 EXPORT_COLUMNS = [
     ("A",  "detailing_due_date",            "date"),
     ("B",  "dept_due_date_previous",        "str"),
@@ -61,15 +65,13 @@ def _format_value(val, fmt: str):
         return None
     if fmt == "date":
         if isinstance(val, str):
-            # ISO date string — convert to datetime for Excel
             from datetime import datetime
             try:
                 return datetime.strptime(val, "%Y-%m-%d")
             except ValueError:
                 return val
-        return val  # already a date/datetime object
+        return val
     if fmt == "percent":
-        # Store as 0.0–1.0 decimal (Excel displays as percentage)
         return val
     if fmt == "float":
         return float(val) if val is not None else None
@@ -80,6 +82,9 @@ def _format_value(val, fmt: str):
 
 def export_to_workbook(db_path: str, excel_path: str) -> int:
     """Export all units from SQLite to the workbook's Current List sheet.
+
+    Overwrites existing data rows in place to preserve pivot table ranges
+    and external workbook links. Adds or trims rows as needed.
 
     Returns the number of rows exported.
     """
@@ -99,7 +104,6 @@ def export_to_workbook(db_path: str, excel_path: str) -> int:
     # Open workbook
     wb = load_workbook(excel_path, data_only=False, keep_vba=True)
 
-    # Find the Current List sheet
     if CURRENT_LIST_SHEET not in wb.sheetnames:
         available = ", ".join(wb.sheetnames)
         raise ValueError(
@@ -107,39 +111,35 @@ def export_to_workbook(db_path: str, excel_path: str) -> int:
         )
     ws = wb[CURRENT_LIST_SHEET]
 
-    # Read header row to map column letters to actual column indices
-    # The header row (row 1) should have the column names
-    header_map = {}
-    for cell in ws[1]:
-        if cell.value:
-            header_map[str(cell.value).strip()] = cell.column
-
-    # Clear old data (keep header row)
-    if ws.max_row and ws.max_row > 1:
-        ws.delete_rows(2, ws.max_row)
-
-    # Build a mapping: for each export column, find the target column index
-    # by matching the db_field_name to the header row value
-    col_index_map = []
+    # Build column index map from column letters
+    col_map = []
     for col_letter, db_field, fmt in EXPORT_COLUMNS:
-        # Try to find by header name first
-        target_col = header_map.get(db_field)
-        if target_col is None:
-            # Fall back to column letter
-            from openpyxl.utils import column_index_from_string
-            target_col = column_index_from_string(col_letter)
-        col_index_map.append((target_col, db_field, fmt))
+        col_idx = column_index_from_string(col_letter)
+        col_map.append((col_idx, db_field, fmt))
 
-    # Write data rows
+    # Determine existing data row count (excluding header)
+    existing_rows = ws.max_row - 1 if ws.max_row else 0
+    new_count = len(rows)
+
+    # Overwrite existing rows in place
     for row_idx, db_row in enumerate(rows, start=2):
-        for col_idx, (target_col, db_field, fmt) in enumerate(col_index_map):
+        for col_idx, db_field, fmt in col_map:
             raw_val = db_row[db_field]
             cell_value = _format_value(raw_val, fmt)
-            ws.cell(row=row_idx, column=target_col, value=cell_value)
+            ws.cell(row=row_idx, column=col_idx, value=cell_value)
+
+    # If we have more rows than before, the extra rows are already written above
+    # If we have fewer rows than before, clear the leftover rows
+    if existing_rows > new_count:
+        for row_idx in range(new_count + 2, existing_rows + 2):
+            for col_idx, _, _ in col_map:
+                ws.cell(row=row_idx, column=col_idx, value=None)
 
     wb.save(excel_path)
-    log.info(f"Exported {len(rows)} rows to {excel_path} ({CURRENT_LIST_SHEET} sheet)")
-    return len(rows)
+    log.info(
+        f"Exported {new_count} rows to {excel_path} ({CURRENT_LIST_SHEET} sheet)"
+    )
+    return new_count
 
 
 def main():
