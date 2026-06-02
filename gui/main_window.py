@@ -182,6 +182,7 @@ class MainWindow(QMainWindow):
     def _init_left_panel(self) -> None:
         """Build the left panel: view toggle + stacked calendar/list."""
         left_widget = QWidget()
+        left_widget.setObjectName("left_panel")
         left_container = QVBoxLayout(left_widget)
 
         # View toggle buttons
@@ -234,6 +235,7 @@ class MainWindow(QMainWindow):
     def _init_right_panel(self) -> None:
         """Build the right panel: timeline + edit form + automation bar."""
         right_widget = QWidget()
+        right_widget.setObjectName("right_panel")
         right_panel = QVBoxLayout(right_widget)
 
         self.timeline_panel = TimelinePanel()
