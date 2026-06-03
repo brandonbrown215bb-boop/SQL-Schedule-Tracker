@@ -52,6 +52,7 @@ def save_unit(
             unit_detailing_start_date = ?,
             unit_moved_to_checking_date = ?,
             unit_detailing_completion_date = ?,
+            notes = ?,
             updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
         {where_clause}
     """, (
@@ -71,6 +72,7 @@ def save_unit(
         unit.unit_detailing_start_date.isoformat() if unit.unit_detailing_start_date else None,
         unit.unit_moved_to_checking_date.isoformat() if unit.unit_moved_to_checking_date else None,
         unit.unit_detailing_completion_date.isoformat() if unit.unit_detailing_completion_date else None,
+        unit.notes,
         *where_params,
     ))
     if cursor.rowcount == 0:

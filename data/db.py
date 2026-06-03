@@ -58,6 +58,7 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         description=row["description"] or "",
         detailer=row["detailer"] or "",
         checking_status=row["checking_status"] or "",
+        notes=row["notes"] or "",
         status_color="gray",  # calculated in models.py
         department_hours=row["department_hours"] or 0.0,
         target_department_hours=row["target_dept_hours"] if "target_dept_hours" in row.keys() and row["target_dept_hours"] is not None else 0.0,

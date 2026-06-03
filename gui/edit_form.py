@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QPushButton,  # Added QComboBox
     QScrollArea,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -88,6 +89,12 @@ class EditForm(QWidget):
         self.checking_status_edit = QLineEdit()
         self.form.addRow(QLabel("Checking Status:"), self.checking_status_edit)
 
+        self.notes_edit = QTextEdit()
+        self.notes_edit.setPlaceholderText("Notes...")
+        self.notes_edit.setMinimumHeight(60)
+        self.notes_edit.setMaximumHeight(120)
+        self.form.addRow(QLabel("Notes:"), self.notes_edit)
+
         # --- Numeric fields ---
         numeric_label = QLabel("<b>Numeric Fields</b>")
         self.form.addRow(numeric_label)
@@ -161,6 +168,7 @@ class EditForm(QWidget):
             self.job_name_edit, self.contract_edit, self.description_edit,
             self.detailer_edit,  # Changed from QLineEdit
             self.checking_status_edit,
+            self.notes_edit,
             self.dept_hours_spin, self.target_hours_spin,
             self.iec_hours_spin, self.percent_spin, self.actual_hours_spin,
             self.start_date_edit, self.checking_date_edit,
@@ -216,6 +224,7 @@ class EditForm(QWidget):
         _fields = (
             self.job_name_edit, self.contract_edit, self.description_edit,
             self.detailer_edit, self.checking_status_edit,
+            self.notes_edit,
             self.dept_hours_spin, self.target_hours_spin,
             self.iec_hours_spin, self.percent_spin, self.actual_hours_spin,
             self.start_date_edit, self.checking_date_edit,
@@ -234,6 +243,7 @@ class EditForm(QWidget):
                 # self.detailer_edit.setText("") # REMOVED: Replaced with QComboBox
                 self.detailer_edit.setCurrentIndex(0)
                 self.checking_status_edit.setText("")
+                self.notes_edit.setPlainText("")
                 self.dept_hours_spin.setValue(0)
                 self.target_hours_spin.setValue(0)
                 self.iec_hours_spin.setValue(0)
@@ -260,6 +270,7 @@ class EditForm(QWidget):
             else:
                 self.detailer_edit.setCurrentIndex(0)
             self.checking_status_edit.setText(unit.checking_status)
+            self.notes_edit.setPlainText(unit.notes)
 
 
             self.dept_hours_spin.setValue(unit.department_hours)
@@ -301,6 +312,7 @@ class EditForm(QWidget):
             description=self.description_edit.text(),
             detailer=detailer,
             checking_status=self.checking_status_edit.text(),
+            notes=self.notes_edit.toPlainText(),
             department_hours=self.dept_hours_spin.value(),
             target_department_hours=self.target_hours_spin.value(),
             iec_internal_hours=self.iec_hours_spin.value(),

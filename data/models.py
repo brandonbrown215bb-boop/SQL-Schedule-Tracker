@@ -35,6 +35,7 @@ class Unit:
     description: str
     detailer: str
     checking_status: str
+    notes: str = ""
 
     # Computed status color (not stored in Excel)
     #
