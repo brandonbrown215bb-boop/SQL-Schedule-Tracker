@@ -122,7 +122,11 @@ class Unit:
         HOURS_PER_DAY = 10.0  # 40 dept hours / 4 working days per week
         pct = self.percent_complete
 
-        # Overdue takes precedence over percentage gates
+        # Percentage-based gates — 100% complete always green regardless of due date
+        if pct >= 100.0:
+            return "green"
+
+        # Overdue / behind-schedule checks only apply to incomplete units
         if self.detailing_due_date is not None:
             days_until_due = (self.detailing_due_date - today).days
 
@@ -139,10 +143,6 @@ class Unit:
                 # Behind schedule: remaining work exceeds available capacity
                 if remaining_hours > available_hours:
                     return "red"
-
-        # Percentage-based gates
-        if pct >= 100.0:
-            return "green"
         if pct >= 95.0:
             return "orange"
         if pct >= 90.0:
