@@ -1,12 +1,23 @@
-from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLabel, QLineEdit, QDateEdit, QDoubleSpinBox,
-    QPushButton, QScrollArea, QFrame, QComboBox  # Added QComboBox
-)
-from PyQt5.QtCore import pyqtSignal, QDate, Qt
-from PyQt5.QtGui import QKeyEvent
-from data.models import Unit
 from datetime import date
+
+from PyQt5.QtCore import QDate, Qt, pyqtSignal
+from PyQt5.QtGui import QKeyEvent
+from PyQt5.QtWidgets import (
+    QComboBox,
+    QDateEdit,
+    QDoubleSpinBox,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,  # Added QComboBox
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
+from data.models import Unit
 
 
 class ClearableDateEdit(QDateEdit):
@@ -303,6 +314,10 @@ class EditForm(QWidget):
             dept_due_date_previous=self._get_date(self.due_prev_date_edit),
             detailing_due_date=self._get_date(self.due_date_edit),
             build_date=self._get_date(self.build_date_edit),
+            updated_at=orig.updated_at,
+            excel_row=orig.excel_row,
+            fingerprint=orig.fingerprint,
+            base_revision=orig.base_revision,
         )
 
         self.saved.emit(updated)
@@ -321,7 +336,14 @@ class EditForm(QWidget):
         self.dirty_changed.emit(True)
 
     def _update_target_hours(self) -> None:
-        """Auto-calculate target hours = dept hours - IEC hours."""
+        """Auto-calculate target hours = dept hours - IEC hours.
+
+        For non-primary identicals the target must stay at 0 regardless
+        of what is typed into Dept Hours or IEC Internal Hours.
+        """
+        if self.current_unit and self.current_unit.is_non_primary_identical:
+            self.target_hours_spin.setValue(0.0)
+            return
         dept = self.dept_hours_spin.value()
         iec = self.iec_hours_spin.value()
         self.target_hours_spin.setValue(max(0.0, dept - iec))

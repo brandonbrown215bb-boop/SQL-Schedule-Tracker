@@ -7,14 +7,10 @@ Shows a side-by-side diff of local vs. remote unit values when
 
 from __future__ import annotations
 
-from typing import ClassVar
-
-from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
-    QHBoxLayout,
     QHeaderView,
     QLabel,
     QMessageBox,
@@ -23,7 +19,6 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
 )
-
 
 # Fields displayed in the conflict diff — same set as unit_fingerprint payload.
 _CONFLICT_FIELDS = [

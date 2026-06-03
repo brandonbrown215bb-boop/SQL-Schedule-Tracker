@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from gui.theme import STATUS_COLORS, get_status_colors, status_style
-
+from gui.theme import get_status_colors, status_style
 
 # ── Expected color values from theme.py ──────────────────────────────
 

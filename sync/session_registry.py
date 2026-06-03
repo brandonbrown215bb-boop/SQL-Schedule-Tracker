@@ -11,12 +11,11 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Lock
-from typing import ClassVar
 
 HEARTBEAT_INTERVAL = 30   # seconds between heartbeat writes
 HEARTBEAT_TIMEOUT = 90    # seconds — sessions older than this are stale
@@ -80,7 +79,7 @@ class SessionRegistry:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start(self, parent: "QObject | None" = None) -> None:
+    def start(self, parent: QObject | None = None) -> None:
         """Begin heartbeat writing.
 
         If *parent* is provided (a QObject), a QTimer is created as a child

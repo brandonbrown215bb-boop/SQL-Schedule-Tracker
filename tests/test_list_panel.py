@@ -410,7 +410,6 @@ class TestListPanelWidget:
 
     def test_status_colors_complete(self, qapp):
         """Verify all 6 status levels have color definitions."""
-        from gui.list_panel import STATUS_COLORS_FALLBACK
         for color_key in ["gray", "yellow", "purple", "orange", "green", "red"]:
             assert color_key in STATUS_COLORS_FALLBACK
 

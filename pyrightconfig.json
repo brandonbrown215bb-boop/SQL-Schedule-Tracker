@@ -1,8 +1,4 @@
 {
-    "pythonPath": "/home/linuxbrew/.linuxbrew/Cellar/python@3.14/3.14.5/bin/python3.14",
-    "extraPaths": [
-        "/home/pigeon/.local/lib/python3.14/site-packages"
-    ],
     "include": [
         "**/*.py"
     ],
@@ -13,7 +9,7 @@
         "App",
         "backup_*"
     ],
-    "pythonVersion": "3.14",
+    "pythonVersion": "3.10",
     "reportMissingImports": false,
     "reportMissingTypeStubs": false
 }

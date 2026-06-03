@@ -1,7 +1,7 @@
 # gui/calendar_panel.py
 from collections import defaultdict
 
-from PyQt5.QtCore import QDate, QEvent, QPoint, QRect, Qt, pyqtSignal
+from PyQt5.QtCore import QDate, QEvent, QRect, Qt, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QPainter
 from PyQt5.QtWidgets import (
     QCalendarWidget,
@@ -61,8 +61,6 @@ class EventCalendarWidget(QCalendarWidget):
 
     def set_events(self, units: list[Unit]):
         """Build the date→units map — only the detailing due date."""
-        with open("calendar_debug.log", "a") as f:
-            f.write(f"set_events called with {len(units)} units\n")
         self.events_by_date.clear()
         for unit in units:
             if unit.detailing_due_date is not None:
@@ -72,8 +70,6 @@ class EventCalendarWidget(QCalendarWidget):
                     unit.detailing_due_date.day,
                 )
                 self.events_by_date[qdate].append(unit)
-                with open("calendar_debug.log", "a") as f:
-                    f.write(f"  Added date {qdate.toString('yyyy-MM-dd')} for COM {unit.com_number}\n")
         self.updateCells()
 
     def set_theme(self, theme_name: str, cvd_mode: str = "none") -> None:
@@ -210,10 +206,6 @@ class CalendarPanel(QWidget):
         self.event_list.itemClicked.connect(self._on_event_clicked)
         layout.addWidget(self.event_list)
 
-        show_all_btn = QPushButton("Show All Units")
-        show_all_btn.clicked.connect(self._show_all_units)
-        layout.addWidget(show_all_btn)
-
     def set_theme(self, theme_name: str, cvd_mode: str = "none") -> None:
         self._theme_name = theme_name
         self._cvd_mode = cvd_mode
@@ -232,11 +224,16 @@ class CalendarPanel(QWidget):
         from gui.theme import status_style
         hex_color, icon, label = status_style(
             self._theme_name, unit.calculated_status_color, self._cvd_mode)
-        item = QListWidgetItem(f"{icon} COM {unit.com_number} — {unit.job_name}")
+        suffix = " ⚠ Due changed" if unit.due_date_changed else ""
+        item = QListWidgetItem(f"{icon} COM {unit.com_number} — {unit.job_name}{suffix}")
         item.setData(Qt.UserRole, unit)
         bg = QColor(hex_color)
         bg.setAlpha(80)
         item.setBackground(QBrush(bg))
+        if unit.due_date_changed:
+            prev = unit.previous_detailing_due_date
+            prev_str = prev.strftime("%m/%d/%Y") if prev else "—"
+            item.setToolTip(f"Due date changed from {prev_str}")
         self.event_list.addItem(item)
 
     def refresh(self, units: list[Unit]):
@@ -255,13 +252,6 @@ class CalendarPanel(QWidget):
         unit = item.data(Qt.UserRole)  # type: ignore[reportAttributeAccessIssue]
         if unit:
             self.unit_selected.emit(unit)
-
-    def _show_all_units(self):
-        self.event_list.clear()
-        for unit in self.units:
-            has_dates = any(d is not None for _, d in unit.milestones)
-            if has_dates:
-                self._add_event_item(unit)
 
     def _go_today(self):
         self.calendar.setSelectedDate(QDate.currentDate())

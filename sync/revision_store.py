@@ -7,7 +7,6 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING
 
-
 if TYPE_CHECKING:
     from data.models import Unit
     from sync.shared_cache import SharedCache
@@ -54,7 +53,7 @@ class RevisionStore:
         revision = self.get(com_number)
         return revision.revision if revision else 0
 
-    def set_shared_cache(self, cache: "SharedCache | None") -> None:
+    def set_shared_cache(self, cache: SharedCache | None) -> None:
         """Attach a shared cache that will be updated on every commit."""
         self._shared_cache = cache
 
@@ -64,7 +63,7 @@ class RevisionStore:
         base_revision: int,
         fingerprint: str,
         modified_by: str,
-        unit: "Unit | None" = None,
+        unit: Unit | None = None,
     ) -> UnitRevision:
         revisions = self._read_all()
         latest_raw = revisions.get(com_number)

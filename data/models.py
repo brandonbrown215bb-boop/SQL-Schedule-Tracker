@@ -38,11 +38,11 @@ class Unit:
 
     # Computed status color (not stored in Excel)
     #
-    # NOTE: ``calculated_status_color`` only returns "gray", "yellow", "green", or "red".
-    # The "purple" and "orange" status colors are MANUALLY ASSIGNED ONLY — they are never
-    # returned by the calculation logic. Do not waste time debugging why
-    # ``calculated_status_color`` never returns "purple" or "orange"; those values
-    # must be set directly on the field (e.g., from Excel data or user input).
+    # ``calculated_status_color`` returns a status based on completion percentage
+    # and due date logic. It can now return all color values:
+    #   gray(0%) → yellow(1-89%) → purple(90-94%) → orange(95-99%) → green(100%)
+    #   red when overdue or behind schedule.
+    # The "purple" and "orange" status colors can also be MANUALLY ASSIGNED.
     status_color: StatusColor = "gray"
 
     # Numeric fields
@@ -69,6 +69,16 @@ class Unit:
     excel_row: int | None = field(default=None, compare=False, repr=False)
     fingerprint: str = field(default="", compare=False, repr=False)
     base_revision: int = field(default=0, compare=False, repr=False)
+
+    # Transient: due date changed detection (set on reload, cleared on selection).
+    # Not persisted to DB — purely an in-memory flag for visual indicators.
+    due_date_changed: bool = field(default=False, compare=False, repr=False)
+    previous_detailing_due_date: date | None = field(default=None, compare=False, repr=False)
+
+    # Transient: set to True by _apply_identicals when this unit is a non-primary
+    # identical (shares contract_number with other units and has a later due date).
+    # When True, the edit form should NOT auto-calculate target_department_hours.
+    is_non_primary_identical: bool = field(default=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         """Clear computed caches after construction."""
@@ -99,10 +109,10 @@ class Unit:
         labels = {
             "gray": "Unassigned (0%)",
             "yellow": "In Progress (1-89%)",
-            "purple": "Ready for Checking (90%)",
-            "orange": "Checked & Returned (95%)",
+            "purple": "Ready for Checking (90-94%)",
+            "orange": "Checked & Returned (95-99%)",
             "green": "Released (100%)",
-            "red": "Overdue",
+            "red": "Overdue/Potential Miss",
         }
         return labels.get(color, "Unknown")
 
@@ -110,32 +120,34 @@ class Unit:
     def calculated_status_color(self) -> StatusColor:
         today = date.today()
         HOURS_PER_DAY = 10.0  # 40 dept hours / 4 working days per week
+        pct = self.percent_complete
 
-        # 100% complete is always green (released)
-        if self.percent_complete >= 100.0:
-            return "green"
+        # Overdue takes precedence over percentage gates
+        if self.detailing_due_date is not None:
+            days_until_due = (self.detailing_due_date - today).days
 
-        # No due date: use percentage alone
-        if self.detailing_due_date is None:
-            if self.percent_complete <= 0:
-                return "gray"
-            return "yellow"
-
-        days_until_due = (self.detailing_due_date - today).days
-
-        # Overdue — red
-        if days_until_due < 0:
-            return "red"
-
-        # Capacity-based rules (using working days, not calendar days)
-        working_days = _working_days_between(today, self.detailing_due_date, self.working_days)
-        if working_days > 0 and self.department_hours > 0:
-            remaining_hours = self.department_hours * (1.0 - self.percent_complete / 100.0)
-            available_hours = working_days * HOURS_PER_DAY
-
-            # Behind schedule: remaining work exceeds available capacity
-            if remaining_hours > available_hours:
+            # Past due — red
+            if days_until_due < 0:
                 return "red"
 
-        # On track or close
-        return "yellow"
+            # Capacity-based rules (using working days, not calendar days)
+            working_days = _working_days_between(today, self.detailing_due_date, self.working_days)
+            if working_days > 0 and self.department_hours > 0:
+                remaining_hours = self.department_hours * (1.0 - pct / 100.0)
+                available_hours = working_days * HOURS_PER_DAY
+
+                # Behind schedule: remaining work exceeds available capacity
+                if remaining_hours > available_hours:
+                    return "red"
+
+        # Percentage-based gates
+        if pct >= 100.0:
+            return "green"
+        if pct >= 95.0:
+            return "orange"
+        if pct >= 90.0:
+            return "purple"
+        if pct > 0.0:
+            return "yellow"
+
+        return "gray"

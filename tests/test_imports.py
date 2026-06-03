@@ -10,7 +10,7 @@ class TestImports:
         assert _working_days_between is not None
 
     def test_data_db(self):
-        from data.db import get_db, close_db, row_to_unit, get_detailer_schedules
+        from data.db import get_db, get_detailer_schedules, row_to_unit
 
         assert callable(get_db)
         assert callable(row_to_unit)

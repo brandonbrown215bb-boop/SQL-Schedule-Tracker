@@ -97,8 +97,7 @@ detailer_schedules:
   - 1
   - 2
   - 3
-excel_path: /run/media/pigeon/890dd7cb-9753-4f6b-b8e6-58c98e531754/Downloads/Schedule-Viewer-App/SCHDetailingReport_all_plants_MASTER
-  - Copy.xlsm
+excel_path: P:/Detailing Schedule 2019/UnitTracker/SCHDetailingReport_all_plants_MASTER.xlsm
 multi_user:
   enabled: false
   fallback_mode: block
@@ -106,6 +105,9 @@ multi_user:
   username: ''
 sheet_name: Current List
 sqlite_path: /run/media/pigeon/890dd7cb-9753-4f6b-b8e6-58c98e531754/Downloads/Schedule-Viewer-App-v2/schedule.db
+ssrs_lookahead_days: 365
+ssrs_lookback_days: 30
+ssrs_url: http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHDetailingReport
 status_labels:
   gray: Unassigned (0%)
   green: Released (100%)
@@ -117,7 +119,7 @@ ui:
   auto_refresh_minutes: 0
   colorblind_mode: none
   high_contrast: true
-  last_view: calendar
+  last_view: list
   list_sort_ascending: true
   list_sort_column: detailing_due_date
   list_visible_columns:
@@ -129,11 +131,7 @@ ui:
   - percent_complete
   onboarding_completed: true
   splitter_sizes:
-  - 750
-  - 426
+  - 746
+  - 430
   theme: dark
-ssrs_url: http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHDetailingReport
-ssrs_lookback_days: 30
-ssrs_lookahead_days: 365
-excel_path: P:/Detailing Schedule 2019/UnitTracker/SCHDetailingReport_all_plants_MASTER.xlsm
 unedited_reports_dir: P:/Detailing Schedule 2019/Unedited Reports

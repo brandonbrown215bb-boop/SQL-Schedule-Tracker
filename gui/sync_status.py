@@ -9,7 +9,6 @@ inline widget).
 
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QSizePolicy, QWidget
 
 
@@ -17,12 +16,12 @@ class SyncStatusWidget(QWidget):
     """A horizontal label + progress bar pair for showing sync queue progress.
 
     The widget is hidden by default and shown by the MainWindow while a sync
-    batch is being processed.  ``update()`` accepts the current remaining
+    batch is being processed.  ``set_progress()`` accepts the current remaining
     count and the total (processed + remaining) so the bar can be drawn in
     determinate mode.
 
     Accessibility: the progress bar's accessible name is updated on every
-    ``update()`` call so screen readers announce the current state.
+    ``set_progress()`` call so screen readers announce the current state.
     """
 
     def __init__(self, parent: QWidget | None = None):
@@ -56,7 +55,7 @@ class SyncStatusWidget(QWidget):
         self.setVisible(False)
         self.setAccessibleName("Sync queue status")
 
-    def update(self, remaining: int, total: int) -> None:
+    def set_progress(self, remaining: int, total: int) -> None:
         """Refresh the label and progress bar.
 
         Args:
@@ -112,9 +111,9 @@ class SyncStatusWidget(QWidget):
         self._label.setText("")
 
     def remaining(self) -> int:
-        """Return the last ``remaining`` value passed to ``update()``."""
+        """Return the last ``remaining`` value passed to ``set_progress()``."""
         return self._last_remaining
 
     def total(self) -> int:
-        """Return the last ``total`` value passed to ``update()``."""
+        """Return the last ``total`` value passed to ``set_progress()``."""
         return self._last_total

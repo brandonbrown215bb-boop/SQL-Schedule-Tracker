@@ -16,15 +16,18 @@ Usage (in Help menu):
 
 from __future__ import annotations
 
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
-from PyQt5.QtCore import Qt, QTimer, QRect, QRectF, QPoint
-from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QBrush, QFont
+from PyQt5.QtCore import QPoint, QRect, QRectF, Qt, QTimer
+from PyQt5.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QApplication, QFrame,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
-
 
 # ─── Walkthrough Steps ───────────────────────────────────────────────
 

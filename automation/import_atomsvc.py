@@ -19,11 +19,10 @@ Config.yaml keys used:
 import argparse
 import logging
 import os
-import sys
 import tempfile
 import time
-import urllib.request
 import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -132,8 +131,8 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60) -> str:
 
     # Try win32com on Windows (uses IE/Windows credentials automatically)
     try:
-        import win32com.client
         import pythoncom
+        import win32com.client
 
         pythoncom.CoInitialize()
         try:
@@ -184,7 +183,8 @@ def run_ssrs_import(
 
     Returns stats dict from import_csv.
     """
-    import urllib.parse
+    if not ssrs_url:
+        raise ValueError("ssrs_url is required for SSRS import")
 
     # Build date range
     start_date, end_date = build_date_params(lookback_days, lookahead_days, date_format)

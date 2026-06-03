@@ -11,7 +11,6 @@ that reference specific row positions.
 
 import logging
 import sqlite3
-import sys
 import time
 
 from openpyxl import load_workbook

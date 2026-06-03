@@ -176,7 +176,7 @@ class TimelineWidget(QWidget):
         bar_y = lc["bar_y"]
 
         # --- Status color bar ---
-        from gui.theme import get_status_colors, STATUS_SHAPES
+        from gui.theme import STATUS_SHAPES, get_status_colors
         colors = get_status_colors(self._theme_name, self._cvd_mode)
         bar_color = QColor(colors.get(self.unit.calculated_status_color, colors["gray"]))
 

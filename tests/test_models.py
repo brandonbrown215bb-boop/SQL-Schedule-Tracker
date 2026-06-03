@@ -147,10 +147,10 @@ class TestStatusLabel:
     def test_all_colors(self):
         assert Unit.status_label("gray") == "Unassigned (0%)"
         assert Unit.status_label("yellow") == "In Progress (1-89%)"
-        assert Unit.status_label("purple") == "Ready for Checking (90%)"
-        assert Unit.status_label("orange") == "Checked & Returned (95%)"
+        assert Unit.status_label("purple") == "Ready for Checking (90-94%)"
+        assert Unit.status_label("orange") == "Checked & Returned (95-99%)"
         assert Unit.status_label("green") == "Released (100%)"
-        assert Unit.status_label("red") == "Overdue"
+        assert Unit.status_label("red") == "Overdue/Potential Miss"
 
     def test_unknown_color(self):
         assert Unit.status_label("chartreuse") == "Unknown"
@@ -253,3 +253,27 @@ class TestCalculatedStatusColor:
             detailing_due_date=date.today(),
         )
         assert unit.calculated_status_color == "yellow"
+
+    def test_90_percent_is_purple(self):
+        """90-94% complete → purple (Ready for Checking)."""
+        for pct in [90.0, 92.5, 94.0, 94.99]:
+            unit = Unit(
+                com_number="X", job_name="Y", contract_number="Z",
+                description="D", detailer="E", checking_status="F",
+                percent_complete=pct,
+                working_days=[0, 1, 2, 3],
+                detailing_due_date=date.today() + timedelta(days=30),
+            )
+            assert unit.calculated_status_color == "purple", f"Failed at {pct}%"
+
+    def test_95_percent_is_orange(self):
+        """95-99% complete → orange (Checked & Returned)."""
+        for pct in [95.0, 97.0, 99.0, 99.99]:
+            unit = Unit(
+                com_number="X", job_name="Y", contract_number="Z",
+                description="D", detailer="E", checking_status="F",
+                percent_complete=pct,
+                working_days=[0, 1, 2, 3],
+                detailing_due_date=date.today() + timedelta(days=30),
+            )
+            assert unit.calculated_status_color == "orange", f"Failed at {pct}%"

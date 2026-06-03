@@ -5,7 +5,6 @@ Usage:
     python -m automation.create_db --db PATH
 """
 import argparse
-import json
 import logging
 import sqlite3
 
@@ -103,14 +102,14 @@ def create_database(db_path: str) -> None:
     conn.executescript(SCHEMA_SQL)
     conn.executescript(SEED_SQL)
     conn.commit()
-    
+
     # Verify
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM detailers")
     detailer_count = cur.fetchone()[0]
     cur.execute("SELECT working_weekdays FROM default_schedule WHERE id = 1")
     default = cur.fetchone()
-    
+
     conn.close()
     log.info(f"Created database at {db_path}")
     log.info(f"  Detailers seeded: {detailer_count}")

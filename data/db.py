@@ -100,9 +100,9 @@ def get_detailer_schedules(db_path: str) -> dict[str, list[int]]:
     """
     conn = get_db(db_path)
     cur = conn.cursor()
-    
+
     schedules = {}
-    
+
     # Load default
     cur.execute("SELECT working_weekdays FROM default_schedule WHERE id = 1")
     row = cur.fetchone()
@@ -110,12 +110,12 @@ def get_detailer_schedules(db_path: str) -> dict[str, list[int]]:
         schedules["default"] = json.loads(row[0])
     else:
         schedules["default"] = [0, 1, 2, 3]
-    
+
     # Load detailers
     cur.execute("SELECT name, working_weekdays FROM detailers ORDER BY display_order")
     for row in cur.fetchall():
         schedules[row[0]] = json.loads(row[1])
-    
+
     return schedules
 
 

@@ -2,36 +2,37 @@
 import logging
 import os
 import time
+from datetime import date
 
 from PyQt5.QtCore import QFileSystemWatcher, Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
-    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSplitter,
     QStackedWidget,
     QStatusBar,
-    QSplitter,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from data.loader import load_units
-from data.writer import save_unit
 from data.models import Unit
+from data.tag_parser import UnitTagRepository
+from data.writer import save_unit
 from gui.calendar_panel import CalendarPanel
 from gui.conflict_dialog import ConflictDialog
+from gui.due_date_changed_dialog import DueDateChangedDialog
 from gui.edit_form import EditForm
 from gui.list_panel import ListPanel
 from gui.loading_overlay import LoadingOverlay
 from gui.onboarding import should_show_onboarding, show_onboarding
 from gui.sync_status import SyncStatusWidget
 from gui.timeline_panel import TimelinePanel
-from sync.revision_store import RevisionConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,7 @@ class MainWindow(QMainWindow):
         self.current_unit: Unit | None = None
         self._load_worker: LoadWorker | None = None
         self._save_worker: SaveWorker | None = None
+        self._pending_save_unit: Unit | None = None
         self._form_dirty: bool = False
         self._shared_cache = None
         self._session_registry = None
@@ -124,6 +126,7 @@ class MainWindow(QMainWindow):
         self._close_progress = None
         self._close_poll_timer: QTimer | None = None
         self._closing: bool = False
+        self._close_waiting: bool = False
 
         # ── US-003: Error dialog throttling ──────────────────────────
         self._error_dialog_count = 0
@@ -151,7 +154,7 @@ class MainWindow(QMainWindow):
 
     def _init_theme(self, config: dict, config_path: str | None) -> None:
         """Initialize theme from config and apply to widget tree."""
-        from gui.theme import init_labels, apply_theme
+        from gui.theme import apply_theme, init_labels
         init_labels(config.get("status_labels", {}))
         ui_cfg = config.get("ui", {})
         self._current_theme_name = ui_cfg.get("theme", "light")
@@ -366,6 +369,13 @@ class MainWindow(QMainWindow):
         self.timeline_panel.set_unit(unit)
         self.edit_form.set_unit(unit)
         if unit is not None:
+            # Clear due-date-changed flag when user acknowledges by selecting
+            if unit.due_date_changed:
+                unit.due_date_changed = False
+                unit.previous_detailing_due_date = None
+                # Refresh panels so the visual indicator disappears
+                self.calendar_panel.refresh(self.units)
+                self.list_panel.refresh(self.units)
             self.status_bar.showMessage(f"Selected: COM {unit.com_number} — {unit.job_name}")
         else:
             self.status_bar.showMessage("No unit selected")
@@ -377,6 +387,14 @@ class MainWindow(QMainWindow):
 
     def _start_save_worker(self, unit: Unit) -> None:
         """Start a background SaveWorker for the given unit."""
+        if getattr(self, "_sync_save_blocked", False):
+            QMessageBox.warning(
+                self,
+                "Save Blocked",
+                "Multi-user sync is unavailable. Saves are disabled until sync is available "
+                "or multi_user.enabled is false.",
+            )
+            return
         if self._active_save_worker_running():
             logger.warning("Save already in progress — queuing")
             return
@@ -386,16 +404,17 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._on_save_finished)
         worker.error.connect(self._on_save_error)
         self._save_worker = worker
+        self._pending_save_unit = unit
         self._save_worker_errors[worker] = ""
         worker.start()
 
     def _on_save_finished(self) -> None:
         """Handle successful save — commit to memory and refresh UI."""
         worker = self.sender()
-        if worker:
+        unit = worker.unit if isinstance(worker, SaveWorker) else self._pending_save_unit
+        if isinstance(worker, SaveWorker):
             self._retire_save_worker(worker)
 
-        unit = self.current_unit
         if unit:
             # Now commit to memory — save succeeded
             self._commit_unit_to_memory(unit)
@@ -403,12 +422,14 @@ class MainWindow(QMainWindow):
             self.list_panel.refresh(self.units)
             self.timeline_panel.set_unit(unit)
             self.edit_form.current_unit = unit
+            self._pending_save_unit = None
             self.status_bar.showMessage(f"✓ Saved COM {unit.com_number}", 3000)
 
     def _on_save_error(self, error_msg: str) -> None:
         """Handle save error — keep form data so user can retry."""
         worker = self.sender()
-        if worker:
+        failed_unit = worker.unit if isinstance(worker, SaveWorker) else self._pending_save_unit
+        if isinstance(worker, SaveWorker):
             self._save_worker_errors[worker] = error_msg
             self._retire_save_worker(worker)
 
@@ -416,7 +437,7 @@ class MainWindow(QMainWindow):
 
         # Detect optimistic lock conflict
         if "was modified by another user" in error_msg:
-            self._show_conflict_dialog(error_msg)
+            self._show_conflict_dialog(error_msg, failed_unit)
             return
 
         # Generic error (network, disk, etc.) — keep form data for retry
@@ -429,10 +450,11 @@ class MainWindow(QMainWindow):
         )
         self.status_bar.showMessage("Save failed — check network connection", 8000)
 
-    def _show_conflict_dialog(self, error_msg: str) -> None:
+    def _show_conflict_dialog(self, error_msg: str, local_unit: Unit | None = None) -> None:
         """Show conflict resolution dialog after optimistic lock failure."""
 
-        com_number = self.current_unit.com_number if self.current_unit else "?"
+        local_unit = local_unit or self.current_unit
+        com_number = local_unit.com_number if local_unit else "?"
 
         # Reload the current unit from DB to get remote values
         remote_unit = None
@@ -449,7 +471,7 @@ class MainWindow(QMainWindow):
             logger.warning("Could not reload unit for conflict dialog: %s", e)
 
         # Build local values dict from the form's current unit
-        local_values = self._unit_to_dict(self.current_unit) if self.current_unit else {}
+        local_values = self._unit_to_dict(local_unit) if local_unit else {}
         remote_values = self._unit_to_dict(remote_unit) if remote_unit else {}
 
         modified_at = remote_unit.updated_at if remote_unit else "unknown"
@@ -467,8 +489,9 @@ class MainWindow(QMainWindow):
         if dlg.overwrite:
             # Force-save: clear updated_at so the WHERE clause doesn't check it
             logger.info("User chose to overwrite conflict for COM %s", com_number)
-            self.current_unit.updated_at = ""
-            self._start_save_worker(self.current_unit)
+            if local_unit:
+                local_unit.updated_at = ""
+                self._start_save_worker(local_unit)
         elif dlg.reload:
             # Reload: replace the in-memory unit with the DB version
             logger.info("User chose to reload COM %s after conflict", com_number)
@@ -479,6 +502,7 @@ class MainWindow(QMainWindow):
                 self.calendar_panel.refresh(self.units)
                 self.list_panel.refresh(self.units)
             self.status_bar.showMessage("Reloaded from database", 5000)
+            self._pending_save_unit = None
         # else: cancel — do nothing, user keeps form as-is
 
     @staticmethod
@@ -530,18 +554,9 @@ class MainWindow(QMainWindow):
             self._retired_save_workers.append(worker)
             worker.deleteLater()
 
-    def _release_save_worker(self, worker: SaveWorker) -> None:
-        """Drop references after Qt destroys the QThread object."""
-        if worker in self._retired_save_workers:
-            self._retired_save_workers.remove(worker)
-        self._save_worker_errors.pop(worker, None)
-
     def _commit_unit_to_memory(self, unit: Unit) -> None:
         """Replace the selected unit immediately so navigation shows current edits."""
-        # Preserve manually-assigned status colors (purple/orange) — only
-        # recalculate if the current color is one of the auto-computed ones.
-        if unit.status_color in ("gray", "yellow", "green", "red"):
-            unit.status_color = unit.calculated_status_color
+        unit.status_color = unit.calculated_status_color
         for i, existing in enumerate(self.units):
             if existing.com_number == unit.com_number:
                 unit.excel_row = unit.excel_row or existing.excel_row
@@ -573,14 +588,48 @@ class MainWindow(QMainWindow):
         self._load_worker.error.connect(self._on_load_error)
         self._load_worker.start()
 
+    def _detect_due_date_changes(self, old_units: list[Unit],
+                                  new_units: list[Unit]) -> list[tuple[Unit, date | None]]:
+        """Compare old vs new units, mark any with different detailing_due_date.
+
+        Returns a list of (unit, previous_due_date) for units that changed.
+        """
+        old_by_com = {u.com_number: u for u in old_units}
+        changed: list[tuple[Unit, date | None]] = []
+        for unit in new_units:
+            old_unit = old_by_com.get(unit.com_number)
+            if old_unit is None:
+                continue  # brand new unit — not a change
+            old_due = old_unit.detailing_due_date
+            new_due = unit.detailing_due_date
+            if old_due != new_due:
+                unit.due_date_changed = True
+                unit.previous_detailing_due_date = old_due
+                changed.append((unit, old_due))
+        return changed
+
     def _on_load_finished(self, units: list[Unit]):
         """Handle successful load."""
         self._set_io_busy(False)
+
+        # Detect due date changes before replacing in-memory units
+        changed_units = self._detect_due_date_changes(self.units, units)
+
         self.units = units
+        
+        # Build tag repository for description-based tagging and novelty detection
+        self._tag_repo = UnitTagRepository(self.units)
+        self.list_panel.set_tag_repo(self._tag_repo)
+        
         self.calendar_panel.refresh(self.units)
         self.list_panel.set_units(self.units)
         self.status_bar.showMessage(f"Loaded {len(self.units)} units from SQLite")
         logger.info("MainWindow: Loaded %d units.", len(self.units))
+
+        # Show dialog if any due dates changed
+        if changed_units:
+            dlg = DueDateChangedDialog(changed_units, parent=self)
+            dlg.exec_()
 
         # US-007: If file changed during the reload, schedule one more reload
         # to capture the latest state (capped at 1 follow-up to prevent loops).
@@ -605,9 +654,7 @@ class MainWindow(QMainWindow):
             self._error_dialog_window_start = now
             self._error_dialog_count = 0
         self._error_dialog_count += 1
-        if self._error_dialog_count > self._error_dialog_threshold:
-            return True
-        return False
+        return self._error_dialog_count > self._error_dialog_threshold
 
     def _on_load_error(self, error_msg: str):
         """Handle load error with retry and throttling (US-003)."""
@@ -801,7 +848,7 @@ class MainWindow(QMainWindow):
                     if btn.objectName() == "refresh_btn":
                         btn.setToolTip("Reload data from SQLite database")
                     else:
-                        btn.setToolTip("Force a full reload from the Excel workbook")
+                        btn.setToolTip("Reload data from SQLite database")
 
         timer = QTimer(self)
         timer.setInterval(1000)
@@ -837,7 +884,7 @@ class MainWindow(QMainWindow):
 
         export_btn = QPushButton("\U0001f4be Export Excel")
         export_btn.setObjectName("export_btn")
-        export_btn.setToolTip("Export SQLite data to Excel workbook (Unedited Report sheet)")
+        export_btn.setToolTip("Export SQLite data to Excel workbook (Current List sheet)")
         export_btn.clicked.connect(self._export_excel)
         row1.addWidget(export_btn)
 
@@ -868,8 +915,8 @@ class MainWindow(QMainWindow):
 
             from sync.lock_manager import LockManager
             from sync.revision_store import RevisionStore
-            from sync.shared_cache import SharedCache
             from sync.session_registry import SessionRegistry
+            from sync.shared_cache import SharedCache
 
             username = settings.get("username") or os.environ.get("USERNAME") or getpass.getuser()
             machine = settings.get("machine") or os.environ.get("COMPUTERNAME") or socket.gethostname()
@@ -955,8 +1002,6 @@ class MainWindow(QMainWindow):
 
     def _pull_csv(self):
         # Step 1: File dialog — user picks the CSV file
-        import logging
-        logger = logging.getLogger(__name__)
         source_dir = self.config.get(
             "unedited_reports_dir", "P:/Detailing Schedule 2019/Unedited Reports"
         )
@@ -998,9 +1043,6 @@ class MainWindow(QMainWindow):
 
     def _pull_ssrs(self):
         """Fetch CSV from SSRS ReportServer and import into SQLite."""
-        import logging
-        logger = logging.getLogger(__name__)
-
         ssrs_url = self.config.get("ssrs_url", "")
         if not ssrs_url:
             QMessageBox.warning(
@@ -1049,10 +1091,7 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage("SSRS import failed", 5000)
 
     def _export_excel(self):
-        """Export SQLite data to the Excel workbook's Unedited Report sheet."""
-        import logging
-        logger = logging.getLogger(__name__)
-
+        """Export SQLite data to the Excel workbook's Current List sheet."""
         excel_path = self.config.get("excel_path", "")
         if not excel_path:
             # Try to construct from unedited_reports_dir
@@ -1075,7 +1114,7 @@ class MainWindow(QMainWindow):
             self,
             "Confirm Export",
             f"Export SQLite data to:\n{excel_path}\n\n"
-            f"This will overwrite the 'Unedited Report' sheet.\n"
+            f"This will overwrite the 'Current List' sheet.\n"
             f"Continue?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
@@ -1170,8 +1209,9 @@ class MainWindow(QMainWindow):
 
     def _flush_config_save(self) -> None:
         """Immediately write ui config to config.yaml (US-005)."""
-        import yaml
         import os
+
+        import yaml
         self.config.setdefault("ui", {}).update({
             "theme": self._current_theme_name,
             "colorblind_mode": self._current_cvd,
@@ -1207,7 +1247,7 @@ class MainWindow(QMainWindow):
     def _begin_close_with_sync(self) -> None:
         from gui.close_progress_dialog import CloseProgressDialog
         self._stop_debounce_flush()
-        self._closing = True
+        self._close_waiting = True
         self._close_progress = CloseProgressDialog(parent=self)
         self._close_progress.show()
         self._close_poll_timer = QTimer(self)
@@ -1238,9 +1278,10 @@ class MainWindow(QMainWindow):
             if self._close_progress is not None:
                 self._close_progress.accept()
                 self._close_progress = None
+            self._close_waiting = False
             QTimer.singleShot(0, self._real_close)
 
-    def _real_close(self) -> None:
+    def _cleanup_before_close(self) -> None:
         if self._session_registry is not None:
             try:
                 self._session_registry.stop()
@@ -1258,4 +1299,21 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 pass
         self._flush_config_save()
-        super().close()
+
+    def _real_close(self) -> None:
+        self._closing = True
+        self.close()
+
+    def closeEvent(self, event) -> None:
+        """Wait for active saves, then cleanly close sessions and config."""
+        if self._closing:
+            self._cleanup_before_close()
+            event.accept()
+            return
+        if self._active_save_worker_running():
+            event.ignore()
+            if not self._close_waiting:
+                self._begin_close_with_sync()
+            return
+        self._cleanup_before_close()
+        event.accept()

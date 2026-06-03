@@ -9,7 +9,6 @@ directory to avoid state leakage.
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 from pathlib import Path
@@ -17,19 +16,16 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from data.loader import COLUMN_MAP, unit_fingerprint
+from data.loader import unit_fingerprint
 from data.models import Unit
 from data.writer import save_unit
 from sync.lock_manager import LockAcquisitionError, LockManager
 from sync.revision_store import RevisionConflictError, RevisionStore
-from sync.shared_cache import SharedCache, SharedUnitEntry
 from sync.session_registry import (
-    HEARTBEAT_INTERVAL,
     HEARTBEAT_TIMEOUT,
     SessionRegistry,
-    SessionInfo,
 )
-
+from sync.shared_cache import SharedCache
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -6,10 +6,16 @@ from datetime import date, timedelta
 from PyQt5.QtCore import QDate, QRect, QSize, Qt
 from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
 from PyQt5.QtWidgets import (
-    QDialog, QDateEdit, QFileDialog, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QVBoxLayout, QWidget,
+    QDateEdit,
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
-
 
 # ── Segment colors ────────────────────────────────────────────────────
 COLORS = {

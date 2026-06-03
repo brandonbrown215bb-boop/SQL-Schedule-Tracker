@@ -12,14 +12,10 @@ import json
 import os
 import sys
 
-import pytest
-
 # Ensure project root is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from gui.theme import (
-    STATUS_COLORS,
     THEMES,
-    CVD_OVERRIDES,
     get_status_colors,
 )
 
@@ -166,11 +162,11 @@ class TestContrastAudit:
         report = run_audit()
         assert len(report["list_panel"]) == 96
         assert len(report["calendar"]) == 48
-        
+
         # Separate base failures (no CVD mode) from CVD failures
         base_failures = [f for f in report["failures"] if f["cvd_mode"] == "none"]
         cvd_failures = [f for f in report["failures"] if f["cvd_mode"] != "none"]
-        
+
         # Base colors must all pass 4.5:1
         if base_failures:
             print(f"\n[CONTRAST AUDIT] {len(base_failures)} base color failures:")
@@ -178,9 +174,9 @@ class TestContrastAudit:
                 print(f"  {f['theme']}/{f['status']}: fg={f['fg']} bg={f['bg']} ratio={f['ratio']}")
         assert len(base_failures) == 0, \
             f"{len(base_failures)} base color combinations fail WCAG AA"
-        
+
         # CVD overrides: check they at least pass 3:1 (large text) on all backgrounds
-        cvd_below_large = [f for f in cvd_failures 
+        cvd_below_large = [f for f in cvd_failures
                           if ("list_panel" in f.get("component", "") and not f.get("pass_large", False))
                           or ("calendar" in f.get("component", "") and f.get("ratio", 0) < 3.0)]
         if cvd_below_large:
@@ -189,7 +185,7 @@ class TestContrastAudit:
                 print(f"  {f['theme']}/{f['cvd_mode']}/{f['status']}: fg={f['fg']} bg={f['bg']} ratio={f['ratio']}")
         assert len(cvd_below_large) == 0, \
             f"{len(cvd_below_large)} CVD combinations below 3:1 (large text min)"
-        
+
         # Report remaining CVD 4.5:1 failures (expected — mathematically impossible on all bgs)
         cvd_45_failures = [f for f in cvd_failures if f not in cvd_below_large]
         if cvd_45_failures:

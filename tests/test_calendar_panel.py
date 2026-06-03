@@ -15,7 +15,6 @@ from PyQt5.QtCore import QDate, Qt
 from data.models import Unit
 from gui.calendar_panel import CalendarPanel
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────
 
 

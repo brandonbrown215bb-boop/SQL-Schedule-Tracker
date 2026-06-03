@@ -73,6 +73,9 @@ class TestSaveUnit:
         assert val is None
 
     def test_com_number_not_found_raises(self, db_path, unit_to_save):
-        """Saving a COM that doesn't exist in DB — SQLite silently matches 0 rows."""
-        # This is expected behavior: no error raised, just no update.
-        save_unit(db_path, unit_to_save)  # should not raise
+        """Saving a COM that doesn't exist in DB raises ConcurrentEditError."""
+        import pytest
+
+        from data.writer import ConcurrentEditError
+        with pytest.raises(ConcurrentEditError, match="was modified by another user"):
+            save_unit(db_path, unit_to_save)

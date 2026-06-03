@@ -28,15 +28,19 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
-from PyQt5.QtWidgets import (
-    QWidget, QPushButton, QTableWidget,
-    QComboBox, QLineEdit, QDateEdit, QDoubleSpinBox,
-    QCalendarWidget, QFrame, QGroupBox,
-)
 from PyQt5.QtGui import QColor
-
+from PyQt5.QtWidgets import (
+    QCalendarWidget,
+    QComboBox,
+    QDateEdit,
+    QDoubleSpinBox,
+    QFrame,
+    QGroupBox,
+    QLineEdit,
+    QPushButton,
+    QTableWidget,
+    QWidget,
+)
 
 # ─── Theme Token Dicts ───────────────────────────────────────────────
 
@@ -136,7 +140,7 @@ STATUS_LABELS: dict[str, str] = {
     "purple": "Ready for Check",
     "orange": "Checked & Returned",
     "green":  "Released",
-    "red":    "Overdue",
+    "red":    "Overdue/Potential Miss",
 }
 
 
@@ -397,7 +401,8 @@ def status_style(theme_name: str, status: str,
 # Adding a new widget type requires only adding one entry here — no changes
 # to apply_theme() or _style_widget() needed (Open/Closed Principle).
 
-from typing import Callable
+from collections.abc import Callable
+
 
 def _style_button(widget: QWidget, tokens: dict[str, str]) -> None:
     obj = widget.objectName().lower()
@@ -485,13 +490,13 @@ def _style_widget(widget: QWidget, tokens: dict[str, str]) -> None:
     so e.g. EventCalendarWidget(QCalendarWidget) matches the calendar handler.
     """
     widget_type = type(widget)
-    
+
     # Direct type match first
     handler = _THEME_HANDLERS.get(widget_type)
     if handler is not None:
         handler(widget, tokens)
         return
-    
+
     # Check MRO for subclass matches (e.g. EventCalendarWidget -> QCalendarWidget)
     for base in widget_type.__mro__[1:]:  # skip the type itself
         handler = _THEME_HANDLERS.get(base)

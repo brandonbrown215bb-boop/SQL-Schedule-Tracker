@@ -9,9 +9,7 @@ values needed by the conflict dialog without re-reading Excel.
 from __future__ import annotations
 
 import json
-from contextlib import suppress
-from dataclasses import dataclass, asdict
-from datetime import datetime
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -48,7 +46,7 @@ class SharedUnitEntry:
     @classmethod
     def from_unit(
         cls, unit: Unit, revision: UnitRevision
-    ) -> "SharedUnitEntry":
+    ) -> SharedUnitEntry:
         """Build a cache entry from a Unit and the just-committed revision."""
         return cls(
             com_number=unit.com_number,
@@ -95,7 +93,7 @@ class SharedUnitEntry:
         return asdict(self)
 
     @classmethod
-    def from_payload(cls, d: dict) -> "SharedUnitEntry":
+    def from_payload(cls, d: dict) -> SharedUnitEntry:
         return cls(**d)
 
 

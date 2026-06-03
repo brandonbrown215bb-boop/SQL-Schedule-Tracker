@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-import tempfile
 from datetime import date, timedelta
-from pathlib import Path
 
 import pytest
 from PyQt5.QtWidgets import QApplication
@@ -84,7 +82,7 @@ def completed_unit() -> Unit:
         status_color="green",
         department_hours=40.0,
         percent_complete=100.0,
-        detailing_due_date=date(2025, 6, 1),
+        detailing_due_date=date.today() + timedelta(days=30),
         build_date=date(2025, 7, 1),
         unit_detailing_start_date=date(2025, 5, 1),
         unit_detailing_completion_date=date(2025, 5, 30),

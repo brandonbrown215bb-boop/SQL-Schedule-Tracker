@@ -6,11 +6,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
-import pytest
-
 from data.loader import load_units, unit_fingerprint
-from data.models import Unit
-
 
 # ── load_units ────────────────────────────────────────────────────
 

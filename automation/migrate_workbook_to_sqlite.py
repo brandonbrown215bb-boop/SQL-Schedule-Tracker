@@ -11,7 +11,6 @@ Usage:
     python3 migrate_workbook_to_sqlite.py [--workbook PATH] [--db PATH]
 """
 import argparse
-import csv
 import json
 import logging
 import os

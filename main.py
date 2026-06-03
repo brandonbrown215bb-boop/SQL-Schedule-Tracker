@@ -7,8 +7,8 @@ import traceback
 # Without this, coordinates from mapTo/pos() may be scaled incorrectly
 # on displays with >100% resolution scaling.
 if sys.platform == "win32":
+    from ctypes import windll
     try:
-        from ctypes import windll
         windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
     except Exception:
         try:
@@ -24,16 +24,17 @@ if sys.stderr is None:
     sys.stderr = open(os.path.join(_log_dir, "error.log"), "a", encoding="utf-8")
 
 import faulthandler
+
 faulthandler.enable()
 
 import yaml
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
-from data.db import get_db, close_db
+from data.db import close_db, get_db
 from gui.main_window import MainWindow
 
 
-def _validate_config_paths(config: dict, config_path: str, application_path: str) -> None:
+def _validate_config_paths(config: dict, application_path: str) -> None:
     """Validate sqlite_path from config.yaml."""
     db_path = config.get("sqlite_path", "")
     if not db_path:
@@ -89,7 +90,7 @@ def main():
     _safe_print("config.yaml loaded successfully.")
 
     # Validate paths
-    _validate_config_paths(config, config_path, application_path)
+    _validate_config_paths(config, application_path)
 
     # Initialize SQLite connection
     db_path = config.get("sqlite_path", "")

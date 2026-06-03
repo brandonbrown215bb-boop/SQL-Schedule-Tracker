@@ -40,8 +40,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from data.models import Unit
 from data.loader import unit_fingerprint
+from data.models import Unit
+from data.tag_parser import UnitTagRepository, ParsedTags, parse_description
 
 # ─── Column Definitions ─────────────────────────────────────────────
 # (key, header, width, default_visible)
@@ -54,6 +55,7 @@ COLUMN_DEFS: list[tuple[str, str, int, bool]] = [
     ("detailer",                "Detailer",         100, True),
     ("status_color",            "Status",           50,  True),
     ("percent_complete",        "% Complete",       70,  True),
+    ("description_tags",        "Tags",             140, True),
     ("department_hours",        "Dept Hours",       70,  False),
     ("actual_hours",            "Actual Hours",     70,  False),
     ("target_department_hours", "Target Hrs",       70,  False),
@@ -82,7 +84,7 @@ STATUS_LABELS: dict[str, str] = {
     "purple": "Ready for Checking",
     "orange": "Checked & Returned",
     "green":  "Released",
-    "red":    "Overdue",
+    "red":    "Overdue/Potential Miss",
 }
 
 SEVERITY_ORDER: dict[str, int] = {
@@ -94,6 +96,7 @@ SEVERITY_ORDER: dict[str, int] = {
 
 DATE_FILTER_PRESETS: list[tuple[str, str | None]] = [
     ("All",          None),
+    ("Custom Range", "custom"),
     ("Overdue",      "overdue"),
     ("Today",        "today"),
     ("Next 3 Days",  "next_3_days"),
@@ -139,6 +142,7 @@ class UnitListModel:
         self,
         status: str = "All",
         detailer: str = "All",
+        date_preset: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
         com_search: str = "",
@@ -147,24 +151,26 @@ class UnitListModel:
         result = list(self._all_units)
 
         if status != "All":
-            result = [u for u in result if u.status_color == status]
+            result = [u for u in result if u.calculated_status_color == status]
 
         if detailer != "All":
             result = [u for u in result if u.detailer == detailer]
 
-        if date_from and date_to:
+        if date_preset and date_preset != "custom":
+            result = self._filter_by_date(result, date_preset, date.today())
+        elif date_preset == "custom" and date_from and date_to:
             result = [
                 u for u in result
                 if u.detailing_due_date is not None
                 and date_from <= u.detailing_due_date <= date_to
             ]
-        elif date_from:
+        elif date_preset == "custom" and date_from:
             result = [
                 u for u in result
                 if u.detailing_due_date is not None
                 and u.detailing_due_date >= date_from
             ]
-        elif date_to:
+        elif date_preset == "custom" and date_to:
             result = [
                 u for u in result
                 if u.detailing_due_date is not None
@@ -253,7 +259,7 @@ class UnitListModel:
         """Sort filtered units in-place by the given column key."""
         if column_key == "status_color":
             def key_func(unit: Unit) -> int:
-                return SEVERITY_ORDER.get(unit.status_color, 99)
+                return SEVERITY_ORDER.get(unit.calculated_status_color, 99)
         elif column_key == "detailing_due_date":
             def key_func(unit: Unit):
                 d = unit.detailing_due_date
@@ -302,11 +308,49 @@ class ListPanel(QWidget):
         self._search_debounce: QTimer | None = None
         self._theme_name: str = "light"
         self._cvd_mode: str = "none"
+        self._tag_repo: UnitTagRepository | None = None
 
         self._build_ui()
 
         if units:
             self.set_units(units)
+
+    def set_tag_repo(self, repo: UnitTagRepository | None) -> None:
+        """Set the tag repository for novelty detection."""
+        self._tag_repo = repo
+        if self._model is not None:
+            self._refresh_table_full()
+
+    def _compute_tags_display(self, unit: Unit) -> str:
+        """Compute the tags display string for a unit.
+        
+        Shows unit type + key features, with novelty indicator.
+        """
+        if not unit.description:
+            return ""
+        
+        if self._tag_repo is not None:
+            tags = self._tag_repo.get_tags(unit.com_number)
+            is_novel, reasons = self._tag_repo.is_novel_for_detailer(unit)
+        else:
+            tags = parse_description(unit.description)
+            is_novel = False
+            reasons = []
+        
+        parts = []
+        if tags.unit_type:
+            parts.append(tags.unit_type)
+        # Show top 3 features
+        key_features = tags.features[:3]
+        parts.extend(key_features)
+        
+        result = " ".join(parts) if parts else ""
+        
+        # Add novelty indicator
+        if is_novel:
+            result = f"✦ {result}" if result else "✦"
+        
+        return result
 
     def set_theme(self, theme_name: str, cvd_mode: str = "none") -> None:
         self._theme_name = theme_name
@@ -358,6 +402,14 @@ class ListPanel(QWidget):
 
         # Row 2: Date range + Search
         row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Date:"))
+        self.date_combo = QComboBox()
+        self.date_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        for label, key in DATE_FILTER_PRESETS:
+            self.date_combo.addItem(label, key)
+        self.date_combo.currentIndexChanged.connect(self._on_filter_changed)
+        row2.addWidget(self.date_combo, 1)
+
         row2.addWidget(QLabel("Due from:"))
         self.date_from = QDateEdit()
         self.date_from.setCalendarPopup(True)
@@ -459,11 +511,13 @@ class ListPanel(QWidget):
         # Apply current filters and sort before diffing
         status = self.status_combo.currentData() or "All"
         detailer = self.detailer_combo.currentData() or "All"
+        date_preset = self.date_combo.currentData()
         date_from = self.date_from.date().toPyDate()
         date_to = self.date_to.date().toPyDate()
         com_search = self.com_search.text()
         self._model.apply_filters(
             status=status, detailer=detailer,
+            date_preset=date_preset,
             date_from=date_from, date_to=date_to, com_search=com_search,
         )
         self._model.sort_by(self._sort_column, self._sort_ascending)
@@ -559,8 +613,6 @@ class ListPanel(QWidget):
         for col_idx, key in enumerate(col_keys):
             self.table.setColumnWidth(col_idx, width_map.get(key, 80))
 
-        # Build new row mapping: com_number -> row_index
-        new_order = [u.com_number for u in new_units]
         self.table.setRowCount(len(new_units))
 
         # Rebuild all rows (QTableWidget doesn't have model signals for granular updates)
@@ -603,8 +655,9 @@ class ListPanel(QWidget):
                 # Status color
                 if key == "status_color":
                     from gui.theme import status_style as _theme_status_style
+                    computed_status = unit.calculated_status_color
                     hex_color, icon, label = _theme_status_style(
-                        self._theme_name, value or "gray", self._cvd_mode)
+                        self._theme_name, computed_status, self._cvd_mode)
                     color = QColor(hex_color)
                     item.setBackground(QBrush(color))
                     brightness = (color.red() * 299 + color.green() * 587 + color.blue() * 114) / 1000
@@ -619,6 +672,14 @@ class ListPanel(QWidget):
                         and isinstance(value, date) and value < date.today()):
                     item.setForeground(QBrush(QColor("#dc2626")))
                     item.setFont(bold_font)
+
+                # Due date changed indicator
+                if key == "detailing_due_date" and unit.due_date_changed:
+                    item.setText("⚠ " + item.text())
+                    item.setBackground(QBrush(QColor(255, 200, 50, 80)))
+                    prev = unit.previous_detailing_due_date
+                    prev_str = prev.strftime("%m/%d/%Y") if prev else "—"
+                    item.setToolTip(f"Due date changed from {prev_str}")
 
                 # Previous due date — always bold when present
                 if key == "dept_due_date_previous" and value:
@@ -656,6 +717,13 @@ class ListPanel(QWidget):
         if key == "status_color":
             return ""  # Color block — no text
 
+        if key == "description_tags":
+            if not value:
+                return ""
+            if isinstance(value, str):
+                return value
+            return str(value)
+
         return str(value)
 
     # ── Filtering ───────────────────────────────────────────────────
@@ -677,6 +745,7 @@ class ListPanel(QWidget):
 
         status = self.status_combo.currentData() or "All"
         detailer = self.detailer_combo.currentData() or "All"
+        date_preset = self.date_combo.currentData()
         date_from = self.date_from.date().toPyDate()
         date_to = self.date_to.date().toPyDate()
         com_search = self.com_search.text()
@@ -684,6 +753,7 @@ class ListPanel(QWidget):
         self._model.apply_filters(
             status=status,
             detailer=detailer,
+            date_preset=date_preset,
             date_from=date_from,
             date_to=date_to,
             com_search=com_search,
@@ -723,7 +793,11 @@ class ListPanel(QWidget):
 
         for row_idx, unit in enumerate(units):
             for col_idx, key in enumerate(col_keys):
-                value = getattr(unit, key, None)
+                # Compute description_tags on-the-fly from tag repo
+                if key == "description_tags":
+                    value = self._compute_tags_display(unit)
+                else:
+                    value = getattr(unit, key, None)
                 display = self._format_cell(key, value)
                 item = QTableWidgetItem(display)
 
@@ -737,8 +811,9 @@ class ListPanel(QWidget):
 
                 if key == "status_color":
                     from gui.theme import status_style as _theme_status_style
+                    computed_status = unit.calculated_status_color
                     hex_color, icon, label = _theme_status_style(
-                        self._theme_name, value or "gray", self._cvd_mode)
+                        self._theme_name, computed_status, self._cvd_mode)
                     color = QColor(hex_color)
                     item.setBackground(QBrush(color))
                     brightness = (color.red() * 299 + color.green() * 587 + color.blue() * 114) / 1000
@@ -752,6 +827,14 @@ class ListPanel(QWidget):
                         and isinstance(value, date) and value < date.today()):
                     item.setForeground(QBrush(QColor("#dc2626")))
                     item.setFont(bold_font)
+
+                # Due date changed indicator
+                if key == "detailing_due_date" and unit.due_date_changed:
+                    item.setText("⚠ " + item.text())
+                    item.setBackground(QBrush(QColor(255, 200, 50, 80)))
+                    prev = unit.previous_detailing_due_date
+                    prev_str = prev.strftime("%m/%d/%Y") if prev else "—"
+                    item.setToolTip(f"Due date changed from {prev_str}")
 
                 if key == "dept_due_date_previous" and value:
                     item.setFont(bold_font)
@@ -771,6 +854,7 @@ class ListPanel(QWidget):
         """Reset all filter widgets to defaults."""
         self.status_combo.setCurrentIndex(0)
         self.detailer_combo.setCurrentIndex(0)
+        self.date_combo.setCurrentIndex(0)
         self.date_from.setDate(QDate.currentDate().addDays(-30))
         self.date_to.setDate(QDate.currentDate().addDays(90))
         self.com_search.clear()

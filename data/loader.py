@@ -3,6 +3,10 @@
 import hashlib
 import json
 import logging
+from datetime import date
+
+from collections import defaultdict
+
 from data.db import get_db, row_to_unit
 from data.models import Unit
 
@@ -54,6 +58,44 @@ def unit_fingerprint(unit: Unit) -> str:
     return result
 
 
+def _apply_identicals(units: list[Unit]) -> None:
+    """Apply the "Identicals" rule to target_department_hours in-place.
+
+    When multiple units share the same order number (contract_number /
+    top_level_number), they are called "Identicals". The unit with the
+    earliest detailing_due_date is the *primary* and keeps its normal
+    target hour calculation. Every other identical gets
+    target_department_hours forced to 0.0.
+
+    Units with an empty contract_number or no due date are skipped.
+    If two identicals have the same due date, the one appearing first
+    (i.e. lowest COM number) wins — this ensures a deterministic primary.
+    """
+    groups: dict[str, list[Unit]] = defaultdict(list)
+    for u in units:
+        key = (u.contract_number or "").strip()
+        if key:
+            groups[key].append(u)
+
+    for order_number, group in groups.items():
+        if len(group) < 2:
+            continue  # not enough units to form identicals
+
+        # Primary = earliest detailing_due_date.
+        # Tie-break by com_number for determinism.
+        def _sort_key(u: Unit) -> tuple:
+            dd = u.detailing_due_date
+            # Put units without a due date at the end so they aren't primary
+            return (0 if dd is not None else 1, dd if dd is not None else date.min, u.com_number)
+
+        primary = min(group, key=_sort_key)
+
+        for u in group:
+            if u is not primary:
+                u.target_department_hours = 0.0
+                u.is_non_primary_identical = True
+
+
 def load_units(
     db_path: str,
     detailer_schedules: dict | None = None,
@@ -67,7 +109,8 @@ def load_units(
         force_reload: Ignored for SQLite (always fast).
     
     Returns:
-        List of Unit objects ordered by detailing_due_date.
+        List of Unit objects ordered by detailing_due_date, with the
+        "Identicals" rule applied to target_department_hours.
     """
     conn = get_db(db_path)
     cur = conn.cursor()
@@ -84,6 +127,9 @@ def load_units(
             elif "default" in detailer_schedules:
                 unit.working_days = detailer_schedules["default"]
         units.append(unit)
+
+    # Apply the Identicals rule so non-primary identicals have zero target hours
+    _apply_identicals(units)
 
     logger.info(f"Loaded {len(units)} units from SQLite")
     return units
