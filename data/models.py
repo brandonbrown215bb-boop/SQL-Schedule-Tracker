@@ -4,6 +4,9 @@ from datetime import date, timedelta
 from typing import Literal
 
 
+STALE_THRESHOLD_DAYS = 30
+
+
 def _working_days_between(start: date, end: date, working_weekdays: list[int] | None = None) -> int:
     """Count working days from start (exclusive) to end (inclusive).
 
@@ -116,6 +119,29 @@ class Unit:
             "red": "Overdue/Potential Miss",
         }
         return labels.get(color, "Unknown")
+
+    @property
+    def is_stale(self) -> bool:
+        """True if due date is more than STALE_THRESHOLD_DAYS in the past."""
+        if self.detailing_due_date:
+            return self.detailing_due_date < date.today() - timedelta(days=STALE_THRESHOLD_DAYS)
+        return False
+
+    @property
+    def alert_level(self) -> str:
+        """Computed urgency level for this unit."""
+        if self.percent_complete >= 1.0:
+            return "COMPLETE"
+        if not self.detailing_due_date:
+            return "UNSET"
+        days_until = (self.detailing_due_date - date.today()).days
+        if days_until < 0:
+            return "OVERDUE"
+        if days_until <= 7:
+            return "URGENT"
+        if days_until <= 14:
+            return "APPROACHING"
+        return "ON_TRACK"
 
     @property
     def calculated_status_color(self) -> StatusColor:

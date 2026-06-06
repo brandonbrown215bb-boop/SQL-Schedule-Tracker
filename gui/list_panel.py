@@ -113,12 +113,21 @@ DATE_FILTER_PRESETS: list[tuple[str, str | None]] = [
 class UnitListModel:
     """In-memory model: holds all units, applies filters + sort."""
 
-    def __init__(self, units: list[Unit]):
+    def __init__(self, units: list[Unit], show_stale: bool = False):
         self._all_units: list[Unit] = list(units)
         self._filtered_units: list[Unit] = list(units)
         self._visible_columns: list[str] = [
             key for key, _, _, visible in COLUMN_DEFS if visible
         ]
+        self._show_stale: bool = show_stale
+        # Current filter state for re-application
+        self._current_status: str = "All"
+        self._current_detailer: str = "All"
+        self._current_date_preset: str | None = None
+        self._current_date_from: date | None = None
+        self._current_date_to: date | None = None
+        self._current_com_search: str = ""
+        self._current_alert_filter: str = "All"
 
     @property
     def all_units(self) -> list[Unit]:
@@ -146,15 +155,32 @@ class UnitListModel:
         date_from: date | None = None,
         date_to: date | None = None,
         com_search: str = "",
+        alert_filter: str = "All",
     ) -> None:
         """Apply all active filters with AND logic."""
+        # Store current filter state for re-application
+        self._current_status = status
+        self._current_detailer = detailer
+        self._current_date_preset = date_preset
+        self._current_date_from = date_from
+        self._current_date_to = date_to
+        self._current_com_search = com_search
+        self._current_alert_filter = alert_filter
+
         result = list(self._all_units)
+
+        # Stale filter: when show_stale is False, exclude stale units
+        if not self._show_stale:
+            result = [u for u in result if not u.is_stale]
 
         if status != "All":
             result = [u for u in result if u.calculated_status_color == status]
 
         if detailer != "All":
             result = [u for u in result if u.detailer == detailer]
+
+        if alert_filter != "All":
+            result = [u for u in result if u.alert_level == alert_filter]
 
         if date_preset and date_preset != "custom":
             result = self._filter_by_date(result, date_preset, date.today())
@@ -187,6 +213,19 @@ class UnitListModel:
             ]
 
         self._filtered_units = result
+
+    def set_show_stale(self, show: bool) -> None:
+        """Update the stale flag and re-apply current filters."""
+        self._show_stale = show
+        self.apply_filters(
+            status=self._current_status,
+            detailer=self._current_detailer,
+            date_preset=self._current_date_preset,
+            date_from=self._current_date_from,
+            date_to=self._current_date_to,
+            com_search=self._current_com_search,
+            alert_filter=self._current_alert_filter,
+        )
 
     def _filter_by_date(
         self, units: list[Unit], preset: str, today: date
@@ -299,6 +338,7 @@ class ListPanel(QWidget):
     """
 
     unit_selected = pyqtSignal(object)  # Unit
+    stale_changed = pyqtSignal(bool)  # show_stale
 
     def __init__(self, units: list[Unit] | None = None, parent=None):
         super().__init__(parent)
@@ -382,7 +422,7 @@ class ListPanel(QWidget):
         filter_layout = QVBoxLayout()
         filter_layout.setSpacing(4)
 
-        # Row 1: Status + Detailer
+        # Row 1: Status + Detailer + Alert
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Status:"))
         self.status_combo = QComboBox()
@@ -399,6 +439,23 @@ class ListPanel(QWidget):
         self.detailer_combo.currentIndexChanged.connect(self._on_filter_changed)
         row1.addWidget(self.detailer_combo, 1)
         filter_layout.addLayout(row1)
+
+        # Row 1.5: Alert filter + Stale checkbox
+        row1_5 = QHBoxLayout()
+        row1_5.addWidget(QLabel("Alert:"))
+        self.alert_combo = QComboBox()
+        self.alert_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.alert_combo.addItem("All", "All")
+        for alert_key in ("OVERDUE", "URGENT", "APPROACHING", "ON_TRACK", "COMPLETE", "UNSET"):
+            self.alert_combo.addItem(alert_key.capitalize(), alert_key)
+        self.alert_combo.currentIndexChanged.connect(self._on_filter_changed)
+        row1_5.addWidget(self.alert_combo, 1)
+
+        self.show_stale_checkbox = QCheckBox("Show stale data")
+        self.show_stale_checkbox.setChecked(False)
+        self.show_stale_checkbox.stateChanged.connect(self._on_stale_toggled)
+        row1_5.addWidget(self.show_stale_checkbox)
+        filter_layout.addLayout(row1_5)
 
         # Row 2: Date range + Search
         row2 = QHBoxLayout()
@@ -515,10 +572,12 @@ class ListPanel(QWidget):
         date_from = self.date_from.date().toPyDate()
         date_to = self.date_to.date().toPyDate()
         com_search = self.com_search.text()
+        alert_filter = self.alert_combo.currentData() or "All"
         self._model.apply_filters(
             status=status, detailer=detailer,
             date_preset=date_preset,
             date_from=date_from, date_to=date_to, com_search=com_search,
+            alert_filter=alert_filter,
         )
         self._model.sort_by(self._sort_column, self._sort_ascending)
 
@@ -732,6 +791,16 @@ class ListPanel(QWidget):
         """Debounce the search — don't re-filter on every keystroke."""
         self._search_debounce.start()
 
+    def _on_stale_toggled(self, state: int) -> None:
+        """Handle 'Show stale data' checkbox toggle."""
+        if self._model is None:
+            return
+        show_stale = state == Qt.Checked
+        self._model.set_show_stale(show_stale)
+        self._model.sort_by(self._sort_column, self._sort_ascending)
+        self._refresh_table_full()
+        self.stale_changed.emit(show_stale)
+
     def _on_filter_changed(self) -> None:
         """Called when any filter widget changes (or debounce fires)."""
         if self._model is None:
@@ -749,6 +818,7 @@ class ListPanel(QWidget):
         date_from = self.date_from.date().toPyDate()
         date_to = self.date_to.date().toPyDate()
         com_search = self.com_search.text()
+        alert_filter = self.alert_combo.currentData() or "All"
 
         self._model.apply_filters(
             status=status,
@@ -757,6 +827,7 @@ class ListPanel(QWidget):
             date_from=date_from,
             date_to=date_to,
             com_search=com_search,
+            alert_filter=alert_filter,
         )
         self._model.sort_by(self._sort_column, self._sort_ascending)
         self._refresh_table_full()
@@ -844,8 +915,15 @@ class ListPanel(QWidget):
 
         total = len(self._model.all_units)
         showing = len(units)
+        stale_count = sum(1 for u in self._model.all_units if u.is_stale)
+        if self._model._show_stale:
+            stale_note = ""
+        elif stale_count > 0:
+            stale_note = f" ({stale_count} stale hidden)"
+        else:
+            stale_note = ""
         self.status_label.setText(
-            f"Showing {showing} of {total} units"
+            f"Showing {showing} of {total} units{stale_note}"
             f" | sorted by {self._sort_column}"
             f" {'asc' if self._sort_ascending else 'desc'}"
         )
@@ -854,6 +932,8 @@ class ListPanel(QWidget):
         """Reset all filter widgets to defaults."""
         self.status_combo.setCurrentIndex(0)
         self.detailer_combo.setCurrentIndex(0)
+        self.alert_combo.setCurrentIndex(0)
+        self.show_stale_checkbox.setChecked(False)
         self.date_combo.setCurrentIndex(0)
         self.date_from.setDate(QDate.currentDate().addDays(-30))
         self.date_to.setDate(QDate.currentDate().addDays(90))

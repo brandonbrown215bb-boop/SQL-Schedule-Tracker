@@ -48,8 +48,10 @@ CREATE TABLE IF NOT EXISTS units (
     calendar_days_until_due INTEGER,
     days_diff_due_to_build INTEGER,
     created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    updated_at TEXT DEFAULT (datetime('now')),
+    status_color TEXT DEFAULT 'gray'
 );
+
 
 CREATE TABLE IF NOT EXISTS detailers (
     name TEXT PRIMARY KEY,

@@ -24,6 +24,7 @@ from data.loader import load_units
 from data.models import Unit
 from data.tag_parser import UnitTagRepository
 from data.writer import save_unit
+from gui.alert_panel import AlertPanel
 from gui.calendar_panel import CalendarPanel
 from gui.conflict_dialog import ConflictDialog
 from gui.due_date_changed_dialog import DueDateChangedDialog
@@ -192,14 +193,18 @@ class MainWindow(QMainWindow):
         toggle_layout = QHBoxLayout()
         self.calendar_view_btn = QPushButton("📅 Calendar")
         self.list_view_btn = QPushButton("\U0001f4cb List")
+        self.alerts_view_btn = QPushButton("🔔 Alerts")
         self.list_view_btn.setObjectName("list_view_btn")
         self.calendar_view_btn.setCheckable(True)
         self.list_view_btn.setCheckable(True)
+        self.alerts_view_btn.setCheckable(True)
         self.calendar_view_btn.setChecked(True)
         self.calendar_view_btn.clicked.connect(lambda: self._switch_view("calendar"))
         self.list_view_btn.clicked.connect(lambda: self._switch_view("list"))
+        self.alerts_view_btn.clicked.connect(lambda: self._switch_view("alerts"))
         toggle_layout.addWidget(self.calendar_view_btn)
         toggle_layout.addWidget(self.list_view_btn)
+        toggle_layout.addWidget(self.alerts_view_btn)
         toggle_layout.addStretch()
 
         # Theme toggle button
@@ -226,7 +231,11 @@ class MainWindow(QMainWindow):
         self.view_stack.addWidget(self.calendar_panel)
         self.list_panel = ListPanel(self.units)
         self.list_panel.unit_selected.connect(self.on_unit_selected)
+        self.list_panel.stale_changed.connect(self._on_stale_changed)
         self.view_stack.addWidget(self.list_panel)
+        self.alert_panel = AlertPanel(self.units)
+        self.alert_panel.unit_selected.connect(self.on_unit_selected)
+        self.view_stack.addWidget(self.alert_panel)
         left_container.addWidget(self.view_stack)
         self.main_splitter.addWidget(left_widget)
 
@@ -327,22 +336,36 @@ class MainWindow(QMainWindow):
     # ── View switching ─────────────────────────────────────────────────
 
     def _switch_view(self, view_name: str) -> None:
-        """Swap between calendar and list views."""
+        """Swap between calendar, list, and alerts views."""
         if view_name == "calendar":
             self.view_stack.setCurrentIndex(0)
             self.calendar_view_btn.setChecked(True)
             self.list_view_btn.setChecked(False)
+            self.alerts_view_btn.setChecked(False)
         elif view_name == "list":
             self.view_stack.setCurrentIndex(1)
             self.calendar_view_btn.setChecked(False)
             self.list_view_btn.setChecked(True)
+            self.alerts_view_btn.setChecked(False)
             # Populate list panel if it has no data yet
             if self.units and self.list_panel._model is None:
                 self.list_panel.set_units(self.units)
+        elif view_name == "alerts":
+            self.view_stack.setCurrentIndex(2)
+            self.calendar_view_btn.setChecked(False)
+            self.list_view_btn.setChecked(False)
+            self.alerts_view_btn.setChecked(True)
+            if self.units:
+                self.alert_panel.set_units(self.units)
 
         # Save preference
         self.config.setdefault("ui", {})["last_view"] = view_name
         logger.info("MainWindow: Switched to %s view.", view_name)
+
+    def _on_stale_changed(self, show_stale: bool) -> None:
+        """Propagate stale toggle to calendar and alert panel."""
+        self.calendar_panel.calendar.set_show_stale(show_stale)
+        self.calendar_panel.refresh(self.units)
 
     def _on_dirty_changed(self, dirty: bool) -> None:
         self._form_dirty = dirty
@@ -623,6 +646,7 @@ class MainWindow(QMainWindow):
         
         self.calendar_panel.refresh(self.units)
         self.list_panel.set_units(self.units)
+        self.alert_panel.set_units(self.units)
         self.status_bar.showMessage(f"Loaded {len(self.units)} units from SQLite")
         logger.info("MainWindow: Loaded %d units.", len(self.units))
 

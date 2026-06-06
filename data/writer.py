@@ -53,6 +53,7 @@ def save_unit(
             unit_moved_to_checking_date = ?,
             unit_detailing_completion_date = ?,
             notes = ?,
+            status_color = ?,
             updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
         {where_clause}
     """, (
@@ -73,6 +74,7 @@ def save_unit(
         unit.unit_moved_to_checking_date.isoformat() if unit.unit_moved_to_checking_date else None,
         unit.unit_detailing_completion_date.isoformat() if unit.unit_detailing_completion_date else None,
         unit.notes,
+        unit.calculated_status_color,
         *where_params,
     ))
     if cursor.rowcount == 0:

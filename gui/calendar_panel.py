@@ -33,6 +33,7 @@ class EventCalendarWidget(QCalendarWidget):
         self.clicked.connect(self._emit_date_clicked)
         self._theme_name = "light"
         self._cvd_mode = "none"
+        self._show_stale = False
         # Fix: install event filter to reposition month/year QMenu popups
         self.installEventFilter(self)
 
@@ -59,10 +60,15 @@ class EventCalendarWidget(QCalendarWidget):
                 menu.move(pos)
                 return
 
+    def set_show_stale(self, show: bool) -> None:
+        self._show_stale = show
+
     def set_events(self, units: list[Unit]):
         """Build the date→units map — only the detailing due date."""
         self.events_by_date.clear()
         for unit in units:
+            if not self._show_stale and unit.is_stale:
+                continue
             if unit.detailing_due_date is not None:
                 qdate = QDate(
                     unit.detailing_due_date.year,

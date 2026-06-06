@@ -36,8 +36,22 @@ def get_db(db_path: str | None = None) -> sqlite3.Connection:
         conn.row_factory = sqlite3.Row
         _local.conn = conn
         _local.db_path = _db_path
+        _migrate_schema(conn)
         logger.info(f"SQLite connection opened for thread {threading.current_thread().name}: {_db_path}")
     return conn
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Add columns to existing databases that were created before these migrations."""
+    try:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(units)")}
+        if "status_color" not in cols:
+            conn.execute("ALTER TABLE units ADD COLUMN status_color TEXT DEFAULT 'gray'")
+            logger.info("Migration: added status_color column")
+    except Exception as e:
+        logger.warning("Migration check failed: %s", e)
+    finally:
+        conn.commit()
 
 
 def close_db() -> None:
@@ -59,7 +73,7 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         detailer=row["detailer"] or "",
         checking_status=row["checking_status"] or "",
         notes=row["notes"] or "",
-        status_color="gray",  # calculated in models.py
+        status_color=row["status_color"] or "gray",  # persisted from last computed value
         department_hours=row["department_hours"] or 0.0,
         target_department_hours=row["target_dept_hours"] if "target_dept_hours" in row.keys() and row["target_dept_hours"] is not None else 0.0,
         iec_internal_hours=row["iec_internal_hours"] or 0.0,
