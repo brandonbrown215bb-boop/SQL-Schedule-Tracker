@@ -83,6 +83,102 @@ _COMPOUND_FEATURES: set[str] = {
     "WT-L FLOOD TEST", "WT-LD FLOOD TEST",
     "316L-COMP/HUM/VFD", "EVERYTHING SS",
     "NO ELECTRICAL",
+    "SIDE BY SIDE",
+    "DEFENSE PRIORITY", "DEF PRIORITY",
+}
+
+
+# ─── Whitelist + Normalization ──────────────────────────────────────
+# Whitelist: only these tokens survive as features. Everything else is dropped.
+# Built from team review of 800 unique parsed features across 2765 units.
+# High-frequency (≥50 occurrences) are implicitly kept — listed here for completeness.
+
+_WHITELIST: set[str] = {
+    # Team-reviewed whitelist — only these 46 tokens survive as features.
+    # Source: tag_review.md, marked **keep** by team.
+    # High-frequency (≥50) tokens NOT in this list are intentionally excluded —
+    # they were not marked for keep in the review document.
+    "TIER", "KDOWN", "HWHL", "AL-BASE", "HW", "SEIS-CERT",
+    "CAMFIL", "DEF-PRIORITY", "OBO",
+    "SEISMIC", "DEFENSE-PRIORITY", "CHEMBIO", "HSB", "FLOOD TEST",
+    "NOA", "STACK-W", "SEIS", "SIDEXSIDE-TUNNELS", "STACKED",
+    "PART-TIER", "SQ-TUNNEL", "VESTIBULE", "CURB", "PARTIAL-TIER",
+    "MOD-UTB", "SIDEXSIDE", "CEILING", "PLATE TO PLATE HX",
+    "SIDEXSIDE-W", "STACK", "SUSPENDED", "UTL", "SIDE-BY-SIDE",
+    "SPECIAL", "DECK", "DUAL-TUNNEL", "KNOCKDOWN", "NOAA",
+    "PARTIAL-KDOWN", "SECTION-KDOWN", "SEIS-CONST",
+}
+
+# Normalization map: variant → canonical (whitelist) form.
+# Keys that ARE in _WHITELIST normalize to themselves (identity).
+# Keys NOT in _WHITELIST are drop-in replacements that land on a whitelisted token.
+_NORMALIZATION_MAP: dict[str, str] = {
+    # Identity normalizations (whitelist entry = its own canonical form)
+    "TIER": "TIER",
+    "KDOWN": "KDOWN",
+    "HWHL": "HWHL",
+    "AL-BASE": "AL-BASE",
+    "HW": "HW",
+    "SEIS-CERT": "SEIS-CERT",
+    "CAMFIL": "CAMFIL",
+    "DEF-PRIORITY": "DEF-PRIORITY",
+    "OBO": "OBO",
+    "SEISMIC": "SEISMIC",
+    "CHEMBIO": "CHEMBIO",
+    "HSB": "HSB",
+    "FLOOD TEST": "FLOOD TEST",
+    "NOA": "NOA",
+    "STACKED": "STACKED",
+    "VESTIBULE": "VESTIBULE",
+    "CURB": "CURB",
+    "CEILING": "CEILING",
+    "STACK": "STACK",
+    "SUSPENDED": "SUSPENDED",
+    "UTL": "UTL",
+    "SPECIAL": "SPECIAL",
+    "DECK": "DECK",
+    "KNOCKDOWN": "KNOCKDOWN",
+    # Variant → canonical
+    # AL-BASE variants
+    "ABASE": "AL-BASE",
+    "AL BASE": "AL-BASE",
+    "AL-B": "AL-BASE",
+    "AL-BA": "AL-BASE",
+    "AL-BAS": "AL-BASE",
+    "ALBASE": "AL-BASE",
+    # KDOWN variants
+    "K-DOWN": "KDOWN",
+    "PARTIAL-KDOWN": "KDOWN",
+    "SECTION-KDOWN": "KDOWN",
+    # TIER variants
+    "PART-TIER": "TIER",
+    "PARTIAL-TIER": "TIER",
+    # SEIS variants
+    "SEIS": "SEIS-CERT",
+    "SEIS-CONST": "SEIS-CERT",
+    # DEFENSE-PRIORITY variants
+    "DEFENSE-PRIORITY": "DEF-PRIORITY",
+    "DEFENSE PRIORITY": "DEF-PRIORITY",
+    "DEF PRIORITY": "DEF-PRIORITY",
+    "DEFENSE-PRIOROTY": "DEF-PRIORITY",
+    # SIDE-BY-SIDE compound
+    "SIDE BY SIDE": "SIDE-BY-SIDE",
+    # SIDEXSIDE variants
+    "SIDEXSIDE-TUNNELS": "SIDEXSIDE",
+    "SIDEXSIDE-W": "SIDEXSIDE",
+    # DUAL-TUNNEL → DUAL (but DUAL isn't whitelisted, so this won't help)
+    # Keeping for completeness — will be dropped by whitelist
+    # D-CAMFIL → CAMFIL (slash-splitting artifact: "L/D-CAMFIL/CU")
+    "D-CAMFIL": "CAMFIL",
+    # NOAA → NOA (likely typo)
+    "NOAA": "NOA",
+    # MOD-UTB → MODIFIED-UTB (MODIFIED-UTB not whitelisted either)
+    # FLOOD variants
+    "FLOOD": "FLOOD TEST",
+    "FLOOD-TEST": "FLOOD TEST",
+    # FULL SEAM → FULLSEAM (not whitelisted, will be dropped)
+    "FULL SEAM": "FULLSEAM",
+    "FULL-SEAM": "FULLSEAM",
 }
 
 
@@ -180,7 +276,9 @@ def parse_description(description: str) -> ParsedTags:
     text_upper = text.upper()
     for compound in _COMPOUND_FEATURES:
         if compound in text_upper:
-            tags.features.append(compound)
+            canonical = _NORMALIZATION_MAP.get(compound, compound)
+            if canonical in _WHITELIST:
+                tags.features.append(canonical)
             text_upper = text_upper.replace(compound, "", 1)
     
     # Tokenize the rest
@@ -190,11 +288,16 @@ def parse_description(description: str) -> ParsedTags:
         cleaned = _clean_token(token)
         if cleaned is None:
             continue
-        if cleaned in features_seen:
+        # Apply normalization
+        canonical = _NORMALIZATION_MAP.get(cleaned, cleaned)
+        # Whitelist filter: drop anything not in the whitelist
+        if canonical not in _WHITELIST:
             continue
-        features_seen.add(cleaned)
-        tags.features.append(cleaned)
-    
+        if canonical in features_seen:
+            continue
+        features_seen.add(canonical)
+        tags.features.append(canonical)
+
     return tags
 
 
