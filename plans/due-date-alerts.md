@@ -80,16 +80,24 @@ def alert_level(self) -> str:
     return "ON_TRACK"
 ```
 
-### Phase 3: Status Color Sync
+### Phase 3: Persist Status Color
 
-Replace the hardcoded `status_color="gray"` in `row_to_unit()` with the computed `alert_level`:
+The calendar already renders per-unit colored dots using `calculated_status_color` (red/orange/purple/yellow/gray/green with capacity-based logic). The problem is `status_color` in the DB is always `"gray"` — `row_to_unit()` hardcodes it.
+
+Fix: replace the hardcoded `"gray"` in `row_to_unit()` with the computed value:
 
 ```python
-# In row_to_unit():
-unit.status_color = computed_alert_level  # from the property above
+# In row_to_unit() — replace:
+unit.status_color = "gray"
+# With:
+unit.status_color = unit.calculated_status_color
 ```
 
-This makes the existing `status_color` field functional for the first time. The column persists on reload (fixing IMP-2 from the code review).
+This means the next time a unit loads from the DB (after a save or reload), the persisted color matches the computed color. Also simplifies `calculated_status_color`:
+- Remove the `pct >= 100.0 → "green"` guard since 100% complete is now handled by the alert `COMPLETE`/`GRAY` branch
+- Keep the overdue → red, behind-schedule → red, 95% → orange, 90% → purple, >0% → yellow logic as-is
+
+This also fixes BUG-5 and IMP-2 from the code review — manual status assignments (purple/orange) become unnecessary since the color is always computed correctly, and the feature actually persists.
 
 ### Phase 4: Per-Detailer Alert Dashboard
 
@@ -124,12 +132,13 @@ Capacity calculation:
 - `weeks_of_work = remaining_hours / 40`
 - Status: UNDER (< 2 wks), BALANCED (2–4 wks), OVERLOADED (> 4 wks)
 
-### Phase 5: Calendar Integration
+### Phase 5: Calendar — Stale Filter Only
 
-Extend `calendar_panel.py`:
-- Color-code due date dots by alert level (🟠 overdue, 🟡 urgent, 🔵 approaching, 🟢 on track)
-- Click a date → filter list panel to units due that day
-- "Show stale data" toggle controls whether stale dates appear
+The calendar already renders per-unit colored dots sorted by severity (red → orange → purple → yellow → gray → green) using `calculated_status_color`. No changes needed to the dot rendering.
+
+The only calendar change: **respect the stale filter**. When "Show stale data" is unchecked, stale units are excluded from `set_events()` so their dots don't appear. This keeps the calendar clean — only current, actionable due dates show.
+
+Click-to-filter (click a date → filter list panel) already works and stays as-is.
 
 ### Phase 6: List Panel Integration
 
