@@ -1,0 +1,24 @@
+#!/bin/sh
+# Pre-commit hook: Run doc sync check on staged files
+# Install: cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+echo "Running doc sync check..."
+
+# Run doc_check.py on staged files only
+python3 scripts/doc_check.py --staged-only
+
+exit_code=$?
+
+if [ $exit_code -eq 1 ]; then
+    echo ""
+    echo "✗ Documentation drift detected. Review the report above."
+    echo "  To bypass: git commit --no-verify"
+    exit 1
+elif [ $exit_code -eq 2 ]; then
+    echo ""
+    echo "⚠ Doc check script error — skipping (use --no-verify to bypass)"
+    exit 0
+fi
+
+echo "✓ Doc sync check passed."
+exit 0
