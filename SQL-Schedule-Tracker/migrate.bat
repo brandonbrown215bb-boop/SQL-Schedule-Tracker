@@ -47,5 +47,10 @@ echo ============================================================
 echo  Migration successful!
 echo  Database: %APP_DIR%\schedule.db
 echo ============================================================
+
+echo.
+echo Ensuring detailers table is seeded...
+%PY% "%SCRIPT_DIR%\ensure_detailers.py" --db "%APP_DIR%\schedule.db"
+
 pause
 endlocal
