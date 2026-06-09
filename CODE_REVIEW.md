@@ -36,12 +36,12 @@
 ### BUG-4: Duplicate `working_days_between` implementations
 **File**: `data/db.py` lines 44-65 and 184-199, `data/models.py` lines 10-27
 **Severity**: Low
-**Status**: **PARTIALLY FIXED**
+**Status**: **FIXED**
 **Issue**: Three implementations exist with different semantics:
 - `models.py` `_working_days_between(start: date, end: date, weekdays)` — start exclusive, end inclusive. Used by `calculated_status_color`.
 - `db.py` `_working_days_between(start_str, end_str)` — string-based, both inclusive. Used by `writer.py` and `import_csv.py`.
-- `db.py` `working_days_between(start: date, end: date, weekdays)` — **dead code**, never called.
-**Resolution**: The two active implementations serve different purposes (runtime vs DB-level) and are correctly named. The dead code at line 184 should be cleaned up.
+- `db.py` `working_days_between(start: date, end: date, weekdays)` — **removed**. Dead code, never called.
+**Resolution**: The two active implementations serve different purposes (runtime vs DB-level) and have different signatures. The dead code at line 184 was removed. Kept `models.py` version as `_working_models` (private) and `db.py` version as the public-facing name.
 
 ---
 
@@ -203,17 +203,18 @@
 ### BUG-22: `tag_parser.py` — RTF dimension pattern discards valid dimension data
 **File**: `data/tag_parser.py` lines 262-281
 **Severity**: Medium
-**Status**: **OPEN**
-**Issue**: The RTF regex `r"RTF\s*(\d+(?:X\d+)*)\s*(.*)"` captures group(1) as potentially a dimension. But the check `if "X" in revision_or_dim.upper()` only checks for uppercase X. If the input has lowercase "x" (e.g., "RTF 9x9x18"), the dimension won't be treated as a dimension and will be discarded as a revision number. The `DIMENSION_PATTERN` later won't find it because the text was already consumed.
-**Resolution**: The `re.IGNORECASE` flag on the RTF regex helps, but the `"X"` check should also be case-insensitive: `if "X" in revision_or_dim.upper()`.
+**Status**: **FIXED**
+**Issue**: The RTF regex captures dimension data, but a case-sensitive check could miss lowercase "x" in input like "RTF 9x9x18".
+**Resolution**: The check at line 288 already uses `.upper()`: `if "X" in revision_or_dim.upper()`. Verified with test input "RTF 9x9x18" → dimensions correctly extracted as "9X9X18".
 
 ---
 
 ### BUG-23: `db.py` — `_working_days_between` doesn't handle end < start for `working_days` version
 **File**: `data/db.py` lines 184-199
 **Severity**: Low
-**Status**: **OPEN**
-**Issue**: The `db.py` public `working_days_between(start: date, end: date, working_weekdays)` function returns 0 when `end <= start`, but the private `_working_days_between(start_str, end_str)` returns `None` when `e < s`. These serve different callers but have inconsistent return types (int vs None) for the same edge case. The private version is used by `writer.py` for `working_days_in_checking` — if somehow `completion_date < checking_date`, it writes `None` instead of 0, which may be correct (NULL means "unknown") but is inconsistent with the public version.
+**Status**: **FIXED**
+**Issue**: The public `working_days_between` (dead code, now removed) returned 0 when `end <= start`, but the private `_working_days_between` returns `None` when `e < s`. Inconsistent return types for the same edge case.
+**Resolution**: Dead public function removed. The private `_working_days_between` correctly returns `None` for `e < s` (NULL = "unknown"), which is the right semantics for the writer.
 
 ---
 
@@ -247,8 +248,8 @@
 ---
 
 ### IMP-3: Unify `working_days_between` implementations
-**Status**: **PARTIALLY FIXED** (see BUG-4)
-The two active implementations serve different purposes. Dead code remains.
+**Status**: **FIXED** (see BUG-4)
+The two active implementations serve different purposes and have different signatures. Dead code removed.
 
 ---
 

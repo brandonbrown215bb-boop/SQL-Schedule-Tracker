@@ -181,19 +181,4 @@ def get_detailer_schedules(db_path: str) -> dict[str, list[int]]:
     return schedules
 
 
-def working_days_between(start: date, end: date, working_weekdays: list[int]) -> int:
-    """Count working days from start (exclusive) to end (inclusive).
-    
-    working_weekdays: list of weekday numbers (0=Mon … 6=Sun).
-    Returns 0 if end <= start.
-    """
-    if end <= start:
-        return 0
-    count = 0
-    current = start
-    from datetime import timedelta
-    while current < end:
-        current += timedelta(days=1)
-        if current.weekday() in working_weekdays:
-            count += 1
-    return count
+
