@@ -466,6 +466,20 @@ def migrate_workbook(workbook_path: str, db_path: str, sheet_name: str = "Curren
     conn.close()
 
 
+def _find_workbook(app_dir: Path) -> str:
+    """Locate the master workbook in the app directory.
+
+    Searches for SCHDetailingReport_all_plants_MASTER with common Excel extensions.
+    """
+    base = "SCHDetailingReport_all_plants_MASTER"
+    for ext in (".xlsm", ".xlsx", ".xls"):
+        candidate = app_dir / (base + ext)
+        if candidate.is_file():
+            return str(candidate)
+    # Fall back to no extension (will fail gracefully in main)
+    return str(app_dir / base)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Migrate Excel workbook to SQLite")
     parser.add_argument("--workbook", default=None, help="Path to workbook (.xlsm)")
@@ -473,11 +487,10 @@ def main():
     parser.add_argument("--sheet", default="Current List", help="Sheet name to read")
     args = parser.parse_args()
 
-    workbook = args.workbook or str(Path(__file__).resolve().parent.parent.parent /
-        "Schedule-Viewer-App" /
-        "SCHDetailingReport_all_plants_MASTER - Copy.xlsm")
-    db = args.db or str(Path(__file__).resolve().parent.parent.parent /
-        "Schedule-Viewer-App" / "schedule.db")
+    workbook = args.workbook or _find_workbook(
+        Path(__file__).resolve().parent.parent / "SQL-Schedule-App")
+    db = args.db or str(Path(__file__).resolve().parent.parent /
+        "SQL-Schedule-App" / "schedule.db")
     workbook = str(Path(workbook).resolve())
     db = str(Path(db).resolve())
 
