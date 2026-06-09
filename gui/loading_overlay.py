@@ -81,6 +81,8 @@ class LoadingOverlay(QWidget):
 
     def hide(self) -> None:
         """Hide the overlay, respecting minimum visible time."""
+        if not self.isVisible():
+            return  # already hidden or hiding
         elapsed_ms = (_time.monotonic() - self._show_timestamp) * 1000
         if elapsed_ms < self._MIN_VISIBLE_MS:
             # Delay hide via timer so the overlay is visible long enough

@@ -63,6 +63,7 @@ COLUMN_DEFS: list[tuple[str, str, int, bool]] = [
     ("contract_number",         "Contract #",       90,  False),
     ("build_date",              "Build Date",       80,  False),
     ("unit_detailing_start_date", "Start Date",     80,  False),
+    ("working_days_in_checking",  "Check WD",        60,  False),
 ]
 
 
@@ -210,6 +211,8 @@ class UnitListModel:
                 if query in u.com_number.lower()
                 or query in u.job_name.lower()
                 or query in u.contract_number.lower()
+                or query in u.description.lower()
+                or query in u.notes.lower()
             ]
 
         self._filtered_units = result
@@ -307,7 +310,7 @@ class UnitListModel:
             def key_func(unit: Unit) -> float:
                 return unit.percent_complete
         elif column_key in ("department_hours", "actual_hours",
-                            "target_department_hours"):
+                            "target_department_hours", "working_days_in_checking"):
             def key_func(unit: Unit) -> float:
                 return getattr(unit, column_key, 0.0)
         else:
@@ -349,6 +352,10 @@ class ListPanel(QWidget):
         self._theme_name: str = "light"
         self._cvd_mode: str = "none"
         self._tag_repo: UnitTagRepository | None = None
+        # Cache of pre-computed tag display strings, keyed by com_number.
+        # Invalidated when the model (unit set) changes, preserved across
+        # sort-only refreshes so we don't re-parse on every column click.
+        self._tag_strings_cache: dict[str, str] = {}
 
         self._build_ui()
 
@@ -358,6 +365,7 @@ class ListPanel(QWidget):
     def set_tag_repo(self, repo: UnitTagRepository | None) -> None:
         """Set the tag repository for novelty detection."""
         self._tag_repo = repo
+        self._tag_strings_cache.clear()
         if self._model is not None:
             self._refresh_table_full()
 
@@ -540,6 +548,7 @@ class ListPanel(QWidget):
     def set_units(self, units: list[Unit]) -> None:
         """Load units into the model (initial load)."""
         self._model = UnitListModel(units)
+        self._tag_strings_cache.clear()
         self._populate_detailer_combo()
         self._sort_column = "detailing_due_date"
         self._sort_ascending = True
@@ -563,6 +572,7 @@ class ListPanel(QWidget):
         old_units = list(self._model.filtered_units) if self._model else []
 
         self._model = UnitListModel(units)
+        self._tag_strings_cache.clear()
         self._populate_detailer_combo()
 
         # Apply current filters and sort before diffing
@@ -704,7 +714,8 @@ class ListPanel(QWidget):
 
                 # Alignment
                 if key in ("percent_complete", "department_hours",
-                           "actual_hours", "target_department_hours"):
+                           "actual_hours", "target_department_hours",
+                           "working_days_in_checking"):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 elif key == "status_color":
                     item.setTextAlignment(Qt.AlignCenter)
@@ -748,6 +759,20 @@ class ListPanel(QWidget):
                 self.table.setItem(row_idx, col_idx, item)
 
         # Update status label (final line of _refresh_table_incremental)
+        total = len(self._model.all_units)
+        showing = len(new_units)
+        stale_count = sum(1 for u in self._model.all_units if u.is_stale)
+        if self._model._show_stale:
+            stale_note = ""
+        elif stale_count > 0:
+            stale_note = f" ({stale_count} stale hidden)"
+        else:
+            stale_note = ""
+        self.status_label.setText(
+            f"Showing {showing} of {total} units{stale_note}"
+            f" | sorted by {self._sort_column}"
+            f" {'asc' if self._sort_ascending else 'desc'}"
+        )
 
     def _format_cell(self, key: str, value) -> str:
         """Format a Unit attribute for display."""
@@ -840,6 +865,22 @@ class ListPanel(QWidget):
         units = self._model.filtered_units
         visible = self._model.visible_columns
 
+        # Pre-compute description_tags for all visible units.
+        # Uses a persistent cache keyed by com_number — only re-parses
+        # when the unit tag repo changes or a new com_number appears.
+        show_tags = "description_tags" in visible
+        tag_cache: list[str] = []
+        if show_tags:
+            cache = self._tag_strings_cache
+            for _unit in units:
+                com = _unit.com_number
+                if com in cache:
+                    tag_cache.append(cache[com])
+                else:
+                    tag_str = self._compute_tags_display(_unit)
+                    cache[com] = tag_str
+                    tag_cache.append(tag_str)
+
         col_headers: list[str] = []
         col_keys: list[str] = []
         for key, header, _width, _ in COLUMN_DEFS:
@@ -864,16 +905,17 @@ class ListPanel(QWidget):
 
         for row_idx, unit in enumerate(units):
             for col_idx, key in enumerate(col_keys):
-                # Compute description_tags on-the-fly from tag repo
-                if key == "description_tags":
-                    value = self._compute_tags_display(unit)
+                # Use pre-computed tag string from batch cache
+                if key == "description_tags" and show_tags:
+                    value = tag_cache[row_idx]
                 else:
                     value = getattr(unit, key, None)
                 display = self._format_cell(key, value)
                 item = QTableWidgetItem(display)
 
                 if key in ("percent_complete", "department_hours",
-                           "actual_hours", "target_department_hours"):
+                           "actual_hours", "target_department_hours",
+                           "working_days_in_checking"):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 elif key == "status_color":
                     item.setTextAlignment(Qt.AlignCenter)

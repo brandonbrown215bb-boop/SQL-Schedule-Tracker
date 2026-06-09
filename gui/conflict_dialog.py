@@ -130,22 +130,21 @@ class ConflictDialog(QDialog):
         overwrite_btn.setToolTip(
             "Ignore the remote revision and save your values over the top."
         )
-        btn_box.addButton(overwrite_btn, QDialogButtonBox.AcceptRole)
+        btn_box.addButton(overwrite_btn, QDialogButtonBox.ActionRole)
 
         reload_btn = QPushButton("Reload Remote Version")
         reload_btn.setToolTip(
             "Discard your local changes and reload the unit from the shared workbook."
         )
-        btn_box.addButton(reload_btn, QDialogButtonBox.DestructiveRole)
+        btn_box.addButton(reload_btn, QDialogButtonBox.ActionRole)
 
         cancel_btn = QPushButton("Cancel")
         btn_box.addButton(cancel_btn, QDialogButtonBox.RejectRole)
 
-        btn_box.accepted.connect(self._on_overwrite)
-        btn_box.rejected.connect(self.reject)
-
-        # We need to differentiate AcceptRole for overwrite vs reload
-        # Connect via clicked signal to distinguish.
+        # Connect via clicked signal to distinguish which button was pressed.
+        # NOTE: Do NOT connect btn_box.accepted — we use ActionRole (not AcceptRole)
+        # for overwrite/reload so the button box's accepted/rejected signals
+        # are only triggered by the RejectRole cancel button.
         overwrite_btn.clicked.connect(self._on_overwrite)
         reload_btn.clicked.connect(self._on_reload)
         cancel_btn.clicked.connect(self.reject)

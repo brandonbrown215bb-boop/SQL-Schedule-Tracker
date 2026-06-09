@@ -1,320 +1,385 @@
-# Comprehensive Code Review
+# Code Review: Schedule-Viewer-App-v2
+
+*Last updated: 2026-06-08*
+
+---
+
+## Bugs Found
+
+### BUG-1: `unit_fingerprint` missing `notes` field
+**File**: `data/loader.py` lines 36-55
+**Severity**: Low
+**Status**: **FIXED**
+**Issue**: The `unit_fingerprint` payload did not include `notes`. If someone edited only the notes field, the fingerprint wouldn't change, and the sync layer's conflict detection would miss it. The `updated_at` optimistic lock would still catch it, but the fingerprint-based check would not.
+**Resolution**: `notes` added to the fingerprint payload at line 43.
+
+---
+
+### BUG-2: `percent_complete` scale mismatch (DB 0-1 vs model 0-100)
+**File**: `data/db.py` line 126, `data/writer.py` line 67
+**Severity**: Medium
+**Status**: **DOCUMENTED — working as designed**
+**Issue**: The DB stores `percent_complete` as 0.0-1.0. `row_to_unit` multiplies by 100 on load; `save_unit` divides by 100 on write. Correct but fragile — direct DB access without helpers will get it wrong.
+**Current state**: All code paths use the helpers. Documented in `docs/COMPUTATION_AUDIT.md`.
+
+---
+
+### BUG-3: `_apply_identicals` mutates units in-place without signaling
+**File**: `data/loader.py` lines 62-97
+**Severity**: Medium
+**Status**: **FIXED**
+**Issue**: `_apply_identicals` modifies `target_department_hours` and `is_non_primary_identical` on Unit objects in-place during `load_units()`. If a unit is displayed in the edit form during a background reload, the form won't reflect the updated values until the user re-selects the unit.
+**Resolution**: `_on_load_finished` in `main_window.py` now updates `current_unit` and re-populates the edit form with the post-identicals unit object if a unit was currently displayed.
+
+---
+
+### BUG-4: Duplicate `working_days_between` implementations
+**File**: `data/db.py` lines 44-65 and 184-199, `data/models.py` lines 10-27
+**Severity**: Low
+**Status**: **PARTIALLY FIXED**
+**Issue**: Three implementations exist with different semantics:
+- `models.py` `_working_days_between(start: date, end: date, weekdays)` — start exclusive, end inclusive. Used by `calculated_status_color`.
+- `db.py` `_working_days_between(start_str, end_str)` — string-based, both inclusive. Used by `writer.py` and `import_csv.py`.
+- `db.py` `working_days_between(start: date, end: date, weekdays)` — **dead code**, never called.
+**Resolution**: The two active implementations serve different purposes (runtime vs DB-level) and are correctly named. The dead code at line 184 should be cleaned up.
+
+---
+
+### BUG-5: `status_color` not persisted across reloads
+**File**: `data/db.py` line 122
+**Severity**: Low
+**Status**: **FIXED**
+**Issue**: `row_to_unit` hardcoded `status_color="gray"` because the DB didn't store it. Manual assignments (purple/orange) were lost on reload.
+**Resolution**: `status_color` column added to schema. Writer persists `calculated_status_color` on every save. `row_to_unit` reads the persisted value. Verified: unit 20087 has status_color "yellow" in DB.
+
+---
+
+### BUG-6: `edit_form.py` QComboBox dirty tracking false positive
+**File**: `gui/edit_form.py` lines 181-182
+**Severity**: Low
+**Status**: **FIXED**
+**Issue**: `currentIndexChanged` fires when the combo box is first populated during `load_unit()`, potentially triggering a false "unsaved changes" warning. The `_loading` flag likely prevents this in practice, but the connection order is fragile.
+**Resolution**: `_loading` flag is now set to `True` before form population and cleared in the `finally` block, so `_mark_dirty` correctly ignores signal emissions during loading.
+
+---
+
+### BUG-7: Calendar only shows `detailing_due_date`
+**File**: `gui/calendar_panel.py` lines 62-73
+**Severity**: Low
+**Status**: **NOT DESIRED**
+**Issue**: The calendar only maps `detailing_due_date`. Other dates (`build_date`, `unit_detailing_start_date`, `unit_detailing_completion_date`) are invisible.
+**Resolution**: User decided this is not needed.
+
+---
+
+### BUG-8: List panel search doesn't include `description` or `notes`
+**File**: `gui/list_panel.py` lines 180-187
+**Severity**: Medium
+**Status**: **FIXED**
+**Issue**: The COM search filter only searches `com_number`, `job_name`, and `contract_number`. Users searching for unit types (e.g., "O)2") or note keywords won't find results.
+**Resolution**: `description` and `notes` fields added to the search filter in `UnitListModel.apply_filters()`.
+
+---
+
+### BUG-9: `tag_parser.py` RTF revision number handling
+**File**: `data/tag_parser.py` lines 159-170
+**Severity**: Medium
+**Status**: **FIXED**
+**Issue**: The RTF handling strips trailing revision numbers by checking if the next token is a digit. "RTF 9X9X18" would have "9" stripped, leaving "X9X18" which fails dimension parsing. Fragile for edge cases.
+**Resolution**: Replaced split-and-check logic with a regex that explicitly matches "RTF" + optional dimension pattern, preserving full dimensions while correctly discarding lone revision digits.
+
+---
+
+### BUG-10: `pivot_chart.py` hardcoded color strings
+**File**: `gui/pivot_chart.py` lines 21-26
+**Severity**: Low
+**Status**: **FIXED**
+**Issue**: The `COLORS` dict uses hardcoded hex strings (`#4472C4`, etc.) instead of referencing the theme system. Poor contrast in dark mode.
+**Resolution**: Replaced the `COLORS` hardcoded dict with `COLOR_KEYS` that map to theme token names. Colors are resolved at runtime via `get_status_colors()` and theme tokens, respecting dark mode and CVD settings.
+
+---
+
+### BUG-11: `alert_level` used wrong threshold for COMPLETE
+**File**: `data/models.py` line 140
+**Severity**: High
+**Status**: **FIXED**
+**Issue**: `percent_complete >= 1.0` caught everything at 1%+ as COMPLETE (scale is 0-100). Nearly every non-stale unit showed as COMPLETE in the alert panel, hiding real alerts.
+**Resolution**: Changed to `percent_complete >= 100.0`.
+
+---
+
+### BUG-12: Alert panel empty on first view
+**File**: `gui/main_window.py` lines 358-359, `gui/alert_panel.py` line 177
+**Severity**: Medium
+**Status**: **FIXED**
+**Issue**: `_current_detailer` initialized to `"All"` but combo box item is `"All Detailers"`. Filter tried `detailer == "All"` which matched nothing.
+**Resolution**: Changed init to `"All Detailers"`. Removed `if self.units:` guard on `set_units()` when switching to alerts view.
+
+---
+
+### BUG-13: Alert panel sort didn't reflect capacity-critical units
+**File**: `gui/alert_panel.py` → `_sort_key_for_alert()`
+**Severity**: Medium
+**Status**: **FIXED**
+**Issue**: Sort used `alert_level` (calendar-day buckets) instead of `calculated_status_color` (capacity-aware). Units flagged red by capacity (like 20091) sorted below ON_TRACK units.
+**Resolution**: Sort now uses `calculated_status_color` via `CRITICALITY_ORDER`. Red/critical units sort to top.
+
+---
+
+## New Bugs Found This Session (2026-06-08)
+
+### BUG-14: `edit_form.py` QTextEdit (`notes_edit`) not connected to dirty tracking
+**File**: `gui/edit_form.py` lines 178-186
+**Severity**: High
+**Status**: **FIXED** (by subagent)
+**Issue**: The `_fields` tuple included `self.notes_edit` (a `QTextEdit`), but the `isinstance` loop only handled `QLineEdit`, `QComboBox`, `QDateEdit`, and `QDoubleSpinBox`. `QTextEdit` matched none of these, so its `textChanged` signal was never connected. **Changes to the Notes field never marked the form dirty**, meaning the user could edit notes, navigate away, and lose changes without any warning.
+**Resolution**: Added an explicit `elif isinstance(f, QTextEdit): f.textChanged.connect(self._mark_dirty)` branch.
+
+---
+
+### BUG-15: `main_window.py` auto-reload silently discards unsaved form edits
+**File**: `gui/main_window.py` lines 649-657
+**Severity**: High
+**Status**: **FIXED** (by subagent)
+**Issue**: In `_on_load_finished()`, after a data reload (triggered by file watcher, auto-refresh, or manual refresh), the code unconditionally called `self.edit_form.set_unit(new_unit)` for the currently selected unit. This **silently overwrote** any unsaved changes the user had in the form. If an auto-refresh fired while the user was editing, their edits were lost without warning.
+**Resolution**: Added a `if not self._form_dirty:` guard so the form is only re-populated when there are no unsaved changes.
+
+---
+
+### BUG-16: `conflict_dialog.py` double-connection causes duplicate confirmation dialogs
+**File**: `gui/conflict_dialog.py` lines 133-151
+**Severity**: High
+**Status**: **FIXED** (by subagent)
+**Issue**: `overwrite_btn` was added with `QDialogButtonBox.AcceptRole`, which triggers `btn_box.accepted`. Then `btn_box.accepted.connect(self._on_overwrite)` was connected. Additionally, `overwrite_btn.clicked.connect(self._on_overwrite)` was also connected. Clicking "Overwrite" fired `_on_overwrite` **twice**, showing the confirmation dialog twice in succession.
+**Resolution**: Changed both `overwrite_btn` and `reload_btn` to `QDialogButtonBox.ActionRole` (which does NOT trigger `btn_box.accepted`), removed the `btn_box.accepted.connect(...)` and `btn_box.rejected.connect(...)` lines, and kept only the direct `clicked` connections.
 
-Review date: 2026-06-03
+---
 
-Scope: full repository review of the PyQt5/SQLite schedule viewer, including `main.py`,
-`data/`, `gui/`, `automation/`, `sync/`, and tests.
+### BUG-17: `list_panel.py` — Missing status label update in incremental refresh
+**File**: `gui/list_panel.py` line ~761
+**Severity**: Medium
+**Status**: **FIXED** (by subagent)
+**Issue**: `_refresh_table_incremental()` ended with a comment `# Update status label` but never actually called `self.status_label.setText(...)`. The full-refresh path (`_refresh_table_full`) properly updated the label, but the incremental path (used for tables >50 rows) left the status bar stale after every save/refresh cycle.
+**Resolution**: Added the missing `self.status_label.setText(...)` call with the same logic as `_refresh_table_full`.
 
-## Verification Run
+---
 
-Commands run:
+### BUG-18: `calendar_panel.py` — Clicking empty dates doesn't clear event list
+**File**: `gui/calendar_panel.py` lines 40-42
+**Severity**: Medium
+**Status**: **FIXED** (by subagent)
+**Issue**: `_emit_date_clicked` only emitted `date_clicked` when `date in self.events_by_date`. Clicking a date with no events was silently ignored, leaving the event list showing the previous date's events — stale data that misleads the user.
+**Resolution**: Removed the `if date in self.events_by_date:` guard so all date clicks emit the signal. The `_on_date_clicked` slot already handles empty lists correctly.
 
-```bash
-python -m compileall main.py data gui sync automation tests
-QT_QPA_PLATFORM=offscreen pytest
-ruff check .
-mypy .
-```
+---
 
-Results:
+### BUG-19: `loading_overlay.py` — Repeated `hide()` calls create duplicate timers
+**File**: `gui/loading_overlay.py` lines 82-89
+**Severity**: Low
+**Status**: **FIXED** (by subagent)
+**Issue**: If `hide()` was called multiple times (e.g., rapid load/error sequences), each call could schedule a new `QTimer.singleShot` without canceling the previous one. This could cause the overlay to hide at unexpected times or the spinner to stop prematurely.
+**Resolution**: Added an early `if not self.isVisible(): return` guard at the top of `hide()`.
 
-- Compile check: passed.
-- Pytest without Qt offscreen: aborted during collection because Qt could not initialize a display backend.
-- Pytest with `QT_QPA_PLATFORM=offscreen`: 177 passed, 10 failed.
-- Ruff: failed with 140 lint findings.
-- Mypy: failed with 126 type-check findings.
+---
 
-## Findings
+### BUG-20: `edit_form.py` — Read-only `target_hours_spin` unnecessarily in dirty-tracking/signal-block loops
+**File**: `gui/edit_form.py` lines 172, 229
+**Severity**: Low
+**Status**: **FIXED** (by subagent)
+**Issue**: `self.target_hours_spin` (set to `setReadOnly(True)`) was included in both the dirty-tracking `_fields` tuple and the signal-blocking loop in `set_unit()`. While not a crash bug, it added unnecessary signal blocking/unblocking overhead.
+**Resolution**: Removed `target_hours_spin` from both `_fields` tuples.
 
-### Critical: GUI save writes one object but refreshes the UI with a different, stale object
+---
 
-References:
+### BUG-21: `tag_parser.py` — Compound feature matching is order-dependent and can miss overlaps
+**File**: `data/tag_parser.py` lines 290-298
+**Severity**: Medium
+**Status**: **OPEN**
+**Issue**: The compound feature detection iterates `_COMPOUND_FEATURES` and does `text_upper.replace(compound, "", 1)` for each match. If compound A is a substring of compound B (e.g., "FLOOD" is a substring of "FLOOD TEST"), and A is iterated first, B will never match. The current `_COMPOUND_FEATURES` set has "FLOOD TEST" but not bare "FLOOD", so this doesn't fire today, but it's a fragile design. Additionally, `AL BASE` (in compound features) normalizes to `AL-BASE` (in whitelist), but the compound check runs against raw `text_upper` — if the text has "AL BASE" it matches the compound, gets normalized via `_NORMALIZATION_MAP`, and lands on `AL-BASE`. This works but is implicit.
+**Recommendation**: Sort compound features by length (longest first) before matching to prevent substring collisions. Consider doing compound matching on already-normalized tokens.
 
-- `gui/edit_form.py:286-308`
-- `gui/main_window.py:398-405`
-- `gui/main_window.py:539-554`
+---
 
-`EditForm._on_save()` constructs an edited `Unit` and emits it. `MainWindow._start_save_worker()` passes that edited object to `SaveWorker`, so the database write can succeed. But `_on_save_finished()` ignores the worker's saved unit and instead reads `self.current_unit`, which still points to the pre-edit selected unit.
+### BUG-22: `tag_parser.py` — RTF dimension pattern discards valid dimension data
+**File**: `data/tag_parser.py` lines 262-281
+**Severity**: Medium
+**Status**: **OPEN**
+**Issue**: The RTF regex `r"RTF\s*(\d+(?:X\d+)*)\s*(.*)"` captures group(1) as potentially a dimension. But the check `if "X" in revision_or_dim.upper()` only checks for uppercase X. If the input has lowercase "x" (e.g., "RTF 9x9x18"), the dimension won't be treated as a dimension and will be discarded as a revision number. The `DIMENSION_PATTERN` later won't find it because the text was already consumed.
+**Resolution**: The `re.IGNORECASE` flag on the RTF regex helps, but the `"X"` check should also be case-insensitive: `if "X" in revision_or_dim.upper()`.
 
-Impact:
+---
 
-- A successful DB save can appear to revert in the UI until a reload occurs.
-- `self.units`, the calendar, list, timeline, and edit form can be refreshed with stale values.
-- Conflict handling also uses `self.current_unit`, so the "local" values shown to the user may not be the values they just tried to save.
+### BUG-23: `db.py` — `_working_days_between` doesn't handle end < start for `working_days` version
+**File**: `data/db.py` lines 184-199
+**Severity**: Low
+**Status**: **OPEN**
+**Issue**: The `db.py` public `working_days_between(start: date, end: date, working_weekdays)` function returns 0 when `end <= start`, but the private `_working_days_between(start_str, end_str)` returns `None` when `e < s`. These serve different callers but have inconsistent return types (int vs None) for the same edge case. The private version is used by `writer.py` for `working_days_in_checking` — if somehow `completion_date < checking_date`, it writes `None` instead of 0, which may be correct (NULL means "unknown") but is inconsistent with the public version.
 
-Recommendation:
+---
 
-- In `_on_save_finished()`, use `worker.unit` after narrowing `self.sender()` to `SaveWorker`.
-- Update `self.current_unit` and `edit_form.current_unit` to the saved unit only after the DB write succeeds.
-- Add an async GUI save test that edits a field, waits for the worker, and asserts the in-memory model and table show the edited value.
+### BUG-24: `writer.py` — `notes` field not in UPDATE SQL
+**File**: `data/writer.py` lines 37-83
+**Severity**: Medium
+**Status**: **NEEDS VERIFICATION**
+**Issue**: Looking at the UPDATE statement, `notes` IS included at line 55 in the column list. However, verify that the parameter tuple at lines 60-83 has `unit.notes` at the correct position. Counting the `?` placeholders vs the values: there are 19 `?` columns + 1 or 2 WHERE params. The values tuple has 19 entries including `unit.notes` at position 18 (0-indexed: 17). This appears correct, but any future column addition must maintain exact positional correspondence.
 
-### Critical: GUI saves bypass optimistic locking because `updated_at` is not preserved
+---
 
-References:
+### BUG-25: `loader.py` — Fingerprint cache keyed on `id(unit)` can collide
+**File**: `data/loader.py` lines 30-58
+**Severity**: Low
+**Status**: **OPEN**
+**Issue**: `_fingerprint_cache` uses `id(unit)` as the key. Python's `id()` returns the memory address, which can be reused after an object is garbage collected. If a Unit is deleted and a new one allocated at the same address, the cache would return a stale fingerprint. In practice, this is unlikely given the app's usage pattern, but it's a correctness issue in theory.
+**Recommendation**: Use the `com_number` as the cache key instead, or use a `WeakValueDictionary`.
 
-- `gui/edit_form.py:286-306`
-- `data/writer.py:29-35`
-- `data/models.py:64-66`
+---
 
-`row_to_unit()` loads `updated_at`, and `save_unit()` only enforces optimistic locking when `unit.updated_at` is present. However, `EditForm._on_save()` creates a fresh `Unit` and does not copy `orig.updated_at`. That means normal GUI saves use the unlocked fallback path in `save_unit()`.
+## Improvements
 
-Impact:
+### IMP-1: Add `notes` to `unit_fingerprint` payload
+**Status**: **FIXED** (see BUG-1)
 
-- Concurrent edits can overwrite each other silently from the main GUI path.
-- The conflict dialog is unlikely to appear for normal edit-form saves, despite the writer claiming to support optimistic locking.
+---
 
-Recommendation:
+### IMP-2: Persist `status_color` to the database
+**Status**: **FIXED** (see BUG-5)
 
-- Copy `updated_at=orig.updated_at` into the edited `Unit`.
-- After a successful save, reload the row or update `unit.updated_at` from SQLite so the next save uses the new timestamp.
-- Add a GUI-level stale timestamp test, not just a direct writer test.
+---
 
-### High: `save_unit()` uses `conn.total_changes` for row-match detection
+### IMP-3: Unify `working_days_between` implementations
+**Status**: **PARTIALLY FIXED** (see BUG-4)
+The two active implementations serve different purposes. Dead code remains.
 
-Reference:
+---
 
-- `data/writer.py:36-70`
+### IMP-4: Extend calendar to show multiple date types
+**Status**: **NOT DESIRED** (see BUG-7)
 
-`conn.total_changes` is cumulative for the lifetime of the SQLite connection. Once the connection has performed any successful write, a later zero-row `UPDATE` can still leave `total_changes > 0`, so the code can miss a failed optimistic-lock check or missing COM.
+---
 
-Impact:
+### IMP-5: Extend search to include description and notes
+**Status**: **FIXED** (see BUG-8)
 
-- Stale saves may be reported as successful.
-- Missing COM numbers may not be detected consistently.
-- Behavior depends on connection history, which makes failures intermittent.
+---
 
-Recommendation:
+### IMP-6: Add feature-based filtering
+**Status**: **SPEC WRITTEN** — see `plans/IMP-6-feature-filtering.md`
 
-- Store the result of `conn.execute(...)` and inspect `cursor.rowcount`.
-- Decide explicitly whether a missing COM should raise. The current test name says it should raise, while its comment says it should not.
+---
 
-### High: Multi-user sync infrastructure is mostly initialized but not used by saves
+### IMP-7: Add unit type filtering
+**Status**: **SPEC WRITTEN** — see `plans/IMP-7-unit-type-filtering.md`
 
-References:
+---
 
-- `gui/main_window.py:34`
-- `gui/main_window.py:117-124`
-- `gui/main_window.py:373-390`
-- `gui/main_window.py:852-918`
-- `sync/lock_manager.py:107-111`
-- `sync/revision_store.py:61-111`
+### IMP-8: Improve RTF parsing in tag_parser
+**Status**: **FIXED** (see BUG-9)
 
-`MainWindow` imports and initializes `LockManager`, `RevisionStore`, `SharedCache`, session presence, and sync status state, but the actual save path calls only `save_unit()`. It does not acquire a lock, commit a revision, update the shared cache, or update the sync status widget.
+---
 
-Impact:
+### IMP-9: Add database migration system
+**Status**: **FIXED**
+`_migrate_schema()` in `data/db.py` handles incremental schema changes:
+- `status_color` column (earlier migration)
+- `working_days_in_checking` column (this session, with backfill of 885 rows)
 
-- `multi_user.enabled: true` gives the appearance of stronger coordination than the app actually uses.
-- Revision conflicts tested in `sync/` are not enforced in the user-facing save flow.
-- `_sync_save_blocked` is set when sync setup fails but is not checked before saving.
+---
 
-Recommendation:
+### IMP-10: Add `manufacturing_location` to the UI
+**Status**: **SPEC WRITTEN** — see `plans/IMP-10-manufacturing-location-UI.md`
 
-- Either wire the sync layer into `_start_save_worker()`/`SaveWorker` or remove/disable the multi-user controls until the path is complete.
-- Check `_sync_save_blocked` before starting a save.
-- Add integration tests through `MainWindow.on_save_unit()`.
+---
 
-### High: Close-progress and shutdown cleanup code is orphaned
+### IMP-11: Theme-aware pivot chart colors
+**Status**: **FIXED** (see BUG-10)
 
-References:
+---
 
-- `gui/main_window.py:1207-1261`
-- `gui/close_progress_dialog.py:141`
+### IMP-12: Add keyboard shortcuts
+**Status**: **SPEC WRITTEN** — see `plans/IMP-12-keyboard-shortcuts.md`
 
-`MainWindow` defines `_begin_close_with_sync()`, `_tick_close_progress()`, and `_real_close()`, but there is no `MainWindow.closeEvent()` and no references to `_begin_close_with_sync()` outside its definition.
+---
 
-Impact:
+### IMP-13: Batch operations
+**Status**: **SPEC WRITTEN** — see `plans/IMP-13-batch-operations.md`
 
-- In-flight saves are not waited on during normal window close.
-- Session heartbeat cleanup in `_real_close()` may not run.
-- Debounced config writes may be lost on exit.
-- `CloseProgressDialog` is tested but not integrated.
+---
 
-Recommendation:
+### IMP-14: Export filtered results
+**Status**: **SPEC WRITTEN** — see `plans/IMP-14-export-filtered.md`
 
-- Implement `MainWindow.closeEvent()` to route through `_begin_close_with_sync()` when a save is active and through `_real_close()` otherwise.
-- Ensure `_real_close()` calls the base close event path safely rather than recursively closing.
+---
 
-### Medium: List date preset code and tests are out of sync with the UI
+### IMP-15: Undo/redo support
+**Status**: **SPEC WRITTEN** — see `plans/IMP-15-undo-redo.md`
 
-References:
+---
 
-- `gui/list_panel.py:95-105`
-- `gui/list_panel.py:138-183`
-- `gui/list_panel.py:185-248`
-- `gui/list_panel.py:361-374`
-- `gui/list_panel.py:678-681`
-- `tests/test_list_panel.py:194-213`
-- `tests/test_list_panel.py:406-409`
+### IMP-16: Add `working_days_in_checking` computed column
+**Status**: **IMPLEMENTED**
 
-`DATE_FILTER_PRESETS` and `_filter_by_date()` still exist, and tests expect `apply_filters(date_preset=...)` plus a `date_combo`. The current UI uses two `QDateEdit` widgets instead, and `apply_filters()` no longer accepts `date_preset`.
+---
 
-Impact:
+### IMP-17: Add checking surge detection
+**Status**: **IMPLEMENTED**
 
-- Nine list-panel tests fail.
-- The orphaned preset code can mislead future changes.
-- The default date range filters out units outside `today - 30` through `today + 90`, so "set units" and "clear filters" do not actually show all units.
+---
 
-Recommendation:
+### IMP-18: Add computation audit document
+**Status**: **IMPLEMENTED**
+`docs/COMPUTATION_AUDIT.md` documents every computed field, formula, data dependency, and business rationale.
 
-- Choose one model: restore a preset combo or remove the preset constant, `_filter_by_date()`, and stale tests.
-- If "Clear Filters" should mean "show all", make the date range optional/disabled when cleared.
+---
 
-### Medium: Calendar writes a debug log file during normal UI refresh
+### IMP-19: Migrate image file paths on vault relocation
+**Status**: **IMPLEMENTED**
+`catalogStore.ts` (Gallery Viewer) now auto-migrates absolute Windows file paths to Linux paths when loading the catalog. Fixes the ENOENT errors when opening files after vault migration.
 
-References:
+---
 
-- `gui/calendar_panel.py:62-77`
+## Future Features (Schema-Enabled)
 
-`EventCalendarWidget.set_events()` appends to `calendar_debug.log` every time units are loaded/refreshed.
+### FEAT-1: Detailer Workload Dashboard
+**Status**: **PARTIALLY IMPLEMENTED**
 
-Impact:
+### FEAT-2: Novelty Alert System
+**Status**: **SPEC WRITTEN** — see `plans/FEAT-2-novelty-alert-system.md`
 
-- Creates unexpected files in the process working directory.
-- Can grow indefinitely in daily use.
-- May fail or slow down on locked/read-only deployment paths.
+### FEAT-3: Schedule Conflict Detection
+**Status**: **PARTIALLY IMPLEMENTED**
 
-Recommendation:
+### FEAT-4: Build Date Tracking & Alerts
+**Status**: **SPEC WRITTEN** — see `plans/FEAT-4-build-date-tracking.md`
 
-- Remove the file writes or replace them with `logging.debug()`.
+### FEAT-5: Feature Frequency Analysis
+**Status**: **SPEC WRITTEN** — see `plans/FEAT-5-feature-frequency-analysis.md`
 
-### Medium: `SyncStatusWidget.update()` overrides `QWidget.update()` with an incompatible signature
+### FEAT-6: Unit Type Templates
+**Status**: **SPEC WRITTEN** — see `plans/FEAT-6-unit-type-templates.md`
 
-Reference:
+### FEAT-7: Checking Status Workflow
+**Status**: **PARTIALLY IMPLEMENTED**
 
-- `gui/sync_status.py:59-103`
+### FEAT-8: Variance Tracking
+**Status**: **SPEC WRITTEN** — see `plans/FEAT-8-variance-tracking.md`
 
-The widget defines `update(self, remaining, total)`, which shadows Qt's paint scheduling method `QWidget.update()`.
+### FEAT-9: Multi-Location Support
+**Status**: **SPEC WRITTEN** — see `plans/FEAT-9-multi-location-support.md`
 
-Impact:
+### FEAT-10: DR/DVL Check Tracking
+**Status**: **SPEC WRITTEN** — see `plans/FEAT-10-dr-dvl-check-tracking.md`
 
-- Type checkers correctly report an override error.
-- Any Qt/framework code or maintainer calling `widget.update()` with normal Qt semantics will fail.
+### FEAT-11: Historical Trend Analysis
+**Status**: **SPEC WRITTEN** — see `plans/FEAT-11-historical-trend-analysis.md`
 
-Recommendation:
+### FEAT-12: Identical Unit Management
+**Status**: **SPEC WRITTEN** — see `plans/FEAT-12-identical-unit-management.md`
 
-- Rename this method to `set_progress()` or `update_progress()`.
+### FEAT-13: Remaining Demand Forecasting
+**Status**: **SPEC WRITTEN** — see `plans/FEAT-13-remaining-demand-forecasting.md`
 
-### Medium: SSRS import assumes the default URL is non-null and uses optional dependencies not declared
+### FEAT-14: Tag-Based Smart Search
+**Status**: **SPEC WRITTEN** — see `plans/FEAT-14-tag-based-smart-search.md`
 
-References:
-
-- `automation/import_atomsvc.py:109-131`
-- `automation/import_atomsvc.py:133-159`
-- `automation/import_atomsvc.py:176-198`
-- `requirements.txt`
-
-`run_ssrs_import()` accepts `ssrs_url: str | None`, then passes it to `build_ssrs_url()` as if it were a string. The module also attempts `requests`, `requests_ntlm`, `win32com`, and `pythoncom`, but those are not in `requirements.txt`.
-
-Impact:
-
-- Calling `run_ssrs_import(db_path, ssrs_url=None)` directly can fail before network access.
-- Deployment behavior differs by machine depending on undeclared packages and installed tools.
-
-Recommendation:
-
-- Validate `ssrs_url` at function entry or make it required.
-- Document optional auth backends or add extras such as `requirements-ssrs.txt`.
-
-### Medium: Export confirmation says one sheet while exporter writes another
-
-References:
-
-- `gui/main_window.py:1051-1079`
-- `automation/export_to_workbook.py:23-27`
-
-The GUI says the export will overwrite the "Unedited Report" sheet, while the exporter writes `CURRENT_LIST_SHEET = "Current List"`.
-
-Impact:
-
-- Users may approve an export based on the wrong target sheet.
-- Operationally risky because this action modifies an Excel workbook in place.
-
-Recommendation:
-
-- Align the dialog text, tooltip, function docstring, and exporter constant.
-
-### Medium: `pyrightconfig.json` points at Python 3.14 despite project metadata requiring 3.10+
-
-References:
-
-- `pyproject.toml:4`
-- `pyrightconfig.json:2-13`
-
-The project declares `requires-python = ">=3.10"`, but Pyright is configured for Python 3.14 and hard-coded local site-packages paths.
-
-Impact:
-
-- Type analysis may not reflect the supported runtime.
-- Other developers or build agents will inherit machine-specific paths.
-
-Recommendation:
-
-- Set `pythonVersion` to the supported deployment version, likely `3.10` or `3.11`.
-- Remove machine-specific `pythonPath` and `extraPaths`, or move them to an untracked local config.
-
-### Low: Several orphaned or stale artifacts remain
-
-References:
-
-- `data/loader.py:11-12` (`COLUMN_MAP`)
-- `gui/timeline_panel.py:301-339` (`_draw_date_axis`)
-- `gui/main_window.py:533-537` (`_release_save_worker`)
-- `gui/main_window.py:771-804` (Excel wording in SQLite refresh cooldown)
-- `main.py:32` (`config_path` parameter in `_validate_config_paths()`)
-
-These items are unused or kept only for stale compatibility.
-
-Recommendation:
-
-- Remove them if no external callers depend on them.
-- If retained intentionally, add comments that explain the compatibility contract and add tests for that contract.
-
-### Low: Lint and typing hygiene are poor enough to hide real issues
-
-References:
-
-- `ruff check .`: 140 findings.
-- `mypy .`: 126 findings.
-
-Many findings are style-only, but several are real maintenance hazards:
-
-- Undefined `QObject` annotation in `sync/session_registry.py:83`.
-- Unused imports for important-looking sync concepts such as `RevisionConflictError`.
-- Incompatible Qt overrides in GUI classes.
-- Many stale comments/docstrings still reference Excel sync after the SQLite migration.
-
-Recommendation:
-
-- Run `ruff check --fix .` for safe mechanical cleanup, then review remaining findings manually.
-- Decide whether mypy is a supported gate. If yes, tune the PyQt stubs/configuration and fix remaining errors incrementally.
-
-## Test Failures Observed
-
-With `QT_QPA_PLATFORM=offscreen pytest`, the failing tests were:
-
-- `tests/test_list_panel.py::TestUnitListModelFiltering::test_filter_overdue`
-- `tests/test_list_panel.py::TestUnitListModelFiltering::test_filter_next_7_days`
-- `tests/test_list_panel.py::TestUnitListModelFiltering::test_filter_next_30_days`
-- `tests/test_list_panel.py::TestUnitListModelFiltering::test_filter_excludes_null_due_dates`
-- `tests/test_list_panel.py::TestListPanelWidget::test_set_units`
-- `tests/test_list_panel.py::TestListPanelWidget::test_clear_filters`
-- `tests/test_list_panel.py::TestListPanelWidget::test_date_combo_has_presets`
-- `tests/test_list_panel.py::TestFilterSortIntegration::test_filter_overdue_sort_by_com`
-- `tests/test_list_panel.py::TestFilterSortIntegration::test_filter_next_7_days_sort_by_status`
-- `tests/test_writer.py::TestSaveUnit::test_com_number_not_found_raises`
-
-Root causes:
-
-- List-panel tests still expect date presets and `date_combo`, but the code now uses explicit from/to date edits.
-- The list panel applies a default date range, so initial and cleared views do not show all rows.
-- The writer test name and comment disagree about whether a missing COM should raise.
-
-## Suggested Fix Order
-
-1. Fix the GUI save path to preserve `updated_at` and commit the worker's saved unit back into memory.
-2. Replace `conn.total_changes` with statement `rowcount` in `save_unit()`.
-3. Decide whether multi-user sync is a real feature for this release; wire it in or remove the inactive surface area.
-4. Reconcile the list-panel date filter design with tests and user expectations.
-5. Add `MainWindow.closeEvent()` and integrate close-progress/session cleanup.
-6. Remove debug file writes and stale Excel wording.
-7. Run Ruff auto-fixes, then clean up the remaining static typing issues.
+### FEAT-15: Automated Status Color Sync
+**Status**: **FIXED**

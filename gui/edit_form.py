@@ -166,10 +166,10 @@ class EditForm(QWidget):
         self._loading = False
         _fields = (
             self.job_name_edit, self.contract_edit, self.description_edit,
-            self.detailer_edit,  # Changed from QLineEdit
+            self.detailer_edit,
             self.checking_status_edit,
             self.notes_edit,
-            self.dept_hours_spin, self.target_hours_spin,
+            self.dept_hours_spin,
             self.iec_hours_spin, self.percent_spin, self.actual_hours_spin,
             self.start_date_edit, self.checking_date_edit,
             self.completion_date_edit, self.due_prev_date_edit,
@@ -178,10 +178,13 @@ class EditForm(QWidget):
         for f in _fields:
             if isinstance(f, QLineEdit):
                 f.textChanged.connect(self._mark_dirty)
-            elif isinstance(f, QComboBox): # Added QComboBox dirty tracking
+            elif isinstance(f, QComboBox):
                 f.currentIndexChanged.connect(self._mark_dirty)
+            elif isinstance(f, QTextEdit):
+                f.textChanged.connect(self._mark_dirty)
             elif isinstance(f, (QDateEdit, QDoubleSpinBox)):
-                f.dateChanged.connect(self._mark_dirty) if isinstance(f, QDateEdit) else None
+                if isinstance(f, QDateEdit):
+                    f.dateChanged.connect(self._mark_dirty)
                 if isinstance(f, QDoubleSpinBox):
                     f.valueChanged.connect(self._mark_dirty)
 
@@ -217,6 +220,7 @@ class EditForm(QWidget):
 
     def set_unit(self, unit: Unit | None):
         """Populate form from a Unit object."""
+        self._loading = True
         self._dirty = False
         self.dirty_changed.emit(False)
         # Block signals during population to prevent dirty-tracking fires
@@ -225,7 +229,7 @@ class EditForm(QWidget):
             self.job_name_edit, self.contract_edit, self.description_edit,
             self.detailer_edit, self.checking_status_edit,
             self.notes_edit,
-            self.dept_hours_spin, self.target_hours_spin,
+            self.dept_hours_spin,
             self.iec_hours_spin, self.percent_spin, self.actual_hours_spin,
             self.start_date_edit, self.checking_date_edit,
             self.completion_date_edit, self.due_prev_date_edit,
@@ -288,6 +292,7 @@ class EditForm(QWidget):
         finally:
             for f in _signal_blocks:
                 f.blockSignals(False)
+            self._loading = False
 
     def _on_save(self):
         """Collect form data into a Unit and emit."""

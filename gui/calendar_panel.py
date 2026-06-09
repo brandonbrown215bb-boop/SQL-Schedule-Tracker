@@ -38,8 +38,7 @@ class EventCalendarWidget(QCalendarWidget):
         self.installEventFilter(self)
 
     def _emit_date_clicked(self, date: QDate):
-        if date in self.events_by_date:
-            self.date_clicked.emit(date)
+        self.date_clicked.emit(date)
 
     def eventFilter(self, obj, event):
         """Reposition calendar popup menus that appear at wrong screen location."""

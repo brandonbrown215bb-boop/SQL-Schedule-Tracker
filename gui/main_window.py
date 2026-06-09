@@ -195,6 +195,8 @@ class MainWindow(QMainWindow):
         self.list_view_btn = QPushButton("\U0001f4cb List")
         self.alerts_view_btn = QPushButton("🔔 Alerts")
         self.list_view_btn.setObjectName("list_view_btn")
+        self.calendar_view_btn.setObjectName("calendar_view_btn")
+        self.alerts_view_btn.setObjectName("alerts_view_btn")
         self.calendar_view_btn.setCheckable(True)
         self.list_view_btn.setCheckable(True)
         self.alerts_view_btn.setCheckable(True)
@@ -284,6 +286,7 @@ class MainWindow(QMainWindow):
     def _build_help_menu(self):
         """Build the Help menu with walkthrough and about actions."""
         menubar = self.menuBar()
+        menubar.setObjectName("menuBar")
 
         # ── Reports menu ──
         reports_menu = menubar.addMenu("&Reports")
@@ -355,8 +358,7 @@ class MainWindow(QMainWindow):
             self.calendar_view_btn.setChecked(False)
             self.list_view_btn.setChecked(False)
             self.alerts_view_btn.setChecked(True)
-            if self.units:
-                self.alert_panel.set_units(self.units)
+            self.alert_panel.set_units(self.units)
 
         # Save preference
         self.config.setdefault("ui", {})["last_view"] = view_name
@@ -639,6 +641,22 @@ class MainWindow(QMainWindow):
         changed_units = self._detect_due_date_changes(self.units, units)
 
         self.units = units
+        
+        # ── BUG-3: _apply_identicals may have updated target_department_hours
+        #    and is_non_primary_identical on the new units. If the edit form
+        #    is currently showing a unit, update its reference so the form
+        #    reflects the post-identicals values.
+        if self.current_unit is not None:
+            for new_unit in self.units:
+                if new_unit.com_number == self.current_unit.com_number:
+                    self.current_unit = new_unit
+                    self.edit_form.current_unit = new_unit
+                    # Only re-populate the form if it's NOT dirty — otherwise
+                    # we'd silently discard the user's unsaved edits (e.g. during
+                    # an auto-refresh or file-watcher reload).
+                    if not self._form_dirty:
+                        self.edit_form.set_unit(new_unit)
+                    break
         
         # Build tag repository for description-based tagging and novelty detection
         self._tag_repo = UnitTagRepository(self.units)
