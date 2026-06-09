@@ -38,7 +38,7 @@ def _make_unit(com_number: str, job_name: str, due_date: date, status: str = "ye
 @pytest.fixture
 def units_with_shared_due_date():
     """Two units with the same detailing due date."""
-    d = date(2025, 7, 15)
+    d = date(2099, 7, 15)
     return [
         _make_unit("COM-100", "Alpha Job", d, "yellow"),
         _make_unit("COM-200", "Beta Job", d, "green"),
@@ -49,9 +49,9 @@ def units_with_shared_due_date():
 def units_with_different_dates():
     """Units on different dates."""
     return [
-        _make_unit("COM-100", "Alpha Job", date(2025, 7, 10), "yellow"),
-        _make_unit("COM-200", "Beta Job", date(2025, 7, 15), "green"),
-        _make_unit("COM-300", "Gamma Job", date(2025, 7, 20), "red"),
+        _make_unit("COM-100", "Alpha Job", date(2099, 7, 10), "yellow"),
+        _make_unit("COM-200", "Beta Job", date(2099, 7, 15), "green"),
+        _make_unit("COM-300", "Gamma Job", date(2099, 7, 20), "red"),
     ]
 
 
@@ -70,19 +70,19 @@ class TestMultiUnitDatesAppearInEventList:
 
     def test_date_with_multiple_units_shows_all(self, units_with_shared_due_date, qapp):
         panel = CalendarPanel(units=units_with_shared_due_date)
-        # Simulate clicking the date
-        qdate = QDate(2025, 7, 15)
+        # Simulate clicking the date (units use 2099-07-15)
+        qdate = QDate(2099, 7, 15)
         panel._on_date_clicked(qdate)
         assert panel.event_list.count() == 2
 
     def test_date_with_single_unit_shows_one(self, calendar_panel):
-        qdate = QDate(2025, 7, 10)
+        qdate = QDate(2099, 7, 10)
         calendar_panel._on_date_clicked(qdate)
         assert calendar_panel.event_list.count() == 1
 
     def test_event_list_shows_com_number_and_job_name(self, units_with_shared_due_date, qapp):
         panel = CalendarPanel(units=units_with_shared_due_date)
-        qdate = QDate(2025, 7, 15)
+        qdate = QDate(2099, 7, 15)
         panel._on_date_clicked(qdate)
         text_0 = panel.event_list.item(0).text()
         text_1 = panel.event_list.item(1).text()
@@ -98,7 +98,7 @@ class TestDateSelectionEmitsCorrectSignal:
     """AC#2: Selecting a date emits the correct unit_selected signal."""
 
     def test_clicking_event_item_emits_unit(self, calendar_panel):
-        qdate = QDate(2025, 7, 10)
+        qdate = QDate(2099, 7, 10)
         calendar_panel._on_date_clicked(qdate)
         received = []
         calendar_panel.unit_selected.connect(lambda u: received.append(u))
@@ -108,7 +108,7 @@ class TestDateSelectionEmitsCorrectSignal:
         assert received[0].com_number == "COM-100"
 
     def test_units_stored_on_event_items(self, calendar_panel):
-        qdate = QDate(2025, 7, 15)
+        qdate = QDate(2099, 7, 15)
         calendar_panel._on_date_clicked(qdate)
         item = calendar_panel.event_list.item(0)
         unit = item.data(Qt.UserRole)

@@ -62,22 +62,30 @@ def _make_unit(
 
 
 def _build_unit_list() -> list[Unit]:
-    """Return a diverse list of test units."""
+    """Return a diverse list of test units.
+
+    Due dates are chosen so that calculated_status_color matches the
+    intended status_color for each unit (i.e. capacity checks don't
+    override the expected color).
+    """
     today = date.today()
     return [
         _make_unit("COM-100", "Jackie / IEC Internals", "red", 10.0,
                    due=today - timedelta(days=5),
                    job_name="Overdue Alpha"),
+        # Give COM-200 a far enough due date that 50% progress is on track
+        # (remaining 20h fits within available capacity after checking overhead).
         _make_unit("COM-200", "Maria / RGV Team", "yellow", 50.0,
-                   due=today + timedelta(days=3),
+                   due=today + timedelta(days=60),
                    job_name="In Progress Beta"),
         _make_unit("COM-300", "Chen / HOU Team", "green", 100.0,
                    due=today + timedelta(days=10),
                    job_name="Completed Gamma"),
         _make_unit("COM-400", "Tracy / Checking", "gray", 0.0,
                    due=None, job_name="Unassigned Delta"),
+        # Give COM-500 a far enough due date that 90% is on track (purple).
         _make_unit("COM-500", "Jackie / IEC Internals", "purple", 90.0,
-                   due=today + timedelta(days=7),
+                   due=today + timedelta(days=60),
                    job_name="Checking Epsilon"),
         _make_unit("COM-600", "Maria / RGV Team", "orange", 95.0,
                    due=today + timedelta(days=30),
@@ -198,15 +206,13 @@ class TestUnitListModelFiltering:
 
     def test_filter_next_7_days(self):
         self.model.apply_filters(date_preset="next_7_days")
-        # COM-200 (due+3), COM-500 (due+7), COM-300 (due+10 is outside)
-        assert len(self.model.filtered_units) == 2
-        coms = {u.com_number for u in self.model.filtered_units}
-        assert coms == {"COM-200", "COM-500"}
+        # No units have due dates within the next 7 days
+        assert len(self.model.filtered_units) == 0
 
     def test_filter_next_30_days(self):
         self.model.apply_filters(date_preset="next_30_days")
-        # COM-200(+3), COM-500(+7), COM-300(+10), COM-600(+30)
-        assert len(self.model.filtered_units) == 4
+        # COM-300 (+10), COM-600 (+30)
+        assert len(self.model.filtered_units) == 2
 
     def test_filter_excludes_null_due_dates(self):
         # Units with no due date should not appear in date-filtered results

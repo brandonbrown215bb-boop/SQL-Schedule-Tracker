@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS units (
     dr_checks TEXT,
     dvl_checks TEXT,
     hours_checking REAL DEFAULT 0.0,
+    working_days_in_checking INTEGER,
     working_days_until_due INTEGER,
     calendar_days_until_due INTEGER,
     days_diff_due_to_build INTEGER,

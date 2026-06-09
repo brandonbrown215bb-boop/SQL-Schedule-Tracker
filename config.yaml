@@ -119,7 +119,7 @@ ui:
   auto_refresh_minutes: 0
   colorblind_mode: none
   high_contrast: true
-  last_view: list
+  last_view: calendar
   list_sort_ascending: true
   list_sort_column: detailing_due_date
   list_visible_columns:

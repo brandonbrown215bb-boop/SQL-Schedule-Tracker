@@ -17,12 +17,14 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-# ── Segment colors ────────────────────────────────────────────────────
-COLORS = {
-    "allocated":   "#4472C4",  # remaining hours  (blue)
-    "pct_complete": "#00BCD4",  # completed hours  (cyan)
-    "completed":   "#A9D18E",  # units completed  (light green)
-    "not_completed": "#FFC000",  # units not completed (yellow)
+# ── Segment color keys (computed from theme in _load_theme_colors) ────
+# These are theme-relative token names resolved at runtime so dark mode
+# and CVD settings are respected automatically.
+COLOR_KEYS: dict[str, str] = {
+    "allocated":   "accent",        # remaining hours  (theme accent)
+    "pct_complete": "text_success",  # completed hours  (theme success)
+    "completed":   "green",         # units completed  (status green)
+    "not_completed": "yellow",      # units not completed (status yellow)
 }
 
 
@@ -47,13 +49,21 @@ class PivotTableView(QWidget):
         self.setFont(QFont("Segoe UI", 9))
 
     def _load_theme_colors(self) -> None:
-        from gui.theme import THEMES
+        from gui.theme import THEMES, get_status_colors
         t = THEMES.get(self._theme_name, THEMES["light"])
         self._bg = QColor(t["bg_primary"])
         self._text_primary = QColor(t["text_primary"])
         self._text_secondary = QColor(t["text_secondary"])
         self._border = QColor(t["border"])
         self._empty_bar = QColor(t["bg_tertiary"])
+
+        # Resolve chart segment colors from theme tokens + status colors
+        status_colors = get_status_colors(self._theme_name, self._cvd_mode)
+        self._segment_colors: dict[str, QColor] = {}
+        for segment, token in COLOR_KEYS.items():
+            # Try theme token first, fall back to status color, then hardcoded default
+            hex_color = t.get(token) or status_colors.get(token, "#888888")
+            self._segment_colors[segment] = QColor(hex_color)
 
     def set_data(self, data: list[dict]) -> None:
         self._data = data
@@ -139,7 +149,7 @@ class PivotTableView(QWidget):
             self._draw_segment(
                 p, hours_x, y, alloc_w, self.BAR_HEIGHT,
                 alloc, self._max_hours,
-                QColor(COLORS["allocated"]),
+                self._segment_colors["allocated"],
                 f"{alloc:.0f} hrs",
             )
             # % complete bar (cyan) — fills remaining space in hours area
@@ -149,7 +159,7 @@ class PivotTableView(QWidget):
             self._draw_segment(
                 p, hours_x + alloc_w + 2, y, pct_bar_w, self.BAR_HEIGHT,
                 pct, 100.0,
-                QColor(COLORS["pct_complete"]),
+                self._segment_colors["pct_complete"],
                 f"{hours_remaining:.0f} hrs left",
             )
 
@@ -159,14 +169,14 @@ class PivotTableView(QWidget):
             self._draw_segment(
                 p, units_x, y, done_w, self.BAR_HEIGHT,
                 completed_units, self._max_units,
-                QColor(COLORS["completed"]),
+                self._segment_colors["completed"],
                 str(completed_units),
             )
             # Units not completed (yellow) — strictly after done bar
             self._draw_segment(
                 p, units_x + done_w + 2, y, left_w, self.BAR_HEIGHT,
                 not_completed_units, self._max_units,
-                QColor(COLORS["not_completed"]),
+                self._segment_colors["not_completed"],
                 str(not_completed_units),
             )
 
@@ -207,20 +217,20 @@ class PivotTableView(QWidget):
     def _draw_legend(self, p: QPainter, x: int, y: int) -> None:
         """Draw the color legend below the bars."""
         items = [
-            (COLORS["allocated"],   "ALLOCATED HRS"),
-            (COLORS["pct_complete"], "% HOURS COMPLETE"),
-            (COLORS["completed"],   "UNITS COMPLETED"),
-            (COLORS["not_completed"], "UNITS NOT COMPLETED"),
+            (self._segment_colors["allocated"],   "ALLOCATED HRS"),
+            (self._segment_colors["pct_complete"], "% HOURS COMPLETE"),
+            (self._segment_colors["completed"],   "UNITS COMPLETED"),
+            (self._segment_colors["not_completed"], "UNITS NOT COMPLETED"),
         ]
         fm = QFontMetrics(QFont("Segoe UI", 9))
         p.setFont(QFont("Segoe UI", 9))
         cur_x = x
         box_size = 14
         text_color = QColor("#f1f5f9") if self._theme_name == "dark" else QColor("#1e293b")
-        for color_hex, label in items:
+        for color, label in items:
             # Color box
             p.setPen(Qt.NoPen)
-            p.setBrush(QBrush(QColor(color_hex)))
+            p.setBrush(QBrush(color))
             p.drawRoundedRect(cur_x, y, box_size, box_size, 2, 2)
             cur_x += box_size + 5
             # Label text — use proper width so it's visible

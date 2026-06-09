@@ -39,41 +39,190 @@ class WalkthroughStep(NamedTuple):
 
 
 ONBOARDING_STEPS: list[WalkthroughStep] = [
+    # ── 1. Calendar & List ───────────────────────────────────────────
     WalkthroughStep(
         widget_name="calendar_panel",
-        title="Calendar & List",
-        description="Browse units by date (calendar) or see everything sorted by due date (list). Toggle between them with the buttons above.",
+        title="Calendar & List & Alerts",
+        description=(
+            "Three views for browsing units: Calendar (dates with dots), "
+            "List (sortable table with filters), and Alerts (per-detailer "
+            "urgency dashboard). Switch via the toggle buttons above."
+        ),
         position="bottom",
     ),
+    # ── 2. View Toggle ───────────────────────────────────────────────
     WalkthroughStep(
         widget_name="view_stack",
-        title="View Toggle",
-        description="Switch between Calendar view and List view. Your preference is saved automatically.",
+        title="View Toggle Buttons",
+        description=(
+            "Toggle between Calendar, List, and Alerts views. "
+            "Your active view is saved automatically between sessions. "
+            "The list view includes COM search, detailer/status/date "
+            "filters, and a toggle to show/hide stale units."
+        ),
         position="top",
     ),
+    # ── 3. Calendar view ─────────────────────────────────────────────
+    WalkthroughStep(
+        widget_name="calendar_view_btn",
+        title="Calendar View",
+        description=(
+            "The Calendar view shows colored dots on dates with units due. "
+            "Click a date to see its units listed below the calendar. "
+            "Date-cell dots are color-coded by status (green=done, red=overdue, "
+            "yellow=in-progress, purple=ready-for-checking, orange=nearly-done). "
+            "Stale units (past due >30 days) are hidden by default."
+        ),
+        position="top",
+    ),
+    # ── 4. List view ─────────────────────────────────────────────────
+    WalkthroughStep(
+        widget_name="list_view_btn",
+        title="List View",
+        description=(
+            "Sortable table of all units with multi-column filtering: "
+            "status, detailer, date presets (overdue/today/next 7-30 days/month), "
+            "custom date range, COM search, and alert-level filter. "
+            "Column widths are resizable. Right-click context menus available. "
+            "Press Ctrl+F to jump to the COM search box."
+        ),
+        position="top",
+    ),
+    # ── 5. Alerts view ───────────────────────────────────────────────
+    WalkthroughStep(
+        widget_name="alerts_view_btn",
+        title="Alerts View",
+        description=(
+            "Per-detailer alert dashboard grouping units by urgency: "
+            "Overdue (red), Urgent (≤7 days, orange), Approaching (≤14 days, yellow), "
+            "On Track (blue/green). Each detailer row shows their assigned units "
+            "sorted by alert level, with checking-surge detection and capacity warnings. "
+            "Units can be recategorized via tag-based novelty detection."
+        ),
+        position="top",
+    ),
+    # ── 6. Timeline panel ────────────────────────────────────────────
     WalkthroughStep(
         widget_name="timeline_panel",
         title="Unit Timeline",
-        description="See the selected unit's milestone dates, progress, and status at a glance.",
+        description=(
+            "Horizontal milestone bar chart for the selected unit. "
+            "Shows Detailing Start, Moved to Checking, Detailing Complete, "
+            "Dept Due (prev), and Detailing Due dates. The bar's fill color "
+            "reflects the unit's computed status: green=100%, orange=95-99%, "
+            "purple=90-94%, yellow=1-89%, gray=0%, red=overdue/behind-schedule. "
+            "Capacity-based logic factors in remaining hours vs. available working days."
+        ),
         position="left",
     ),
+    # ── 7. Edit form ─────────────────────────────────────────────────
     WalkthroughStep(
         widget_name="edit_form",
         title="Edit Form",
-        description="Modify any field of the selected unit. Press Ctrl+S or click Save to write changes to SQLite.",
+        description=(
+            "Modify any field of the selected unit: COM number (read-only), "
+            "job name, contract, description, detailer, checking status, notes, "
+            "department/target/IEC hours, % complete, actual hours, and 6 date fields. "
+            "Press Ctrl+S or click Save to write changes to SQLite. "
+            "Saves run in the background; the form stays editable while saving. "
+            "Dirty tracking shows unsaved changes. Auto-computed target hours "
+            "for primary identical units; non-primary values are read-only."
+        ),
         position="left",
     ),
+    # ── 8. Theme & Accessibility ──────────────────────────────────────
+    WalkthroughStep(
+        widget_name="theme_btn",
+        title="Theme & Accessibility",
+        description=(
+            "Toggle between light and dark themes (Ctrl+T). "
+            "The adjacent ♿ button opens accessibility settings: "
+            "color-blind vision (CVD) modes (protanopia/deuteranopia/tritanopia) "
+            "and high-contrast mode. Preference is saved automatically."
+        ),
+        position="bottom",
+    ),
+    # ── 9. Automation bar: Import CSV ─────────────────────────────────
     WalkthroughStep(
         widget_name="pull_csv_btn",
-        title="Import & Refresh",
-        description="Import fresh data from a CSV file, or refresh the view from the SQLite database.",
+        title="Import CSV",
+        description=(
+            "Import a CSV report from SSRS into the SQLite database. "
+            "Opens a file picker; new rows are upserted by COM number. "
+            "After import the view automatically refreshes to show the latest data."
+        ),
         position="top",
     ),
+    # ── 10. Automation bar: Pull SSRS ─────────────────────────────────
+    WalkthroughStep(
+        widget_name="pull_ssrs_btn",
+        title="Pull SSRS (Online Import)",
+        description=(
+            "Fetch fresh data directly from an SSRS ReportServer endpoint "
+            "configured in config.yaml. Supports configurable lookback/lookahead "
+            "date ranges. Inserts and updates rows in SQLite, then auto-refreshes."
+        ),
+        position="top",
+    ),
+    # ── 11. Automation bar: Refresh ───────────────────────────────────
+    WalkthroughStep(
+        widget_name="refresh_btn",
+        title="Refresh from SQLite",
+        description=(
+            "Reload all unit data from the SQLite database. "
+            "Has a 3-second cooldown to prevent rapid re-triggers. "
+            "Press F5 as a keyboard shortcut. Also refreshes automatically "
+            "when the database file changes externally (file watcher)."
+        ),
+        position="top",
+    ),
+    # ── 12. Automation bar: Export Excel ──────────────────────────────
+    WalkthroughStep(
+        widget_name="export_btn",
+        title="Export to Excel",
+        description=(
+            "Export the SQLite database contents to the 'Current List' sheet "
+            "of an Excel workbook (.xlsm/.xlsx). Reconciles with the shared "
+            "workbook used by the detailing team."
+        ),
+        position="top",
+    ),
+    # ── 13. Status bar ────────────────────────────────────────────────
     WalkthroughStep(
         widget_name="status_bar",
         title="Status Bar",
-        description="Messages, sync status, and unit count appear here. The app auto-reloads when the Excel file changes.",
+        description=(
+            "Shows loading progress, save confirmations, unit count, "
+            "and sync status messages. The app auto-reloads when the "
+            "SQLite database changes externally. If multi-user sync is "
+            "enabled, a presence indicator here shows who else is online; "
+            "click it for session details."
+        ),
         position="top",
+    ),
+    # ── 14. Help & Reports menus ──────────────────────────────────────
+    WalkthroughStep(
+        widget_name="menuBar",
+        title="Reports & Help Menus",
+        description=(
+            "The Reports menu opens a Scheduling Dashboard with segmented "
+            "bar charts (exportable as PNG) showing status distribution by "
+            "detailer, filtered by date range. The Help menu lets you "
+            "replay this walkthrough and view the About dialog."
+        ),
+        position="bottom",
+    ),
+    # ── 15. Keyboard shortcuts ────────────────────────────────────────
+    WalkthroughStep(
+        widget_name="left_panel",
+        title="Keyboard Shortcuts",
+        description=(
+            "Ctrl+S = Save current unit, Ctrl+T = Toggle theme, "
+            "F5 = Refresh data, Ctrl+F = Focus COM search, "
+            "Escape = Clear selection. The list view also supports "
+            "arrow-key navigation and context menus."
+        ),
+        position="bottom",
     ),
 ]
 

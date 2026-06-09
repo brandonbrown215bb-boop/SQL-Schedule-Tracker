@@ -78,12 +78,18 @@ PARSE_FUNCS = {
 
 def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
     """Upsert one row. Returns 'inserted', 'updated', or 'skipped'."""
+    from data.db import _working_days_between
     com = row_data.get("com_number")
     if not com:
         return "skipped"
 
     new_due_date = row_data.get("detailing_due_date")
     csv_pct = row_data.get("percent_complete") or 0.0
+    # Compute working_days_in_checking from the two date fields
+    wd_checking = _working_days_between(
+        row_data.get("unit_moved_to_checking_date"),
+        row_data.get("unit_detailing_completion_date"),
+    )
 
     # Check if row exists
     cursor.execute("SELECT detailing_due_date, percent_complete FROM units WHERE com_number = ?", (com,))
@@ -116,6 +122,11 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
         if "remaining_hours" not in update_cols:
             update_cols.append("remaining_hours")
 
+        # Always update working_days_in_checking when dates are available
+        if wd_checking is not None:
+            update_cols.append("working_days_in_checking")
+            row_data["working_days_in_checking"] = wd_checking
+
         set_parts = [f"{col} = ?" for col in update_cols]
         set_parts.append("updated_at = datetime('now')")
         values = [row_data.get(c) for c in update_cols]
@@ -136,6 +147,10 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
         insert_cols.append("remaining_hours")
         insert_values.append(remaining)
 
+        if wd_checking is not None:
+            insert_cols.append("working_days_in_checking")
+            insert_values.append(wd_checking)
+
         placeholders = ", ".join(["?"] * len(insert_cols))
         sql = f"INSERT INTO units ({', '.join(insert_cols)}) VALUES ({placeholders})"
         cursor.execute(sql, insert_values)
@@ -155,7 +170,7 @@ def run_import(csv_path: str, db_path: str) -> dict:
     with open(csv_path, encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         for line_num, csv_row in enumerate(reader, start=2):
-            if all(v.strip() == "" for v in csv_row.values()):
+            if all((v or "").strip() == "" for v in csv_row.values()):
                 stats["skipped"] += 1
                 continue
             try:

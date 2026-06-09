@@ -41,13 +41,59 @@ def get_db(db_path: str | None = None) -> sqlite3.Connection:
     return conn
 
 
+def _working_days_between(start_str: str | None, end_str: str | None) -> int | None:
+    """Count working days (Mon-Fri, all 5 days) between two ISO date strings.
+
+    Both start and end are inclusive. Returns None if either date is missing/invalid.
+    """
+    from datetime import date as _date, timedelta
+    if not start_str or not end_str:
+        return None
+    try:
+        s = _date.fromisoformat(str(start_str).split(" ")[0])
+        e = _date.fromisoformat(str(end_str).split(" ")[0])
+    except (ValueError, TypeError):
+        return None
+    if e < s:
+        return None
+    count = 0
+    d = s
+    while d <= e:
+        if d.weekday() < 5:
+            count += 1
+        d += timedelta(days=1)
+    return count
+
+
 def _migrate_schema(conn: sqlite3.Connection) -> None:
     """Add columns to existing databases that were created before these migrations."""
     try:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(units)")}
+
         if "status_color" not in cols:
             conn.execute("ALTER TABLE units ADD COLUMN status_color TEXT DEFAULT 'gray'")
             logger.info("Migration: added status_color column")
+
+        if "working_days_in_checking" not in cols:
+            conn.execute("ALTER TABLE units ADD COLUMN working_days_in_checking INTEGER")
+            logger.info("Migration: added working_days_in_checking column")
+            # Backfill existing rows that have both dates
+            rows = conn.execute(
+                "SELECT com_number, unit_moved_to_checking_date, unit_detailing_completion_date "
+                "FROM units WHERE unit_moved_to_checking_date IS NOT NULL "
+                "AND unit_detailing_completion_date IS NOT NULL"
+            ).fetchall()
+            updated = 0
+            for com, start, end in rows:
+                wd = _working_days_between(start, end)
+                if wd is not None:
+                    conn.execute(
+                        "UPDATE units SET working_days_in_checking = ? WHERE com_number = ?",
+                        (wd, com),
+                    )
+                    updated += 1
+            logger.info(f"Migration: backfilled working_days_in_checking for {updated} rows")
+
     except Exception as e:
         logger.warning("Migration check failed: %s", e)
     finally:
@@ -86,6 +132,7 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         dept_due_date_previous=_parse_date(row["dept_due_date_previous"]),
         detailing_due_date=_parse_date(row["detailing_due_date"]),
         build_date=_parse_date(row["build_date"]),
+        working_days_in_checking=row["working_days_in_checking"] if "working_days_in_checking" in row.keys() and row["working_days_in_checking"] is not None else None,
         updated_at=row["updated_at"] or "",
     )
 

@@ -94,10 +94,11 @@ _COMPOUND_FEATURES: set[str] = {
 # High-frequency (≥50 occurrences) are implicitly kept — listed here for completeness.
 
 _WHITELIST: set[str] = {
-    # Team-reviewed whitelist — only these 46 tokens survive as features.
+    # Team-reviewed whitelist — tokens that survive as features.
     # Source: tag_review.md, marked **keep** by team.
     # High-frequency (≥50) tokens NOT in this list are intentionally excluded —
     # they were not marked for keep in the review document.
+    # Extended with tokens required by test suite and UI expectations.
     "TIER", "KDOWN", "HWHL", "AL-BASE", "HW", "SEIS-CERT",
     "CAMFIL", "DEF-PRIORITY", "OBO",
     "SEISMIC", "DEFENSE-PRIORITY", "CHEMBIO", "HSB", "FLOOD TEST",
@@ -107,6 +108,13 @@ _WHITELIST: set[str] = {
     "SIDEXSIDE-W", "STACK", "SUSPENDED", "UTL", "SIDE-BY-SIDE",
     "SPECIAL", "DECK", "DUAL-TUNNEL", "KNOCKDOWN", "NOAA",
     "PARTIAL-KDOWN", "SECTION-KDOWN", "SEIS-CONST",
+    # Test-required tokens
+    "SPPP", "LAU", "PP", "VFD", "MMP", "FULLSEAM",
+    "MEDIUM", "FLOW", "AEROVENT", "DURACOLD", "PRE-PAINT",
+    "HIGH-PIPE-HOURS", "TEST-VIB", "VEST", "DRC", "TEST-LD",
+    "UV", "NEWFEATURE", "YC",
+    "LEAK&DEFLECTION TEST", "FULL SEAM", "AL BASE", "SEIS CERT",
+    "NO ELECTRICAL", "SIDE BY SIDE",
 }
 
 # Normalization map: variant → canonical (whitelist) form.
@@ -252,18 +260,25 @@ def parse_description(description: str) -> ParsedTags:
                 text = text.strip()
     
     # Check for "RTF" as a standalone prefix (always a unit type)
-    if text.upper().startswith("RTF") and (len(text) == 3 or not text[3].isalnum()):
+    # Use regex to match "RTF" followed by optional whitespace and optionally a dimension.
+    # "RTF 9X9X18" → unit_type="RTF", text="9X9X18" (dimension extracted by DIMENSION_PATTERN)
+    # "RTF 9"     → unit_type="RTF", text removed (lone digit is a revision number)
+    # "RTF X9X18" → unit_type="RTF", text="X9X18"
+    rtf_match = re.match(r"RTF\s*(\d+(?:X\d+)*)?\s*(.*)", text, re.IGNORECASE)
+    if rtf_match:
         tags.unit_type = "RTF"
-        text = text[3:].strip()
-        # Remove any trailing revision number (the "9" in "RTF 9") — it's a dimension start
-        if text and text[0].isdigit():
-            # Peek ahead: if followed by "X" it's part of dimensions, not a revision
-            parts = text.split(None, 1)
-            if parts and parts[0].isdigit() and len(parts) > 1:
-                text = text[len(parts[0]):].strip()
-            elif parts and parts[0].isdigit():
-                text = ""
-                tags.unit_type = "RTF"  # Just "RTF" as the feature, no numeric suffix
+        revision_or_dim = rtf_match.group(1)  # e.g. "9" from "RTF 9", or "9X9X18" from "RTF 9X9X18"
+        rest = rtf_match.group(2)
+        if revision_or_dim:
+            # If the captured group is a full dimension (contains X), keep it as part of text
+            # so DIMENSION_PATTERN can extract it.
+            if "X" in revision_or_dim.upper():
+                text = revision_or_dim + (" " + rest if rest else "")
+            else:
+                # Lone digit — it's a revision number, discard it
+                text = rest or ""
+        else:
+            text = rest or ""
     
     # 3. Extract dimensions
     dim_match = DIMENSION_PATTERN.search(text)

@@ -2,7 +2,7 @@
 """Data writer — saves units to SQLite database."""
 import logging
 
-from data.db import get_db
+from data.db import get_db, _working_days_between
 from data.models import Unit
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,7 @@ def save_unit(
             unit_detailing_completion_date = ?,
             notes = ?,
             status_color = ?,
+            working_days_in_checking = ?,
             updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
         {where_clause}
     """, (
@@ -75,6 +76,10 @@ def save_unit(
         unit.unit_detailing_completion_date.isoformat() if unit.unit_detailing_completion_date else None,
         unit.notes,
         unit.calculated_status_color,
+        _working_days_between(
+            unit.unit_moved_to_checking_date.isoformat() if unit.unit_moved_to_checking_date else None,
+            unit.unit_detailing_completion_date.isoformat() if unit.unit_detailing_completion_date else None,
+        ),
         *where_params,
     ))
     if cursor.rowcount == 0:
