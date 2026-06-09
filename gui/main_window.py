@@ -358,7 +358,11 @@ class MainWindow(QMainWindow):
             self.calendar_view_btn.setChecked(False)
             self.list_view_btn.setChecked(False)
             self.alerts_view_btn.setChecked(True)
+            # Force rebuild so the list populates even if data was loaded
+            # while the alerts page was hidden (QStackedWidget quirk:
+            # setItemWidget on a hidden QListWidget doesn't render).
             self.alert_panel.set_units(self.units)
+            QTimer.singleShot(0, self.alert_panel.refresh)
 
         # Save preference
         self.config.setdefault("ui", {})["last_view"] = view_name

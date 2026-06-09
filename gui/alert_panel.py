@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QFont, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -103,9 +103,58 @@ def _make_dot_pixmap(color: QColor, size: int = 10) -> QPixmap:
     return pm
 
 
+# ─── Criticality Labels (for badge text + summary) ──────────────────
+CRITICALITY_LABELS: dict[str, str] = {
+    "red": "CRITICAL", "orange": "CHECKED",
+    "purple": "CHECKING", "yellow": "IN PROGRESS",
+    "gray": "UNASSIGNED", "green": "COMPLETE",
+}
+
+# ─── Criticality Order (matches calculated_status_color severity) ────
+# Red = most critical, then orange, purple, yellow, gray, green
+CRITICALITY_ORDER: dict[str, int] = {
+    "red":    0,
+    "orange": 1,
+    "purple": 2,
+    "yellow": 3,
+    "gray":   4,
+    "green":  5,
+}
+
+
+# ─── Checking Surge Detection ───────────────────────────────────────
+CHECKING_OVERHEAD_WD = 4  # working days in checking pipeline
+CHECKING_SURGE_THRESHOLD = 3  # 3+ units needing checking in same window = surge
+
+
+def _detect_checking_surge(units: list) -> set[str]:
+    """Return set of com_numbers that are part of a checking surge.
+
+    A surge occurs when CHECKING_SURGE_THRESHOLD or more units that still
+    need checking (not yet entered checking, not yet complete) share the
+    same due date.  The checker is a single bottleneck — too many units
+    entering checking in the same window means some won't clear in time.
+    """
+    from collections import defaultdict
+    by_due = defaultdict(list)
+    for u in units:
+        if (u.detailing_due_date is not None
+                and u.unit_moved_to_checking_date is None
+                and u.unit_detailing_completion_date is None):
+            by_due[u.detailing_due_date].append(u)
+
+    surge_coms: set[str] = set()
+    for due, due_units in by_due.items():
+        if len(due_units) >= CHECKING_SURGE_THRESHOLD:
+            for u in due_units:
+                surge_coms.add(u.com_number)
+    return surge_coms
+
+
 def _sort_key_for_alert(unit: Unit) -> tuple[int, date]:
-    """Sort key: severity first, then due date (earliest first)."""
-    severity = ALERT_SEVERITY_ORDER.get(unit.alert_level, 99)
+    """Sort key: criticality (computed status color) first, then due date (earliest first)."""
+    color = _status_color_name(unit)
+    severity = CRITICALITY_ORDER.get(color, 99)
     due = unit.detailing_due_date if unit.detailing_due_date else date.max
     return (severity, due)
 
@@ -125,7 +174,9 @@ class AlertPanel(QWidget):
         super().__init__(parent)
         self._all_units: list[Unit] = list(units) if units else []
         self._filtered_units: list[Unit] = []
-        self._current_detailer: str = "All"
+        self._current_detailer: str = "All Detailers"
+        self._surge_coms: set[str] = set()
+        self._needs_rebuild: bool = False
         self._build_ui()
 
         if units:
@@ -137,7 +188,10 @@ class AlertPanel(QWidget):
         """Load units into the panel (initial load)."""
         self._all_units = list(units)
         self._populate_detailer_combo()
-        self._rebuild()
+        if self.isVisible():
+            self._rebuild()
+        else:
+            self._needs_rebuild = True
 
     def set_detailer(self, name: str) -> None:
         """Filter to a specific detailer ("All" for everyone)."""
@@ -153,6 +207,15 @@ class AlertPanel(QWidget):
     def refresh(self) -> None:
         """Rebuild from current units (e.g. after external data change)."""
         self._rebuild()
+
+    # ── Visibility handling ──────────────────────────────────────────
+
+    def showEvent(self, event) -> None:
+        """Rebuild list when panel becomes visible if data was loaded while hidden."""
+        super().showEvent(event)
+        if self._needs_rebuild:
+            self._needs_rebuild = False
+            self._rebuild()
 
     # ── UI Construction ──────────────────────────────────────────────
 
@@ -233,6 +296,9 @@ class AlertPanel(QWidget):
         if self._current_detailer and self._current_detailer != "All Detailers":
             units = [u for u in units if u.detailer == self._current_detailer]
 
+        # Detect checking surge (multi-unit bottleneck)
+        self._surge_coms = _detect_checking_surge(units)
+
         # Sort by alert severity then due date
         units.sort(key=_sort_key_for_alert)
 
@@ -296,11 +362,23 @@ class AlertPanel(QWidget):
             pct_display.setMinimumWidth(35)
             row_layout.addWidget(pct_display)
 
-            # Alert badge
-            badge_color = color_name  # map alert to badge via status color
-            badge = QLabel(alert)
+            # Alert badge — text reflects criticality (computed status color)
+            is_surge = unit.com_number in self._surge_coms
+            badge_color = color_name
+            if is_surge:
+                badge_text = "CHECK SURGE"
+                badge_color = "red"
+            else:
+                badge_text = CRITICALITY_LABELS.get(color_name, alert)
+            badge = QLabel(badge_text)
             badge.setStyleSheet(_alert_badge_stylesheet(badge_color))
             badge.setFont(QFont("Sans", 9, QFont.Bold))
+            if is_surge and unit.detailing_due_date:
+                badge.setToolTip(
+                    f"Checking surge: {CHECKING_SURGE_THRESHOLD}+ units due "
+                    f"{unit.detailing_due_date.strftime('%m/%d/%Y')} — "
+                    f"checker bottleneck risk"
+                )
             row_layout.addWidget(badge)
 
             # Add to list widget
@@ -313,27 +391,27 @@ class AlertPanel(QWidget):
     def _update_summary(self) -> None:
         """Update the summary bar at the bottom."""
         counts: dict[str, int] = {
-            "OVERDUE": 0,
-            "URGENT": 0,
-            "APPROACHING": 0,
-            "ON_TRACK": 0,
-            "COMPLETE": 0,
-            "UNSET": 0,
+            "CRITICAL": 0, "CHECKED": 0, "CHECKING": 0,
+            "IN PROGRESS": 0, "UNASSIGNED": 0, "COMPLETE": 0,
         }
         for u in self._filtered_units:
-            level = u.alert_level
-            if level in counts:
-                counts[level] += 1
+            color = _status_color_name(u)
+            label = CRITICALITY_LABELS.get(color, "COMPLETE")
+            if label in counts:
+                counts[label] += 1
 
+        surge_count = len(self._surge_coms)
         total = len(self._filtered_units)
 
         if total == 0:
             self.summary_label.setText("No actionable alerts")
         else:
             parts = []
-            for key in ("OVERDUE", "URGENT", "APPROACHING", "ON_TRACK", "COMPLETE", "UNSET"):
+            for key in ("CRITICAL", "CHECKED", "CHECKING", "IN PROGRESS", "UNASSIGNED", "COMPLETE"):
                 if counts[key] > 0:
-                    parts.append(f"{key.capitalize()}: {counts[key]}")
+                    parts.append(f"{key}: {counts[key]}")
+            if surge_count > 0:
+                parts.append(f"CHECK SURGE: {surge_count}")
             parts.append(f"Total: {total}")
             self.summary_label.setText(" | ".join(parts))
 
