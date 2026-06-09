@@ -188,18 +188,43 @@ def check_architecture(project_root: str, changed_files: set[str]) -> CheckResul
     # Extract file paths from the tree (lines that look like file entries)
     # Extract file paths from the tree (lines that look like file entries)
     tree_files: dict[str, str] = {}  # filename -> full path
-    current_dir = ""
+    # Track directory context with a stack keyed by indentation depth.
+    # Each entry: (depth, dir_name). When indentation decreases, pop deeper levels.
+    dir_stack: list[tuple[int, str]] = [(0, "")]  # (depth, dir_name)
+
     for line in tree_text.splitlines():
-        # Track directory context from lines like "│   ├── gui/"
-        dir_match = re.search(r"[│├└─]\s+([\w_]+)/", line)
+        if not line.strip():
+            continue
+
+        # Count box-drawing chars before the name to determine nesting depth.
+        raw = line.replace(" ", "")
+        depth = 0
+        for ch in raw:
+            if ch in ("│", "├", "└", "─"):
+                depth += 1
+            else:
+                break
+
+        # Pop deeper levels when indentation decreases
+        while len(dir_stack) > 1 and dir_stack[-1][0] >= depth:
+            dir_stack.pop()
+
+        # Track directory entries (lines ending with /)
+        dir_match = re.search(r"[\│├└─]\s+([\w_]+)/", line)
         if dir_match and "." not in dir_match.group(1):
-            current_dir = dir_match.group(1) + "/"
-        # Match lines like "│   ├── models.py                 # Unit dataclass"
-        m = re.search(r"[│├└─]\s+([\w_]+\.[\w]+)", line)
+            current_dir = dir_match.group(1)
+            dir_stack.append((depth, current_dir))
+
+        # Match file entries like "│   ├── models.py                 # Unit dataclass"
+        m = re.search(r"[\│├└─]\s+([\w_]+\.[\w]+)", line)
         if m:
             fname = m.group(1)
-            # Store with directory prefix if we're inside a subdirectory
-            tree_files[fname] = current_dir + fname
+            # Build path from the directory stack (skip root "" entry)
+            parent = "/".join(d[1] for d in dir_stack if d[1])
+            if parent:
+                tree_files[fname] = parent + "/" + fname
+            else:
+                tree_files[fname] = fname
 
     if not tree_files:
         result.findings.append(Finding(

@@ -33,8 +33,13 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── analyze_detailers.py      # Detailer load analysis
 │   ├── cleanup_detailers.py      # Detailer cleanup operations
 │   ├── export_to_workbook.py     # Export to Excel workbook
-│   ├── migrate_workbook_to_sqlite.py  # Legacy migration
-│   └── import_atomsvc.py         # Alternate import format
+│   ├── migrate_workbook_to_sqlite.py  # Legacy migration (also in scripts/)
+│   ├── import_atomsvc.py         # Alternate import format
+│   ├── debug_parse.py            # Dev utility: tag parser debugging
+│   ├── debug_parse2.py           # Dev utility: tag parser debugging
+│   ├── debug_parse3.py           # Dev utility: tag parser debugging
+│   ├── test_parse.py             # Dev utility: tag parser testing
+│   └── verify_cleanup.py         # Dev utility: cleanup verification
 ├── data/
 │   ├── models.py                 # Unit dataclass + all computed properties
 │   ├── db.py                     # SQLite connection (per-thread), schema migration, row→Unit
@@ -63,15 +68,27 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── session_registry.py       # Active session tracking
 │   └── shared_cache.py           # Cross-instance cache
 └── tests/
-    ├── conftest.py               # Shared fixtures
-    ├── test_models.py            # Unit model computation tests
-    ├── test_loader.py            # Loader tests
-    ├── test_writer.py            # Writer + optimistic locking tests
-    ├── test_tag_parser.py        # Tag parsing tests
-    ├── test_list_panel.py        # List panel tests
-    ├── test_calendar_panel.py    # Calendar panel tests
-    ├── test_edit_form.py         # Edit form tests
-    └── ...                       # Other test files
+│   ├── conftest.py               # Shared fixtures
+│   ├── test_models.py            # Unit model computation tests
+│   ├── test_loader.py            # Loader tests
+│   ├── test_writer.py            # Writer + optimistic locking tests
+│   ├── test_tag_parser.py        # Tag parsing tests
+│   ├── test_list_panel.py        # List panel tests
+│   ├── test_calendar_panel.py    # Calendar panel tests
+│   ├── test_edit_form.py         # Edit form tests
+│   └── ...                       # Other test files
+├── scripts/
+│   ├── doc_check.py             # Documentation drift checker
+│   ├── migrate_workbook_to_sqlite.py  # Excel → SQLite migration
+│   ├── ensure_detailers.py      # Seed detailers table if missing
+│   └── pre-commit               # Git pre-commit hook template
+├── README-Windows.md            # Windows quick-start guide
+├── setup.bat                    # Windows: create venv + install deps
+├── migrate.bat                  # Windows: run workbook migration
+├── run.bat                      # Windows: launch app
+├── test.bat                     # Windows: run pytest suite
+├── ensure_detailers.bat         # Windows: seed detailers table
+└── cleanup_detailers.bat        # Windows: cleanup detailer names
 ```
 
 ---
