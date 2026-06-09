@@ -488,9 +488,9 @@ def main():
     args = parser.parse_args()
 
     workbook = args.workbook or _find_workbook(
-        Path(__file__).resolve().parent.parent / "SQL-Schedule-App")
+        Path(__file__).resolve().parent.parent)
     db = args.db or str(Path(__file__).resolve().parent.parent /
-        "SQL-Schedule-App" / "schedule.db")
+        "schedule.db")
     workbook = str(Path(workbook).resolve())
     db = str(Path(db).resolve())
 
