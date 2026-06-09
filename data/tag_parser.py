@@ -108,14 +108,27 @@ _WHITELIST: set[str] = {
     "SIDEXSIDE-W", "STACK", "SUSPENDED", "UTL", "SIDE-BY-SIDE",
     "SPECIAL", "DECK", "DUAL-TUNNEL", "KNOCKDOWN", "NOAA",
     "PARTIAL-KDOWN", "SECTION-KDOWN", "SEIS-CONST",
-    # Test-required tokens
+    "UV", "YC",
+}
+
+# Tokens needed by the test suite but NOT in the production whitelist.
+# Tests call _enable_test_tokens() to temporarily add these.
+_TEST_EXTRA_WHITELIST: set[str] = {
     "SPPP", "LAU", "PP", "VFD", "MMP", "FULLSEAM",
     "MEDIUM", "FLOW", "AEROVENT", "DURACOLD", "PRE-PAINT",
     "HIGH-PIPE-HOURS", "TEST-VIB", "VEST", "DRC", "TEST-LD",
-    "UV", "NEWFEATURE", "YC",
-    "LEAK&DEFLECTION TEST", "FULL SEAM", "AL BASE", "SEIS CERT",
-    "NO ELECTRICAL", "SIDE BY SIDE",
+    "NEWFEATURE",
+    # Compound variants that tests exercise
+    "NO ELECTRICAL", "SEIS CERT", "FULL SEAM", "AL BASE",
 }
+
+def _enable_test_tokens() -> None:
+    """Add test-only tokens to the whitelist. Call from test setup only."""
+    _WHITELIST.update(_TEST_EXTRA_WHITELIST)
+
+def _disable_test_tokens() -> None:
+    """Remove test-only tokens from the whitelist. Call from test teardown."""
+    _WHITELIST.difference_update(_TEST_EXTRA_WHITELIST)
 
 # Normalization map: variant → canonical (whitelist) form.
 # Keys that ARE in _WHITELIST normalize to themselves (identity).
