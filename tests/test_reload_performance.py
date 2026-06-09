@@ -29,6 +29,8 @@ def large_db(tmp_path):
             description TEXT DEFAULT '',
             detailer TEXT DEFAULT '',
             checking_status TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            status_color TEXT DEFAULT 'gray',
             manufacturing_location TEXT DEFAULT '',
             build_cycle TEXT DEFAULT '',
             department_hours REAL DEFAULT 0.0,
@@ -42,6 +44,7 @@ def large_db(tmp_path):
             unit_detailing_start_date TEXT,
             unit_moved_to_checking_date TEXT,
             unit_detailing_completion_date TEXT,
+            working_days_in_checking INTEGER,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         );

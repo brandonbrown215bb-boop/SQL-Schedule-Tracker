@@ -65,7 +65,7 @@ class TestStatusStyleReturnsCorrectTuple:
         hex_color, icon, label = status_style("dark", "red")
         assert hex_color == "#ff9999"
         assert icon == "✕"
-        assert label == "Overdue"
+        assert label == "Overdue/Potential Miss"
 
     def test_gray_light(self):
         hex_color, icon, label = status_style("light", "gray")
