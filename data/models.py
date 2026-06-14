@@ -77,6 +77,7 @@ class Unit:
     # Transient: due date changed detection (set on reload, cleared on selection).
     # Not persisted to DB — purely an in-memory flag for visual indicators.
     due_date_changed: bool = field(default=False, compare=False, repr=False)
+    previous_detailing_due_date: date | None = field(default=None, compare=False, repr=False)
 
     # Transient: set to True by _apply_identicals when this unit is a non-primary
     # identical (shares contract_number with other units and has a later due date).
