@@ -121,7 +121,9 @@ def main():
     except Exception as e:
         _safe_print(f"Startup backup failed (non-fatal): {e}")
 
-    window = MainWindow(config, config_path=config_path, db_path=db_path)
+    from gui.main_window import MainWindow, ServiceRegistry
+    services = ServiceRegistry(config, config_path, db_path)
+    window = MainWindow(services)
     _safe_print("MainWindow created.")
     window.show()
     _safe_print("MainWindow shown. Entering event loop...")
