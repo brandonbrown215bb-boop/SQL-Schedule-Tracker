@@ -64,6 +64,8 @@ COLUMN_DEFS: list[tuple[str, str, int, bool]] = [
     ("build_date",              "Build Date",       80,  False),
     ("unit_detailing_start_date", "Start Date",     80,  False),
     ("working_days_in_checking",  "Check WD",        60,  False),
+    ("notes",                     "Notes",           200,  False),
+    ("alert_level",               "Alert",            80,  False),
 ]
 
 
@@ -342,6 +344,7 @@ class ListPanel(QWidget):
 
     unit_selected = pyqtSignal(object)  # Unit
     stale_changed = pyqtSignal(bool)  # show_stale
+    column_widths_changed = pyqtSignal(dict)  # {key: width}
 
     def __init__(self, units: list[Unit] | None = None, parent=None):
         super().__init__(parent)
@@ -352,6 +355,8 @@ class ListPanel(QWidget):
         self._theme_name: str = "light"
         self._cvd_mode: str = "none"
         self._tag_repo: UnitTagRepository | None = None
+        self._saved_widths: dict[str, int] = {}
+        self._emitting_widths: bool = False
         # Cache of pre-computed tag display strings, keyed by com_number.
         # Invalidated when the model (unit set) changes, preserved across
         # sort-only refreshes so we don't re-parse on every column click.
@@ -531,6 +536,9 @@ class ListPanel(QWidget):
         self.table.horizontalHeader().sectionClicked.connect(
             self._on_header_clicked
         )
+        self.table.horizontalHeader().sectionResized.connect(
+            self._on_section_resized
+        )
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.doubleClicked.connect(self._on_double_clicked)
@@ -544,6 +552,10 @@ class ListPanel(QWidget):
         layout.addWidget(self.status_label)
 
     # ── Public API ───────────────────────────────────────────────────
+
+    def load_column_widths(self, widths: dict[str, int]) -> None:
+        """Load saved column widths from config (key → pixel width)."""
+        self._saved_widths = dict(widths)
 
     def set_units(self, units: list[Unit]) -> None:
         """Load units into the model (initial load)."""
@@ -679,8 +691,11 @@ class ListPanel(QWidget):
 
         self.table.setColumnCount(len(col_headers))
         self.table.setHorizontalHeaderLabels(col_headers)
+        self._emitting_widths = True
         for col_idx, key in enumerate(col_keys):
-            self.table.setColumnWidth(col_idx, width_map.get(key, 80))
+            w = self._saved_widths.get(key, width_map.get(key, 80))
+            self.table.setColumnWidth(col_idx, w)
+        self._emitting_widths = False
 
         self.table.setRowCount(len(new_units))
 
@@ -897,8 +912,11 @@ class ListPanel(QWidget):
         self.table.setRowCount(len(units))
 
         width_map = {d[0]: d[2] for d in COLUMN_DEFS}
+        self._emitting_widths = True
         for col_idx, key in enumerate(col_keys):
-            self.table.setColumnWidth(col_idx, width_map.get(key, 80))
+            w = self._saved_widths.get(key, width_map.get(key, 80))
+            self.table.setColumnWidth(col_idx, w)
+        self._emitting_widths = False
 
         bold_font = QFont()
         bold_font.setBold(True)
@@ -997,6 +1015,21 @@ class ListPanel(QWidget):
         if idx >= 0:
             self.detailer_combo.setCurrentIndex(idx)
         self.detailer_combo.blockSignals(False)
+
+    # ── Column Width Persistence ──────────────────────────────────────
+
+    def _on_section_resized(
+        self, column_index: int, old_width: int, new_width: int
+    ) -> None:
+        """Capture user-driven column resizes and emit for config save."""
+        if self._emitting_widths or self._model is None:
+            return
+        visible = self._model.visible_columns
+        if column_index >= len(visible):
+            return
+        key = visible[column_index]
+        self._saved_widths[key] = new_width
+        self.column_widths_changed.emit(dict(self._saved_widths))
 
     # ── Sorting ─────────────────────────────────────────────────────
 

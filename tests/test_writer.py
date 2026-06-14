@@ -9,7 +9,7 @@ from datetime import date
 import pytest
 
 from data.models import Unit
-from data.writer import save_unit
+from data.writer import ConcurrentEditError, ValidationError, save_unit
 
 
 @pytest.fixture
@@ -74,8 +74,94 @@ class TestSaveUnit:
 
     def test_com_number_not_found_raises(self, db_path, unit_to_save):
         """Saving a COM that doesn't exist in DB raises ConcurrentEditError."""
-        import pytest
-
-        from data.writer import ConcurrentEditError
         with pytest.raises(ConcurrentEditError, match="was modified by another user"):
             save_unit(db_path, unit_to_save)
+
+
+class TestValidation:
+    def test_percent_complete_out_of_range_raises(self, db_with_units):
+        """percent_complete > 100 or < 0 should raise ValidationError."""
+        unit = Unit(
+            com_number="14201",
+            job_name="Test",
+            contract_number="CN-001",
+            description="",
+            detailer="Carl M",
+            checking_status="",
+            department_hours=40.0,
+            percent_complete=150.0,
+            actual_hours=20.0,
+        )
+        with pytest.raises(ValidationError, match="percent_complete must be 0-100"):
+            save_unit(db_with_units, unit)
+
+    def test_percent_complete_negative_raises(self, db_with_units):
+        unit = Unit(
+            com_number="14201",
+            job_name="Test",
+            contract_number="CN-001",
+            description="",
+            detailer="Carl M",
+            checking_status="",
+            department_hours=40.0,
+            percent_complete=-5.0,
+            actual_hours=20.0,
+        )
+        with pytest.raises(ValidationError, match="percent_complete must be 0-100"):
+            save_unit(db_with_units, unit)
+
+    def test_percent_complete_zero_passes(self, db_with_units, unit_to_save):
+        """Percent 0 should validly save."""
+        unit_to_save.percent_complete = 0.0
+        save_unit(db_with_units, unit_to_save)
+
+    def test_percent_complete_hundred_passes(self, db_with_units, unit_to_save):
+        """Percent 100 should validly save."""
+        unit_to_save.percent_complete = 100.0
+        save_unit(db_with_units, unit_to_save)
+
+    def test_negative_department_hours_raises(self, db_with_units):
+        unit = Unit(
+            com_number="14201",
+            job_name="Test",
+            contract_number="CN-001",
+            description="",
+            detailer="Carl M",
+            checking_status="",
+            department_hours=-1.0,
+            percent_complete=50.0,
+            actual_hours=0.0,
+        )
+        with pytest.raises(ValidationError, match="department_hours must be >= 0"):
+            save_unit(db_with_units, unit)
+
+    def test_negative_actual_hours_raises(self, db_with_units):
+        unit = Unit(
+            com_number="14201",
+            job_name="Test",
+            contract_number="CN-001",
+            description="",
+            detailer="Carl M",
+            checking_status="",
+            department_hours=40.0,
+            percent_complete=50.0,
+            actual_hours=-1.0,
+        )
+        with pytest.raises(ValidationError, match="actual_hours must be >= 0"):
+            save_unit(db_with_units, unit)
+
+    def test_negative_target_dept_hours_raises(self, db_with_units):
+        unit = Unit(
+            com_number="14201",
+            job_name="Test",
+            contract_number="CN-001",
+            description="",
+            detailer="Carl M",
+            checking_status="",
+            department_hours=40.0,
+            percent_complete=50.0,
+            actual_hours=0.0,
+            target_department_hours=-1.0,
+        )
+        with pytest.raises(ValidationError, match="target_department_hours must be >= 0"):
+            save_unit(db_with_units, unit)

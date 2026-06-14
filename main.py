@@ -115,6 +115,12 @@ def main():
 
     _safe_print(f"Connected to SQLite: {db_path}")
 
+    # ── Sprint 2: Bulk backup on app startup ────────────────────────────
+    try:
+        _startup_backup(db_path, application_path)
+    except Exception as e:
+        _safe_print(f"Startup backup failed (non-fatal): {e}")
+
     window = MainWindow(config, config_path=config_path, db_path=db_path)
     _safe_print("MainWindow created.")
     window.show()
@@ -123,6 +129,96 @@ def main():
     exit_code = app.exec_()
     close_db()
     sys.exit(exit_code)
+
+
+def _startup_backup(db_path: str, application_path: str) -> None:
+    """Create a startup backup with retention: 7 daily, 4 weekly, 3 monthly.
+
+    This is a safety net for ALL data operations. Backups are stored in
+    a ``backups/`` subdirectory next to the database file.
+    """
+    import glob
+    import os
+    from datetime import datetime, timedelta
+
+    backup_dir = os.path.join(os.path.dirname(db_path), "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+
+    # Create the backup using VACUUM INTO
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = os.path.join(backup_dir, f"{ts}_startup_backup.db")
+
+    from data.db import get_db
+    conn = get_db(db_path)
+    try:
+        conn.execute(f"VACUUM INTO '{backup_path}'")
+    except Exception:
+        # Fallback: backup API
+        import sqlite3
+        backup_conn = sqlite3.connect(backup_path)
+        conn.backup(backup_conn)
+        backup_conn.close()
+
+    _safe_print(f"Startup backup: {backup_path}")
+
+    # ── Retention policy ────────────────────────────────────────────────
+    # 7 daily, 4 weekly, 3 monthly
+    all_backups = sorted(glob.glob(os.path.join(backup_dir, "*_startup_backup.db")))
+    if not all_backups:
+        return
+
+    now = datetime.now()
+    daily_cutoff = now - timedelta(days=7)
+    weekly_cutoff = now - timedelta(weeks=4)
+    monthly_cutoff = now - timedelta(days=90)
+
+    # Parse timestamps from filenames
+    def _parse_ts(path: str) -> datetime | None:
+        name = os.path.basename(path)
+        try:
+            return datetime.strptime(name[:15], "%Y%m%d_%H%M%S")
+        except (ValueError, IndexError):
+            return None
+
+    # Categorize backups
+    daily: list[str] = []
+    weekly: list[str] = []
+    monthly: list[str] = []
+    older: list[str] = []
+
+    for b in all_backups:
+        ts = _parse_ts(b)
+        if ts is None:
+            continue
+        if ts >= daily_cutoff:
+            daily.append(b)
+        elif ts >= weekly_cutoff:
+            weekly.append(b)
+        elif ts >= monthly_cutoff:
+            monthly.append(b)
+        else:
+            older.append(b)
+
+    # Keep: 7 daily, 4 weekly, 3 monthly. Delete the rest.
+    to_delete: list[str] = []
+
+    if len(daily) > 7:
+        to_delete.extend(daily[: len(daily) - 7])
+    if len(weekly) > 4:
+        to_delete.extend(weekly[: len(weekly) - 4])
+    if len(monthly) > 3:
+        to_delete.extend(monthly[: len(monthly) - 3])
+    # Delete all older backups (they've exceeded retention)
+    to_delete.extend(older)
+
+    for path in to_delete:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    if to_delete:
+        _safe_print(f"Startup backup: pruned {len(to_delete)} old backup(s)")
 
 
 if __name__ == "__main__":

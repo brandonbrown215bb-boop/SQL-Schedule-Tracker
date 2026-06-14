@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Legacy COLUMN_MAP — kept for test compatibility only
 COLUMN_MAP: dict[str, str] = {}
 
-_fingerprint_cache: dict[int, str] = {}
+_fingerprint_cache: dict[str, str] = {}
 
 
 def _date_to_str(val) -> str:
@@ -29,7 +29,7 @@ def _date_to_str(val) -> str:
 
 def unit_fingerprint(unit: Unit) -> str:
     """Stable hash of editable unit fields for optimistic conflict checks."""
-    uid = id(unit)
+    uid = unit.com_number
     cached = _fingerprint_cache.get(uid)
     if cached is not None:
         return cached

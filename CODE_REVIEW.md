@@ -192,11 +192,11 @@
 ---
 
 ### BUG-21: `tag_parser.py` — Compound feature matching is order-dependent and can miss overlaps
-**File**: `data/tag_parser.py` lines 290-298
+**File**: `data/tag_parser.py` lines 303-310
 **Severity**: Medium
-**Status**: **OPEN**
-**Issue**: The compound feature detection iterates `_COMPOUND_FEATURES` and does `text_upper.replace(compound, "", 1)` for each match. If compound A is a substring of compound B (e.g., "FLOOD" is a substring of "FLOOD TEST"), and A is iterated first, B will never match. The current `_COMPOUND_FEATURES` set has "FLOOD TEST" but not bare "FLOOD", so this doesn't fire today, but it's a fragile design. Additionally, `AL BASE` (in compound features) normalizes to `AL-BASE` (in whitelist), but the compound check runs against raw `text_upper` — if the text has "AL BASE" it matches the compound, gets normalized via `_NORMALIZATION_MAP`, and lands on `AL-BASE`. This works but is implicit.
-**Recommendation**: Sort compound features by length (longest first) before matching to prevent substring collisions. Consider doing compound matching on already-normalized tokens.
+**Status**: **FIXED**
+**Issue**: The compound feature detection iterates `_COMPOUND_FEATURES` (a set, thus unordered) and does `text_upper.replace(compound, "", 1)` for each match. If compound A is a substring of compound B (e.g., "FLOOD" is a subset of "FLOOD TEST"), and A is iterated first, B will never match. The current `_COMPOUND_FEATURES` set has "FLOOD TEST" but not bare "FLOOD", so this doesn't fire today, but it's a fragile design. Additionally, `AL BASE` (in compound features) normalizes to `AL-BASE` (in whitelist), but the compound check runs against raw `text_upper` — if the text has "AL BASE" it matches the compound, gets normalized via `_NORMALIZATION_MAP`, and lands on `AL-BASE`. This works but is implicit.
+**Resolution**: Sorted compound features by length (longest first) before matching to prevent substring collisions. Changed `for compound in _COMPOUND_FEATURES:` to `for compound in sorted(_COMPOUND_FEATURES, key=len, reverse=True):` in `data/tag_parser.py` line 305. Verified: all 14 tag parser tests pass.
 
 ---
 
@@ -221,17 +221,20 @@
 ### BUG-24: `writer.py` — `notes` field not in UPDATE SQL
 **File**: `data/writer.py` lines 37-83
 **Severity**: Medium
-**Status**: **NEEDS VERIFICATION**
-**Issue**: Looking at the UPDATE statement, `notes` IS included at line 55 in the column list. However, verify that the parameter tuple at lines 60-83 has `unit.notes` at the correct position. Counting the `?` placeholders vs the values: there are 19 `?` columns + 1 or 2 WHERE params. The values tuple has 19 entries including `unit.notes` at position 18 (0-indexed: 17). This appears correct, but any future column addition must maintain exact positional correspondence.
+**Status**: **VERIFIED — working correctly**
+**Issue**: Looking at the UPDATE statement, `notes` IS included at line 55 in the column list as the 17th column placeholder. The parameter tuple at lines 60-83 has `unit.notes` as the 17th value (position 17/20 in the tuple). Verified positional alignment:
+- SQL column 17: `notes = ?` → Value 17: `unit.notes` ✓
+- All 19 column/value pairs are correctly aligned
+- The `contract_number` model field maps to the `top_level_number` DB column (intentional, consistent with `row_to_unit`)
 
 ---
 
 ### BUG-25: `loader.py` — Fingerprint cache keyed on `id(unit)` can collide
 **File**: `data/loader.py` lines 30-58
 **Severity**: Low
-**Status**: **OPEN**
+**Status**: **FIXED**
 **Issue**: `_fingerprint_cache` uses `id(unit)` as the key. Python's `id()` returns the memory address, which can be reused after an object is garbage collected. If a Unit is deleted and a new one allocated at the same address, the cache would return a stale fingerprint. In practice, this is unlikely given the app's usage pattern, but it's a correctness issue in theory.
-**Recommendation**: Use the `com_number` as the cache key instead, or use a `WeakValueDictionary`.
+**Resolution**: Changed cache key from `id(unit)` to `unit.com_number` (stable unique string). Type hint updated from `dict[int, str]` to `dict[str, str]`. Verified: all 3 fingerprint tests pass.
 
 ---
 

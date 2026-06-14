@@ -302,7 +302,9 @@ def parse_description(description: str) -> ParsedTags:
     # 4. Extract features — tokenize remaining text
     # First, handle compound features that span multiple tokens
     text_upper = text.upper()
-    for compound in _COMPOUND_FEATURES:
+    # Sort by length (longest first) to prevent substring collisions:
+    # e.g. "FLOOD TEST" must match before bare "FLOOD" would consume it.
+    for compound in sorted(_COMPOUND_FEATURES, key=len, reverse=True):
         if compound in text_upper:
             canonical = _NORMALIZATION_MAP.get(compound, compound)
             if canonical in _WHITELIST:

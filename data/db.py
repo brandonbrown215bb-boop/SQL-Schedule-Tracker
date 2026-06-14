@@ -94,6 +94,21 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
                     updated += 1
             logger.info(f"Migration: backfilled working_days_in_checking for {updated} rows")
 
+        # ── Sprint 1: Database indexes for common query filters ────────────
+        desired_indexes = {
+            "idx_units_detailing_due_date": "detailing_due_date",
+            "idx_units_detailer": "detailer",
+            "idx_units_contract_number": "top_level_number",
+            "idx_units_status_color": "status_color",
+        }
+        existing_indexes = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
+        }
+        for idx_name, col in desired_indexes.items():
+            if idx_name not in existing_indexes:
+                conn.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON units({col})")
+                logger.info(f"Migration: created index {idx_name} on {col}")
+
     except Exception as e:
         logger.warning("Migration check failed: %s", e)
     finally:
@@ -107,6 +122,168 @@ def close_db() -> None:
         conn.close()
         _local.conn = None
         logger.info("SQLite connection closed")
+
+
+# ── Audit log ────────────────────────────────────────────────────────────────
+
+def _ensure_audit_log(conn: sqlite3.Connection) -> None:
+    """Create the _audit_log table if it doesn't exist."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS _audit_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            com_number  TEXT    NOT NULL,
+            field_name  TEXT    NOT NULL,
+            old_value   TEXT,
+            new_value   TEXT,
+            saved_by    TEXT    DEFAULT 'local',
+            saved_at    TEXT    DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))
+        )
+    """)
+    # Index for fast lookups by COM number
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_audit_com ON _audit_log(com_number)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_audit_saved_at ON _audit_log(saved_at)"
+    )
+    conn.commit()
+
+
+def log_field_changes(
+    conn: sqlite3.Connection,
+    com_number: str,
+    old_row: sqlite3.Row | None,
+    new_values: dict,
+    *,
+    saved_by: str = "local",
+) -> int:
+    """Record field-level changes to the audit log.
+
+    Compares *old_row* (the DB row before save) against *new_values*
+    (the dict of field_name → new_value being written).  Inserts one
+    row per changed field into _audit_log.
+
+    Returns the number of changes recorded.
+    """
+    _ensure_audit_log(conn)
+
+    if old_row is None:
+        return 0
+
+    changes = 0
+    for field, new_val in new_values.items():
+        # sqlite3.Row doesn't support `.get()` — use try/except
+        try:
+            old_val = old_row[field]
+        except (IndexError, KeyError):
+            old_val = None
+
+        # Normalize for comparison: dates, None, etc.
+        old_str = str(old_val) if old_val is not None else None
+        new_str = str(new_val) if new_val is not None else None
+
+        if old_str != new_str:
+            conn.execute(
+                "INSERT INTO _audit_log (com_number, field_name, old_value, new_value, saved_by) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (com_number, field, old_str, new_str, saved_by),
+            )
+            changes += 1
+
+    if changes > 0:
+        conn.commit()
+        logger.info(
+            "Audit: %d field(s) changed for COM %s by %s",
+            changes, com_number, saved_by,
+        )
+    return changes
+
+
+def get_audit_trail(
+    db_path: str,
+    com_number: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """Retrieve recent audit log entries.
+
+    Args:
+        db_path: Path to the SQLite database.
+        com_number: If provided, filter to this COM only.
+        limit: Max number of entries to return (default 100).
+
+    Returns:
+        List of dicts with keys: id, com_number, field_name, old_value,
+        new_value, saved_by, saved_at.
+    """
+    conn = get_db(db_path)
+    _ensure_audit_log(conn)
+
+    if com_number:
+        rows = conn.execute(
+            "SELECT * FROM _audit_log WHERE com_number = ? ORDER BY saved_at DESC LIMIT ?",
+            (com_number, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM _audit_log ORDER BY saved_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def backup_db(db_path: str, backup_dir: str | None = None, *, keep_count: int = 30) -> str:
+    """Create a pre-import SQLite backup using VACUUM INTO.
+
+    Creates a copy of the database at ``<timestamp>_backup.db`` in the same
+    directory (or *backup_dir* if provided).  Keeps at most *keep_count*
+    backups, deleting the oldest ones.
+
+    Returns:
+        Path to the created backup file.
+    """
+    import os
+    import glob
+    from datetime import datetime
+
+    if backup_dir is None:
+        backup_dir = os.path.dirname(db_path)
+        if not backup_dir:
+            backup_dir = "."
+
+    os.makedirs(backup_dir, exist_ok=True)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    export_path = os.path.join(backup_dir, f"{ts}_pre_import_backup.db")
+
+    # Use VACUUM INTO for a consistent atomic copy
+    conn = get_db(db_path)
+    try:
+        conn.execute(f"VACUUM INTO '{export_path}'")
+    except Exception:
+        # Some SQLite builds don't support VACUUM INTO — fall back to backup API
+        try:
+            backup_conn = sqlite3.connect(export_path)
+            conn.backup(backup_conn)
+            backup_conn.close()
+        except Exception as e:
+            logger.warning("Backup failed: %s", e)
+            return ""
+
+    logger.info("Pre-import backup saved to %s", export_path)
+
+    # Prune old backups, keeping the most recent *keep_count*
+    pattern = os.path.join(backup_dir, "*_pre_import_backup.db")
+    backups = sorted(glob.glob(pattern))
+    while len(backups) > keep_count:
+        oldest = backups.pop(0)
+        try:
+            os.remove(oldest)
+            logger.debug("Pruned old backup: %s", oldest)
+        except OSError:
+            pass
+
+    return export_path
 
 
 def row_to_unit(row: sqlite3.Row) -> Unit:

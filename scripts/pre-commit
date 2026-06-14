@@ -1,10 +1,44 @@
 #!/bin/sh
-# Pre-commit hook: Run doc sync check on staged files
+# Pre-commit hook: Run ruff lint + format, then doc sync check
 # Install: cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 
+failed=0
+
+# ── 1. Ruff lint ────────────────────────────────────────────────────────────
+echo "Running ruff lint..."
+if command -v ruff >/dev/null 2>&1; then
+    ruff check . --no-fix --exit-non-zero-on-fix
+    lint_exit=$?
+    if [ $lint_exit -ne 0 ]; then
+        echo ""
+        echo "✗ Ruff lint failed. Run: ruff check . --fix"
+        failed=1
+    else
+        echo "✓ Ruff lint passed."
+    fi
+else
+    echo "⚠ ruff not found — skipping lint check (use --no-verify to bypass)"
+fi
+
+# ── 2. Ruff format check ───────────────────────────────────────────────────
+echo "Running ruff format check..."
+if command -v ruff >/dev/null 2>&1; then
+    ruff format --check .
+    format_exit=$?
+    if [ $format_exit -ne 0 ]; then
+        echo ""
+        echo "✗ Ruff format check failed. Run: ruff format ."
+        failed=1
+    else
+        echo "✓ Ruff format check passed."
+    fi
+else
+    echo "⚠ ruff not found — skipping format check (use --no-verify to bypass)"
+fi
+
+# ── 3. Doc sync check ───────────────────────────────────────────────────────
 echo "Running doc sync check..."
 
-# Run doc_check.py on staged files only
 python3 scripts/doc_check.py --staged-only
 
 exit_code=$?
@@ -12,13 +46,19 @@ exit_code=$?
 if [ $exit_code -eq 1 ]; then
     echo ""
     echo "✗ Documentation drift detected. Review the report above."
-    echo "  To bypass: git commit --no-verify"
-    exit 1
+    failed=1
 elif [ $exit_code -eq 2 ]; then
     echo ""
     echo "⚠ Doc check script error — skipping (use --no-verify to bypass)"
-    exit 0
 fi
 
-echo "✓ Doc sync check passed."
+# ── Final verdict ───────────────────────────────────────────────────────────
+if [ $failed -ne 0 ]; then
+    echo ""
+    echo "✗ Pre-commit checks failed (see above)."
+    echo "  To bypass: git commit --no-verify"
+    exit 1
+fi
+
+echo "✓ All pre-commit checks passed."
 exit 0

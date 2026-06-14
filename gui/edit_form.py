@@ -19,6 +19,11 @@ from PyQt5.QtWidgets import (
 )
 
 from data.models import Unit
+from data.writer import ValidationError, _validate_unit
+
+# Style for invalid fields (red border + red background)
+_INVALID_STYLE = "border: 2px solid red; background-color: #fff0f0;"
+_VALID_STYLE = ""  # Reset to default
 
 
 class ClearableDateEdit(QDateEdit):
@@ -294,6 +299,58 @@ class EditForm(QWidget):
                 f.blockSignals(False)
             self._loading = False
 
+    def _validate_fields(self, unit: Unit) -> list[str]:
+        """Validate form fields and set visual indicators. Returns list of error messages."""
+        errors = []
+
+        # Clear all inline validation styles
+        self.percent_spin.setStyleSheet(_VALID_STYLE)
+        self.dept_hours_spin.setStyleSheet(_VALID_STYLE)
+        self.actual_hours_spin.setStyleSheet(_VALID_STYLE)
+        self.due_date_edit.setStyleSheet(_VALID_STYLE)
+
+        # Percent complete range
+        if not (0.0 <= unit.percent_complete <= 100.0):
+            self.percent_spin.setStyleSheet(_INVALID_STYLE)
+            self.percent_spin.setToolTip(f"Must be 0-100, got {unit.percent_complete}")
+            errors.append(f"Percent complete must be 0-100 (got {unit.percent_complete})")
+        else:
+            self.percent_spin.setToolTip("")
+
+        # Non-negative numeric fields
+        if unit.department_hours < 0:
+            self.dept_hours_spin.setStyleSheet(_INVALID_STYLE)
+            self.dept_hours_spin.setToolTip(f"Must be >= 0, got {unit.department_hours}")
+            errors.append(f"Dept hours must be >= 0 (got {unit.department_hours})")
+        else:
+            self.dept_hours_spin.setToolTip("")
+
+        if unit.actual_hours < 0:
+            self.actual_hours_spin.setStyleSheet(_INVALID_STYLE)
+            self.actual_hours_spin.setToolTip(f"Must be >= 0, got {unit.actual_hours}")
+            errors.append(f"Actual hours must be >= 0 (got {unit.actual_hours})")
+        else:
+            self.actual_hours_spin.setToolTip("")
+
+        # Date order validation: Detailing Start ≤ Moved to Checking ≤ Detailing Complete
+        dates = [
+            ("Detailing Start", unit.unit_detailing_start_date),
+            ("Moved to Checking", unit.unit_moved_to_checking_date),
+            ("Detailing Complete", unit.unit_detailing_completion_date),
+        ]
+        # Filter to only set dates
+        set_dates = [(name, d) for name, d in dates if d is not None]
+        if len(set_dates) >= 2:
+            for i in range(len(set_dates) - 1):
+                name_a, date_a = set_dates[i]
+                name_b, date_b = set_dates[i + 1]
+                if date_a > date_b:
+                    errors.append(
+                        f"Date order warning: {name_a} ({date_a}) is after {name_b} ({date_b})"
+                    )
+
+        return errors
+
     def _on_save(self):
         """Collect form data into a Unit and emit."""
         if self.current_unit is None:
@@ -336,6 +393,17 @@ class EditForm(QWidget):
             fingerprint=orig.fingerprint,
             base_revision=orig.base_revision,
         )
+
+        # Validate fields before saving
+        errors = self._validate_fields(updated)
+        if errors:
+            self.status_label.setText(
+                '<span style="color: red;">⚠ ' + "; ".join(errors) + '</span>'
+            )
+            # Still allow save for warnings (date order), but block for hard errors
+            hard_errors = [e for e in errors if "must be" in e.lower()]
+            if hard_errors:
+                return
 
         self.saved.emit(updated)
         self.status_label.setText("<span style='color: green;'>✓ Saved</span>")

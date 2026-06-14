@@ -33,13 +33,7 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── analyze_detailers.py      # Detailer load analysis
 │   ├── cleanup_detailers.py      # Detailer cleanup operations
 │   ├── export_to_workbook.py     # Export to Excel workbook
-│   ├── migrate_workbook_to_sqlite.py  # Legacy migration (also in scripts/)
 │   ├── import_atomsvc.py         # Alternate import format
-│   ├── debug_parse.py            # Dev utility: tag parser debugging
-│   ├── debug_parse2.py           # Dev utility: tag parser debugging
-│   ├── debug_parse3.py           # Dev utility: tag parser debugging
-│   ├── test_parse.py             # Dev utility: tag parser testing
-│   └── verify_cleanup.py         # Dev utility: cleanup verification
 ├── data/
 │   ├── models.py                 # Unit dataclass + all computed properties
 │   ├── db.py                     # SQLite connection (per-thread), schema migration, row→Unit

@@ -161,6 +161,11 @@ def run_import(csv_path: str, db_path: str) -> dict:
     """Execute the full import pipeline. Returns stats dict."""
     import sqlite3
 
+    from data.db import backup_db
+
+    # Pre-import backup for safety
+    backup_db(db_path)
+
     stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
 
     conn = sqlite3.connect(db_path)

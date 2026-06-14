@@ -234,6 +234,9 @@ class MainWindow(QMainWindow):
         self.list_panel = ListPanel(self.units)
         self.list_panel.unit_selected.connect(self.on_unit_selected)
         self.list_panel.stale_changed.connect(self._on_stale_changed)
+        self.list_panel.column_widths_changed.connect(
+            self._on_column_widths_changed
+        )
         self.view_stack.addWidget(self.list_panel)
         self.alert_panel = AlertPanel(self.units)
         self.alert_panel.unit_selected.connect(self.on_unit_selected)
@@ -245,6 +248,11 @@ class MainWindow(QMainWindow):
         saved_view = self.config.get("ui", {}).get("last_view", "calendar")
         if saved_view == "list":
             self._switch_view("list")
+
+        # Restore saved column widths
+        saved_widths = self.config.get("ui", {}).get("list_column_widths", {})
+        if saved_widths:
+            self.list_panel.load_column_widths(saved_widths)
 
     def _init_right_panel(self) -> None:
         """Build the right panel: timeline + edit form + automation bar."""
@@ -1060,20 +1068,25 @@ class MainWindow(QMainWindow):
         if not source_path:
             return  # user cancelled
 
-        # Step 2: Confirm
-        reply = QMessageBox.question(
-            self,
-            "Confirm Import",
-            f"Import data from:\n{source_path}\n\n"
-            f"Into SQLite database?\n\n"
-            f"Continue?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
+        # Step 2: Show import preview with diff
+        self.status_bar.showMessage("Computing import diff...")
+        try:
+            from automation.import_preview import compute_diff
+            diff = compute_diff(source_path, self.db_path)
+        except Exception as e:
+            QMessageBox.warning(self, "Import Preview Error", f"Could not compute import diff:\n{e}")
+            self.status_bar.showMessage("Import preview failed", 5000)
             return
 
-        # Step 3: Run the import pipeline
+        # Step 3: Show diff preview dialog
+        from gui.import_preview_dialog import ImportPreviewDialog
+        dlg = ImportPreviewDialog(diff, parent=self)
+        dlg.exec_()
+        if not dlg.approved:
+            self.status_bar.showMessage("Import cancelled", 3000)
+            return
+
+        # Step 4: Run the import pipeline
         self.status_bar.showMessage("Importing CSV...")
         try:
             from automation.import_csv import import_csv
@@ -1230,6 +1243,11 @@ class MainWindow(QMainWindow):
                 panel.set_theme(theme_name, self._current_cvd)
         self._save_ui_config()
         self.status_bar.showMessage(f"Theme: {theme_name}", 2000)
+
+    def _on_column_widths_changed(self, widths: dict) -> None:
+        """Persist column widths from user resize (debounced via _save_ui_config)."""
+        self.config.setdefault("ui", {})["list_column_widths"] = widths
+        self._save_ui_config()
 
     def _save_ui_config(self) -> None:
         """Debounced write of ui config to config.yaml (US-005).
