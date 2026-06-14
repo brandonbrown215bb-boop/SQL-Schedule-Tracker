@@ -92,7 +92,7 @@ class SyncStatusWidget(QWidget):
         self._bar.setRange(0, total)
         self._bar.setValue(processed)
         # Custom format: percentage + remaining
-        pct = int(round((processed / total) * 100)) if total else 0
+        pct = round((processed / total) * 100) if total else 0
         self._bar.setFormat(f"{pct}%  ({processed}/{total})")
         self._label.setText(
             f"{remaining} update{'s' if remaining != 1 else ''} remaining"

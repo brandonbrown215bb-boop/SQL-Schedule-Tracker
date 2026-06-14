@@ -14,7 +14,6 @@ Usage:
 """
 import re
 import sqlite3
-import sys
 from collections import defaultdict
 
 
@@ -69,7 +68,7 @@ _KNOWN_FIRST_NAMES = frozenset({
     "tim", "timothy", "tommy", "tracy", "mark", "john",
     "bryan", "jake", "sam", "tom", "todd", "dan", "mike",
     "chris", "joe", "steve", "jeff", "greg", "keith",
-    "austin", "amol",
+    "austin",
 })
 
 # Known typos → correct spelling
@@ -176,7 +175,7 @@ def extract_name_from_segment(segment: str) -> tuple[str, str]:
 
     # Find the longest prefix that consists of name-like words
     name_words = []
-    for i, word in enumerate(words):
+    for _i, word in enumerate(words):
         clean = re.sub(r"[^a-zA-Z]", "", word).lower()
         if not clean:
             break
@@ -367,7 +366,7 @@ def parse_detailer_field(
 
     if also_names:
         # First part wasn't a name but second part was
-        notes_parts = [parts[0]] + note_parts
+        notes_parts = [parts[0], *note_parts]
         notes = " / ".join(notes_parts)
         if len(also_names) == 1:
             return also_names[0], notes

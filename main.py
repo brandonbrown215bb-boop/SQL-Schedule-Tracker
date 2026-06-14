@@ -1,37 +1,14 @@
 # main.py
+import contextlib
+import faulthandler
 import os
 import sys
 import traceback
-
-# Enable DPI awareness on Windows before QApplication is created.
-# Without this, coordinates from mapTo/pos() may be scaled incorrectly
-# on displays with >100% resolution scaling.
-if sys.platform == "win32":
-    from ctypes import windll
-    try:
-        windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
-    except Exception:
-        try:
-            windll.user32.SetProcessDPIAware()
-        except Exception:
-            pass
-
-# When running as a PyInstaller --windowed build, sys.stderr is None
-# which crashes faulthandler.enable(). Redirect to a log file instead.
-if sys.stderr is None:
-    _log_dir = os.path.join(os.path.expanduser("~"), ".unit_tracker")
-    os.makedirs(_log_dir, exist_ok=True)
-    sys.stderr = open(os.path.join(_log_dir, "error.log"), "a", encoding="utf-8")
-
-import faulthandler
-
-faulthandler.enable()
 
 import yaml
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from data.db import close_db, get_db
-from gui.main_window import MainWindow
 
 
 def _validate_config_paths(config: dict, application_path: str) -> None:
@@ -45,14 +22,30 @@ def _validate_config_paths(config: dict, application_path: str) -> None:
 
 def _safe_print(msg: str) -> None:
     """Print that works in both console and --windowed mode."""
-    try:
-        print(msg)
-    except (OSError, ValueError):
-        pass  # stdout is None in windowed mode
+    with contextlib.suppress(OSError, ValueError):
+        print(msg)  # stdout is None in windowed mode
 
 
 def main():
     _safe_print("Application starting...")
+
+    # Enable DPI awareness on Windows before QApplication is created.
+    if sys.platform == "win32":
+        from ctypes import windll
+        try:
+            windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            with contextlib.suppress(Exception):
+                windll.user32.SetProcessDPIAware()
+
+    # When running as PyInstaller --windowed, sys.stderr is None which crashes faulthandler.
+    if sys.stderr is None:
+        _log_dir = os.path.join(os.path.expanduser("~"), ".unit_tracker")
+        os.makedirs(_log_dir, exist_ok=True)
+        with open(os.path.join(_log_dir, "error.log"), "a", encoding="utf-8") as _err_f:
+            sys.stderr = _err_f
+
+    faulthandler.enable()
 
     if getattr(sys, "frozen", False):
         application_path = os.path.dirname(sys.executable)
@@ -214,10 +207,8 @@ def _startup_backup(db_path: str, application_path: str) -> None:
     to_delete.extend(older)
 
     for path in to_delete:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(path)
-        except OSError:
-            pass
 
     if to_delete:
         _safe_print(f"Startup backup: pruned {len(to_delete)} old backup(s)")

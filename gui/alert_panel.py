@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QFont, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -144,7 +144,7 @@ def _detect_checking_surge(units: list) -> set[str]:
             by_due[u.detailing_due_date].append(u)
 
     surge_coms: set[str] = set()
-    for due, due_units in by_due.items():
+    for _due, due_units in by_due.items():
         if len(due_units) >= CHECKING_SURGE_THRESHOLD:
             for u in due_units:
                 surge_coms.add(u.com_number)

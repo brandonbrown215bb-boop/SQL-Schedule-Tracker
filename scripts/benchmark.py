@@ -32,7 +32,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.models import Unit
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -97,7 +96,7 @@ def bench_load_units(db_path: str, runs: int = 3) -> Timer:
     t = Timer()
     for _ in range(runs):
         with t:
-            units = load_units(db_path)
+            load_units(db_path)
     return t
 
 
@@ -191,10 +190,7 @@ def audit_indexes(db_path: str) -> None:
 def format_row(name: str, t: Timer, notes: str = "") -> str:
     mean = t.mean
     stdev = t.stdev
-    if stdev > 0:
-        timing = f"{mean:>8.1f} ± {stdev:.1f}"
-    else:
-        timing = f"{mean:>8.1f}"
+    timing = f"{mean:>8.1f} ± {stdev:.1f}" if stdev > 0 else f"{mean:>8.1f}"
     return f"  {name:<30} {timing:<16} {notes}"
 
 

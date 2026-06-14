@@ -13,7 +13,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QSplitter,
     QTextEdit,
     QVBoxLayout,

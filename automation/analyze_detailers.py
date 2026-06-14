@@ -22,30 +22,30 @@ def analyze(db_path: str) -> None:
     print(f"Distinct detailer values: {cur.fetchone()[0]}")
 
     print("\n=== Short entries WITHOUT slash (likely just names) ===")
-    cur.execute("""SELECT com_number, detailer FROM units 
-        WHERE detailer IS NOT NULL AND detailer != '' 
+    cur.execute("""SELECT com_number, detailer FROM units
+        WHERE detailer IS NOT NULL AND detailer != ''
         AND detailer NOT LIKE '%/%'
         AND length(detailer) < 25
         ORDER BY detailer""")
     for r in cur.fetchall():
-        print(f"  COM {r[0]}: {repr(r[1])}")
+        print(f"  COM {r[0]}: {r[1]!r}")
 
     print("\n=== Entries WITHOUT slash that look like notes (no clear name) ===")
-    cur.execute("""SELECT com_number, detailer FROM units 
-        WHERE detailer IS NOT NULL AND detailer != '' 
+    cur.execute("""SELECT com_number, detailer FROM units
+        WHERE detailer IS NOT NULL AND detailer != ''
         AND detailer NOT LIKE '%/%'
         AND length(detailer) >= 25
         ORDER BY detailer LIMIT 20""")
     for r in cur.fetchall():
-        print(f"  COM {r[0]}: {repr(r[1])}")
+        print(f"  COM {r[0]}: {r[1]!r}")
 
     print("\n=== Entries with slash — first segment only ===")
-    cur.execute("""SELECT com_number, detailer FROM units 
+    cur.execute("""SELECT com_number, detailer FROM units
         WHERE detailer LIKE '%/%'
         ORDER BY detailer LIMIT 30""")
     for r in cur.fetchall():
         first = r[1].split("/")[0].strip()
-        print(f"  COM {r[0]}: full={repr(r[1])} => first_seg={repr(first)}")
+        print(f"  COM {r[0]}: full={r[1]!r} => first_seg={first!r}")
 
     conn.close()
 

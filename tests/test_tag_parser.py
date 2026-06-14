@@ -1,7 +1,9 @@
 """Tests for data/tag_parser.py"""
 from data.tag_parser import (
-    parse_description, UnitTagRepository, ParsedTags,
-    _enable_test_tokens, _disable_test_tokens,
+    UnitTagRepository,
+    _disable_test_tokens,
+    _enable_test_tokens,
+    parse_description,
 )
 
 # Enable test-only tokens for the test suite
@@ -121,7 +123,7 @@ def test_feature_set():
 def test_normalized_type():
     tags = parse_description("O)2 8X8X13 PP SPPP/LAU")
     assert tags.normalized_type == "O2"
-    
+
     tags = parse_description("I)3 YC 12X8X24 PP VFD")
     assert tags.normalized_type == "I3"
 
@@ -130,9 +132,9 @@ def test_global_feature_counts():
     """Test that all features are properly counted across units."""
     # Build repository with a few sample units
     from data.models import Unit
-    
+
     units = [
-        Unit(com_number="1", job_name="", contract_number="", 
+        Unit(com_number="1", job_name="", contract_number="",
              description="O)2 8X8X13 PP SPPP/LAU", detailer="Test D",
              checking_status=""),
         Unit(com_number="2", job_name="", contract_number="",
@@ -142,13 +144,13 @@ def test_global_feature_counts():
              description="O)2 10X10X10 PP SPPP/LAU/VFD", detailer="Test D",
              checking_status=""),
     ]
-    
+
     repo = UnitTagRepository(units)
-    
+
     # Check feature counts
     features = repo.get_all_features()
     feature_dict = {name: count for name, count in features}
-    
+
     assert feature_dict.get("LAU", 0) == 3  # present in all 3
     assert feature_dict.get("SPPP", 0) == 2
     assert feature_dict.get("VFD", 0) == 2
@@ -157,26 +159,26 @@ def test_global_feature_counts():
 
 def test_novelty_detection():
     from data.models import Unit
-    
+
     # Detailer has done O)2 with SPPP/LAU, now gets I)3 with full feature set
     units = [
         Unit(com_number="1", job_name="", contract_number="",
-             description="O)2 8X8X13 PP SPPP/LAU", detailer="Test D", 
+             description="O)2 8X8X13 PP SPPP/LAU", detailer="Test D",
              checking_status=""),
         Unit(com_number="2", job_name="", contract_number="",
              description="O)2 10X10X10 PP SPPP/LAU/VFD", detailer="Test D",
              checking_status=""),
     ]
-    
+
     repo = UnitTagRepository(units)
-    
+
     # Same type, same features — not novel
     unit = Unit(com_number="3", job_name="", contract_number="",
                 description="O)2 12X12X12 PP SPPP/LAU/VFD", detailer="Test D",
                 checking_status="")
     is_novel, reasons = repo.is_novel_for_detailer(unit, "Test D")
     assert not is_novel  # O)2 type and features are all known
-    
+
     # New unit type
     unit = Unit(com_number="4", job_name="", contract_number="",
                 description="I)3 12X8X24 PP VFD/MMP/LAU", detailer="Test D",
@@ -184,7 +186,7 @@ def test_novelty_detection():
     is_novel, reasons = repo.is_novel_for_detailer(unit, "Test D")
     assert is_novel
     assert any("unit type" in r.lower() for r in reasons)
-    
+
     # New feature
     unit = Unit(com_number="5", job_name="", contract_number="",
                 description="O)2 8X8X13 PP SPPP/NEWFEATURE", detailer="Test D",
@@ -196,18 +198,18 @@ def test_novelty_detection():
 
 def test_unassigned_detailer():
     from data.models import Unit
-    
+
     units = [
         Unit(com_number="1", job_name="", contract_number="",
              description="O)2 8X8X13 PP SPPP/LAU", detailer="— Unassigned —",
              checking_status=""),
     ]
     repo = UnitTagRepository(units)
-    
+
     unit = Unit(com_number="2", job_name="", contract_number="",
                 description="O)2 8X8X13 PP SPPP/LAU", detailer="— Unassigned —",
                 checking_status="")
-    is_novel, reasons = repo.is_novel_for_detailer(unit)
+    is_novel, _reasons = repo.is_novel_for_detailer(unit)
     assert not is_novel  # Unassigned detailers are skipped
 
 

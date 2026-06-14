@@ -34,8 +34,8 @@ def _format_seconds(seconds: float) -> str:
     if seconds < 1.0:
         return "<1s"
     if seconds < 60:
-        return f"{int(round(seconds))}s"
-    minutes, secs = divmod(int(round(seconds)), 60)
+        return f"{round(seconds)}s"
+    minutes, secs = divmod(round(seconds), 60)
     return f"{minutes}m {secs}s"
 
 
@@ -122,7 +122,7 @@ class CloseProgressDialog(QDialog):
         processed = max(0, total - remaining)
         self._bar.setRange(0, total)
         self._bar.setValue(processed)
-        pct = int(round((processed / total) * 100))
+        pct = round((processed / total) * 100)
         self._bar.setFormat(f"{pct}%  ({processed}/{total})")
 
         if avg_seconds > 0:

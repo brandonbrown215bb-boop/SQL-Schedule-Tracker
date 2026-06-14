@@ -19,7 +19,6 @@ from PyQt5.QtWidgets import (
 )
 
 from data.models import Unit
-from data.writer import ValidationError, _validate_unit
 
 # Style for invalid fields (red border + red background)
 _INVALID_STYLE = "border: 2px solid red; background-color: #fff0f0;"

@@ -3,9 +3,8 @@
 import hashlib
 import json
 import logging
-from datetime import date
-
 from collections import defaultdict
+from datetime import date
 
 from data.db import get_db, row_to_unit
 from data.models import Unit
@@ -78,7 +77,7 @@ def _apply_identicals(units: list[Unit]) -> None:
         if key:
             groups[key].append(u)
 
-    for order_number, group in groups.items():
+    for _order_number, group in groups.items():
         if len(group) < 2:
             continue  # not enough units to form identicals
 
@@ -103,12 +102,12 @@ def load_units(
     force_reload: bool = False,
 ) -> list[Unit]:
     """Load all units from SQLite database.
-    
+
     Args:
         db_path: Path to the SQLite database.
         detailer_schedules: Dict of detailer name → working weekdays.
         force_reload: Ignored for SQLite (always fast).
-    
+
     Returns:
         List of Unit objects ordered by detailing_due_date, with the
         "Identicals" rule applied to target_department_hours.

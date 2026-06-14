@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
 
 import pytest
 
-from data.db import get_db, log_field_changes, get_audit_trail, _ensure_audit_log
+from data.db import _ensure_audit_log, get_audit_trail, log_field_changes
 from data.models import Unit
 from data.writer import save_unit
 

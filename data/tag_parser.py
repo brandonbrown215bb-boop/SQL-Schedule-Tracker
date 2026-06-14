@@ -25,7 +25,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-
 # Regex for extracting dimension patterns like 8X8X13, 10'4"X11X35, 130x162x422
 DIMENSION_PATTERN = re.compile(
     r"(\d+(?:'\d+\")?(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)" +
@@ -54,16 +53,16 @@ LEADING_DASH = re.compile(r"^-+")
 @dataclass
 class ParsedTags:
     """Structured tags extracted from a unit description."""
-    
+
     unit_type: str = ""          # e.g. "O)2", "I)3", "RTF"
     dimensions: str = ""         # e.g. "8X8X13", "144X144X186"
     features: list[str] = field(default_factory=list)   # e.g. ["VFD", "UV", "TCF"]
     flags: list[str] = field(default_factory=list)      # e.g. ["PRE-PAINT"]
-    
+
     @property
     def feature_set(self) -> frozenset[str]:
         return frozenset(self.features)
-    
+
     @property
     def normalized_type(self) -> str:
         """Normalized unit type (e.g. 'O2', 'I3') for matching."""
@@ -209,9 +208,7 @@ def _is_likely_dimension_token(token: str) -> bool:
     if re.match(r"^\d+(?:\.\d+)?$", token):
         return True
     # Dimension-like patterns
-    if re.match(r"^\d+[Xx]\d+", token):
-        return True
-    return False
+    return bool(re.match(r"^\d+[Xx]\d+", token))
 
 
 def _clean_token(token: str) -> str | None:
@@ -232,32 +229,32 @@ def _clean_token(token: str) -> str | None:
 
 def parse_description(description: str) -> ParsedTags:
     """Parse a unit description and extract structured tags.
-    
+
     Args:
         description: The raw description string (e.g. ``O)2 8X8X13 PP SPPP/LAU``)
-    
+
     Returns:
         A ``ParsedTags`` instance with extracted tags.
     """
     if not description or not description.strip():
         return ParsedTags()
-    
+
     text = description.strip()
     tags = ParsedTags()
-    
+
     # 1. Extract special flags (*FLAG*)
     for match in FLAG_PATTERN.finditer(text):
         flag = match.group(1).strip()
         tags.flags.append(flag)
     text = FLAG_PATTERN.sub("", text)
-    
+
     # 2. Extract unit type prefix (e.g., O)2, I)3, OA)2, OAI2)
     #    Note: RTF is handled as a regular feature token, not a unit type.
     unit_match = UNIT_TYPE_PATTERN.match(text)
     if unit_match:
         prefix = unit_match.group(1) or ""
         revision = unit_match.group(2) or ""
-        
+
         if revision:
             tags.unit_type = f"{prefix}){revision}"
             text = text[unit_match.end():].strip()
@@ -271,7 +268,7 @@ def parse_description(description: str) -> ParsedTags:
             else:
                 # Not a unit type, restore text
                 text = text.strip()
-    
+
     # Check for "RTF" as a standalone prefix (always a unit type)
     # Use regex to match "RTF" followed by optional whitespace and optionally a dimension.
     # "RTF 9X9X18" → unit_type="RTF", text="9X9X18" (dimension extracted by DIMENSION_PATTERN)
@@ -292,13 +289,13 @@ def parse_description(description: str) -> ParsedTags:
                 text = rest or ""
         else:
             text = rest or ""
-    
+
     # 3. Extract dimensions
     dim_match = DIMENSION_PATTERN.search(text)
     if dim_match:
         dim_parts = [g for g in dim_match.groups() if g is not None]
         tags.dimensions = "X".join(dim_parts).upper()
-    
+
     # 4. Extract features — tokenize remaining text
     # First, handle compound features that span multiple tokens
     text_upper = text.upper()
@@ -310,7 +307,7 @@ def parse_description(description: str) -> ParsedTags:
             if canonical in _WHITELIST:
                 tags.features.append(canonical)
             text_upper = text_upper.replace(compound, "", 1)
-    
+
     # Tokenize the rest
     tokens = TOKEN_SEPARATOR.split(text_upper)
     features_seen: set[str] = set()
@@ -341,7 +338,7 @@ def get_features_from_description(description: str) -> frozenset[str]:
 @dataclass
 class DetailerExperience:
     """Tracks what unit types and feature combinations a detailer has done.
-    
+
     This is built from the entire unit list and can be used to flag
     novel assignments.
     """
@@ -349,11 +346,11 @@ class DetailerExperience:
     unit_types: set[str] = field(default_factory=set)
     feature_sets: list[frozenset[str]] = field(default_factory=list)
     dimension_ranges: list[str] = field(default_factory=list)
-    
+
     def has_done_unit_type(self, unit_type: str) -> bool:
         """Check if this detailer has done the given unit type before."""
         return unit_type.upper() in {t.upper() for t in self.unit_types}
-    
+
     def has_done_features(self, features: frozenset[str]) -> bool:
         """Check if this detailer has done ALL of the given features before."""
         req_upper = {f.upper() for f in features}
@@ -362,7 +359,7 @@ class DetailerExperience:
             if req_upper.issubset(existing_upper):
                 return True
         return False
-    
+
     def has_done_any_feature(self, feature: str) -> bool:
         """Check if this detailer has ever used a specific feature."""
         f_upper = feature.upper()
@@ -371,45 +368,45 @@ class DetailerExperience:
 
 class UnitTagRepository:
     """Builds and queries a repository of tag knowledge from all units.
-    
+
     Usage:
         repo = UnitTagRepository(units)
         repo.is_novel_for_detailer(unit, "Brandon B")  # True if new type
     """
-    
+
     def __init__(self, units: list | None = None):
         self._detailer_experience: dict[str, DetailerExperience] = {}
         self._all_tags: dict[str, ParsedTags] = {}    # com_number -> tags
         self._all_tag_counts: dict[str, int] = {}      # tag -> total count
         if units:
             self.build(units)
-    
+
     def build(self, units: list) -> None:
         """Build the repository from a list of Unit objects."""
         from data.models import Unit
-        
+
         self._detailer_experience.clear()
         self._all_tags.clear()
         self._all_tag_counts.clear()
-        
+
         feature_counter: dict[str, int] = {}
-        
+
         for unit in units:
             if not isinstance(unit, Unit):
                 continue
             tags = parse_description(unit.description)
             self._all_tags[unit.com_number] = tags
-            
+
             # Count feature occurrences
             for feat in tags.features:
                 feature_counter[feat] = feature_counter.get(feat, 0) + 1
-            
+
             # Track detailer experience
             detailer = unit.detailer
             if detailer and detailer not in ("— Unassigned —", ""):
                 if detailer not in self._detailer_experience:
                     self._detailer_experience[detailer] = DetailerExperience(detailer=detailer)
-                
+
                 exp = self._detailer_experience[detailer]
                 if tags.unit_type:
                     exp.unit_types.add(tags.normalized_type)
@@ -417,12 +414,12 @@ class UnitTagRepository:
                     exp.feature_sets.append(frozenset(tags.features))
                 if tags.dimensions:
                     exp.dimension_ranges.append(tags.dimensions)
-        
+
         self._all_tag_counts = feature_counter
-    
+
     def rebuild_for_detailer(self, units: list, detailer: str) -> None:
         """Rebuild experience for a single detailer (e.g. after reassignment).
-        
+
         Args:
             units: All units (filtered for the given detailer inside).
             detailer: The detailer name to rebuild experience for.
@@ -430,7 +427,7 @@ class UnitTagRepository:
         from data.models import Unit
         if detailer not in self._detailer_experience:
             self._detailer_experience[detailer] = DetailerExperience(detailer=detailer)
-        
+
         exp = DetailerExperience(detailer=detailer)
         for unit in units:
             if not isinstance(unit, Unit):
@@ -445,29 +442,29 @@ class UnitTagRepository:
             if tags.dimensions:
                 exp.dimension_ranges.append(tags.dimensions)
         self._detailer_experience[detailer] = exp
-    
+
     def get_tags(self, com_number: str) -> ParsedTags:
         """Get parsed tags for a unit by COM number."""
         return self._all_tags.get(com_number, ParsedTags())
-    
+
     def is_novel_for_detailer(self, unit, detailer: str | None = None) -> tuple[bool, list[str]]:
         """Check if a unit would be novel for the given detailer.
-        
+
         Args:
             unit: A Unit object or a description string.
             detailer: The detailer name. If None, uses unit.detailer.
-        
+
         Returns:
             Tuple of (is_novel, reasons) where reasons is a list of
             human-readable strings describing what's novel.
         """
         from data.models import Unit
-        
+
         if not detailer:
             detailer = unit.detailer if isinstance(unit, Unit) else ""
         if not detailer or detailer == "— Unassigned —":
             return False, []
-        
+
         # Parse tags
         if isinstance(unit, Unit) and unit.com_number in self._all_tags:
             tags = self._all_tags[unit.com_number]
@@ -477,17 +474,17 @@ class UnitTagRepository:
             # Cache it if it's a Unit
             if isinstance(unit, Unit):
                 self._all_tags[unit.com_number] = tags
-        
+
         exp = self._detailer_experience.get(detailer)
         if exp is None:
             return True, ["No prior work found for this detailer"]
-        
+
         reasons: list[str] = []
-        
+
         # Check unit type novelty
         if tags.unit_type and not exp.has_done_unit_type(tags.normalized_type):
             reasons.append(f"New unit type: {tags.unit_type}")
-        
+
         # Check individual feature novelty
         novel_features: list[str] = []
         for feat in tags.features:
@@ -495,20 +492,20 @@ class UnitTagRepository:
                 novel_features.append(feat)
         if novel_features:
             reasons.append(f"New feature(s): {', '.join(novel_features)}")
-        
+
         # Check feature combo novelty
         if tags.features and not exp.has_done_features(frozenset(tags.features)):
             reasons.append("New feature combination")
-        
+
         return len(reasons) > 0, reasons
-    
+
     def get_all_features(self) -> list[tuple[str, int]]:
         """Get all tracked features sorted by frequency (most common first)."""
         return sorted(
             self._all_tag_counts.items(),
             key=lambda x: (-x[1], x[0])
         )
-    
+
     def get_detailer_experience(self, detailer: str) -> DetailerExperience | None:
         """Get the experience record for a detailer."""
         return self._detailer_experience.get(detailer)

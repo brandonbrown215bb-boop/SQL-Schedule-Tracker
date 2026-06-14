@@ -42,7 +42,7 @@ from PyQt5.QtWidgets import (
 
 from data.loader import unit_fingerprint
 from data.models import Unit
-from data.tag_parser import UnitTagRepository, ParsedTags, parse_description
+from data.tag_parser import UnitTagRepository, parse_description
 
 # ─── Column Definitions ─────────────────────────────────────────────
 # (key, header, width, default_visible)
@@ -376,33 +376,32 @@ class ListPanel(QWidget):
 
     def _compute_tags_display(self, unit: Unit) -> str:
         """Compute the tags display string for a unit.
-        
+
         Shows unit type + key features, with novelty indicator.
         """
         if not unit.description:
             return ""
-        
+
         if self._tag_repo is not None:
             tags = self._tag_repo.get_tags(unit.com_number)
-            is_novel, reasons = self._tag_repo.is_novel_for_detailer(unit)
+            is_novel, _reasons = self._tag_repo.is_novel_for_detailer(unit)
         else:
             tags = parse_description(unit.description)
             is_novel = False
-            reasons = []
-        
+
         parts = []
         if tags.unit_type:
             parts.append(tags.unit_type)
         # Show top 3 features
         key_features = tags.features[:3]
         parts.extend(key_features)
-        
+
         result = " ".join(parts) if parts else ""
-        
+
         # Add novelty indicator
         if is_novel:
             result = f"✦ {result}" if result else "✦"
-        
+
         return result
 
     def set_theme(self, theme_name: str, cvd_mode: str = "none") -> None:

@@ -46,7 +46,8 @@ def _working_days_between(start_str: str | None, end_str: str | None) -> int | N
 
     Both start and end are inclusive. Returns None if either date is missing/invalid.
     """
-    from datetime import date as _date, timedelta
+    from datetime import date as _date
+    from datetime import timedelta
     if not start_str or not end_str:
         return None
     try:
@@ -242,8 +243,8 @@ def backup_db(db_path: str, backup_dir: str | None = None, *, keep_count: int = 
     Returns:
         Path to the created backup file.
     """
-    import os
     import glob
+    import os
     from datetime import datetime
 
     if backup_dir is None:
@@ -298,7 +299,7 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         notes=row["notes"] or "",
         status_color=row["status_color"] or "gray",  # persisted from last computed value
         department_hours=row["department_hours"] or 0.0,
-        target_department_hours=row["target_dept_hours"] if "target_dept_hours" in row.keys() and row["target_dept_hours"] is not None else 0.0,
+        target_department_hours=row["target_dept_hours"] if "target_dept_hours" in row and row["target_dept_hours"] is not None else 0.0,
         iec_internal_hours=row["iec_internal_hours"] or 0.0,
         percent_complete=(row["percent_complete"] or 0.0) * 100,
         actual_hours=row["actual_hours"] or 0.0,
@@ -309,7 +310,7 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         dept_due_date_previous=_parse_date(row["dept_due_date_previous"]),
         detailing_due_date=_parse_date(row["detailing_due_date"]),
         build_date=_parse_date(row["build_date"]),
-        working_days_in_checking=row["working_days_in_checking"] if "working_days_in_checking" in row.keys() and row["working_days_in_checking"] is not None else None,
+        working_days_in_checking=row["working_days_in_checking"] if "working_days_in_checking" in row and row["working_days_in_checking"] is not None else None,
         updated_at=row["updated_at"] or "",
     )
 
@@ -333,7 +334,7 @@ def _parse_date(val) -> date | None:
 
 def get_detailer_schedules(db_path: str) -> dict[str, list[int]]:
     """Load all detailer schedules from the detailers table.
-    
+
     Returns dict of detailer_name -> [weekday_numbers].
     Always includes a 'default' key.
     """

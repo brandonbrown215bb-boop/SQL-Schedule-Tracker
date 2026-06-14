@@ -483,7 +483,7 @@ _THEME_HANDLERS: dict[type, Callable] = {
 
 def _style_widget(widget: QWidget, tokens: dict[str, str]) -> None:
     """Apply stylesheet to a single widget using the handler registry.
-    
+
     Looks up the handler for the widget's type in _THEME_HANDLERS.
     If no handler is found, the widget is skipped (safe fallback).
     Subclasses are matched by checking the MRO (method resolution order),

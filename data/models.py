@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Literal
 
-
 STALE_THRESHOLD_DAYS = 30
 
 

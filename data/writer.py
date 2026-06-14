@@ -2,7 +2,7 @@
 """Data writer — saves units to SQLite database."""
 import logging
 
-from data.db import get_db, _working_days_between, log_field_changes
+from data.db import _working_days_between, get_db, log_field_changes
 from data.models import Unit
 
 logger = logging.getLogger(__name__)
@@ -42,15 +42,15 @@ def save_unit(
     unit: Unit,
 ) -> None:
     """Write a unit's data to the SQLite database.
-    
+
     Updates all operator-editable fields for the row matching unit.com_number.
     Uses optimistic locking: if the row's updated_at timestamp has changed since
     the unit was loaded, raises ConcurrentEditError to signal a conflict.
-    
+
     Args:
         db_path: Path to the SQLite database.
         unit: The unit to write.
-    
+
     Raises:
         ValidationError: If any field value is out of valid range.
         ConcurrentEditError: If another user modified the row after it was loaded.

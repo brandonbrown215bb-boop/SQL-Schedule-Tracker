@@ -512,7 +512,7 @@ def should_show_onboarding(config: dict) -> bool:
     return not config.get("ui", {}).get("onboarding_completed", False)
 
 
-def show_onboarding(parent: QWidget, config: dict = None) -> None:
+def show_onboarding(parent: QWidget, config: dict | None = None) -> None:
     """Show the onboarding walkthrough overlay."""
     def on_complete():
         if config is not None:

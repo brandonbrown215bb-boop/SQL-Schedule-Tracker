@@ -28,8 +28,6 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
-from typing import Optional
 
 
 class Severity(Enum):
@@ -45,7 +43,7 @@ class Finding:
     severity: Severity
     message: str
     suggestion: str = ""
-    line_number: Optional[int] = None
+    line_number: int | None = None
 
     def __str__(self) -> str:
         prefix = {
@@ -89,15 +87,15 @@ class CheckResult:
 # ─── Helpers ──────────────────────────────────────────────────────────
 
 
-def read_file(path: str) -> Optional[str]:
+def read_file(path: str) -> str | None:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
         return None
 
 
-def get_changed_files(since_commit: Optional[str] = None, staged: bool = False, diff_only: bool = False) -> set[str]:
+def get_changed_files(since_commit: str | None = None, staged: bool = False, diff_only: bool = False) -> set[str]:
     """Get set of changed file paths from git."""
     if staged:
         cmd = ["git", "diff", "--cached", "--name-only"]
@@ -145,7 +143,7 @@ def grep_in_files(pattern: str, files: set[str]) -> list[tuple[str, int, str]]:
     compiled = re.compile(pattern)
     for filepath in files:
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 for i, line in enumerate(f, 1):
                     if compiled.search(line):
                         results.append((filepath, i, line.strip()))
@@ -296,7 +294,7 @@ def check_bug_tracking(project_root: str, changed_files: set[str]) -> CheckResul
 
     for match in bug_pattern.finditer(content):
         bug_id = match.group(1)
-        bug_title = match.group(2).strip()
+        match.group(2).strip()
         status = match.group(3).strip()
         line_num = content[:match.start()].count("\n") + 1
 
@@ -396,7 +394,7 @@ def check_feature_plans(project_root: str, changed_files: set[str]) -> CheckResu
                     doc=fname, check="plan_status",
                     severity=Severity.WARNING,
                     message=f"{plan_id} is NOT STARTED but {len(existing_refs)} referenced file(s) exist: {', '.join(existing_refs[:3])}",
-                    suggestion=f"Update status to IN_PROGRESS or verify these files are unrelated",
+                    suggestion="Update status to IN_PROGRESS or verify these files are unrelated",
                 ))
 
             # Also check for # FEAT-XX or # IMP-XX comments in code
@@ -406,7 +404,7 @@ def check_feature_plans(project_root: str, changed_files: set[str]) -> CheckResu
                     doc=fname, check="plan_code_mismatch",
                     severity=Severity.WARNING,
                     message=f"{plan_id} is NOT STARTED but {len(code_comments)} code comment(s) reference it",
-                    suggestion=f"Update status to IN_PROGRESS",
+                    suggestion="Update status to IN_PROGRESS",
                 ))
 
         # Check: IN_PROGRESS or DONE but code is incomplete
@@ -418,7 +416,7 @@ def check_feature_plans(project_root: str, changed_files: set[str]) -> CheckResu
                     doc=fname, check="plan_incomplete",
                     severity=Severity.FAIL,
                     message=f"{plan_id} is DONE but {len(missing_refs)} referenced file(s) don't exist: {', '.join(missing_refs[:3])}",
-                    suggestion=f"Verify these files were removed intentionally, or update the plan",
+                    suggestion="Verify these files were removed intentionally, or update the plan",
                 ))
 
         # Check: PROPOSED plans (MOC-*) — informational

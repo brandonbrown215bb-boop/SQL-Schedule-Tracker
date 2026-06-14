@@ -109,7 +109,7 @@ class PivotTableView(QWidget):
         bar_area_w = w - bar_area_x - 16  # margin right
         # 4 columns:  alloc | %complete || units_done | units_not_done
         gap = 4
-        col_w = (bar_area_w - gap * 3) // 4  # 3 gaps between 4 columns
+        (bar_area_w - gap * 3) // 4  # 3 gaps between 4 columns
         rows = len(self._data)
         total_rows_h = rows * (self.BAR_HEIGHT + self.BAR_GAP)
         start_y = 8
@@ -137,7 +137,7 @@ class PivotTableView(QWidget):
             # Hours: alloc bar fills hours_area_w proportionally
             alloc_w = hours_area_w * (alloc / self._max_hours) if self._max_hours else 0
             # % bar fills the remaining space in hours_area_w
-            pct_w = hours_area_w * (pct / 100.0)
+            hours_area_w * (pct / 100.0)
 
             # Units: proportional
             done_w = units_area_w * (completed_units / self._max_units) if self._max_units else 0

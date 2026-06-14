@@ -9,12 +9,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
 
 from data.db import get_audit_trail, row_to_unit
-from data.loader import load_units, unit_fingerprint, _apply_identicals
+from data.loader import _apply_identicals, load_units, unit_fingerprint
 from data.models import Unit
-from data.writer import save_unit, ConcurrentEditError
+from data.writer import save_unit
 
 logger = logging.getLogger(__name__)
 

@@ -7,13 +7,12 @@ Uses in-memory SQLite fixtures shared with the existing test suite.
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 
 from data.models import Unit
-from services.unit_service import UnitService, DueDateChange
-
+from services.unit_service import DueDateChange, UnitService
 
 # ── Fixtures ────────────────────────────────────────────────────────
 

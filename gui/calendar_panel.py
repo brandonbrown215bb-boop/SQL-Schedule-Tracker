@@ -158,10 +158,7 @@ class EventCalendarWidget(QCalendarWidget):
                     _g = dot_color.green()
                     _b = dot_color.blue()
                     brightness = (_r * 299 + _g * 587 + _b * 114) / 1000
-                    if brightness > 128:
-                        text_color = QColor(0, 0, 0)
-                    else:
-                        text_color = QColor(255, 255, 255)
+                    text_color = QColor(0, 0, 0) if brightness > 128 else QColor(255, 255, 255)
                     # Draw rounded badge background
                     painter.setPen(Qt.NoPen)
                     painter.setBrush(QBrush(dot_color))
@@ -227,7 +224,7 @@ class CalendarPanel(QWidget):
 
     def _add_event_item(self, unit: Unit) -> None:
         from gui.theme import status_style
-        hex_color, icon, label = status_style(
+        hex_color, icon, _label = status_style(
             self._theme_name, unit.calculated_status_color, self._cvd_mode)
         suffix = " ⚠ Due changed" if unit.due_date_changed else ""
         item = QListWidgetItem(f"{icon} COM {unit.com_number} — {unit.job_name}{suffix}")

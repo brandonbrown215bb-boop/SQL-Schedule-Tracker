@@ -4,13 +4,13 @@ Creates services, wires them to widgets, handles UI coordination.
 All business logic is delegated to the services/ package.
 """
 
+import contextlib
 import logging
 import os
 import sys
 import time
-from datetime import date
 
-from PyQt5.QtCore import QFileSystemWatcher, QThread, Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QFileSystemWatcher, Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -26,7 +26,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from data.loader import load_units, unit_fingerprint
 from data.models import Unit
 from data.tag_parser import UnitTagRepository
 from gui.alert_panel import AlertPanel
@@ -1003,10 +1002,8 @@ class MainWindow(QMainWindow):
 
     def _stop_debounce_flush(self) -> None:
         if self._config_debounce_timer is not None:
-            try:
+            with contextlib.suppress(RuntimeError):
                 self._config_debounce_timer.stop()
-            except RuntimeError:
-                pass
 
     def _flush_config_save(self) -> None:
         self._services.config.setdefault("ui", {}).update({
@@ -1075,16 +1072,12 @@ class MainWindow(QMainWindow):
     def _cleanup_before_close(self) -> None:
         self._services.sync_service.stop_heartbeat()
         if self._presence_poll_timer is not None:
-            try:
+            with contextlib.suppress(RuntimeError):
                 self._presence_poll_timer.stop()
-            except RuntimeError:
-                pass
         self._stop_debounce_flush()
         if self._close_poll_timer is not None:
-            try:
+            with contextlib.suppress(RuntimeError):
                 self._close_poll_timer.stop()
-            except RuntimeError:
-                pass
         self._flush_config_save()
 
     def _real_close(self) -> None:

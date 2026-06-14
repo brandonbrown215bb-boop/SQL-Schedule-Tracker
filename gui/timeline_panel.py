@@ -203,7 +203,7 @@ class TimelineWidget(QWidget):
 
         # --- Draw thin horizontal grid lines behind milestones ---
         marker_area_top = lc["marker_area_top"]
-        marker_area_bottom = marker_area_top + len(milestones) * self.ROW_HEIGHT
+        marker_area_top + len(milestones) * self.ROW_HEIGHT
 
         # --- Milestone rows ---
         painter.setFont(self._font(9))
