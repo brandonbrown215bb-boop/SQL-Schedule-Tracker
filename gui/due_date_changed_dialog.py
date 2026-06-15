@@ -1,5 +1,6 @@
 # gui/due_date_changed_dialog.py
 """Dialog showing units whose detailing_due_date changed during import."""
+
 from datetime import date
 
 from PyQt5.QtCore import Qt
@@ -35,9 +36,7 @@ class DueDateChangedDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        heading = QLabel(
-            "<b>The following units had their detailing due dates changed:</b>"
-        )
+        heading = QLabel("<b>The following units had their detailing due dates changed:</b>")
         heading.setWordWrap(True)
         layout.addWidget(heading)
 
@@ -52,9 +51,7 @@ class DueDateChangedDialog(QDialog):
         self.table = QTableWidget(len(changed_units), len(cols))
         self.table.setHorizontalHeaderLabels(cols)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeToContents
-        )
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -74,23 +71,17 @@ class DueDateChangedDialog(QDialog):
             self.table.setItem(row, 2, QTableWidgetItem(detailer))
 
             # Previous Due Date
-            prev_str = (
-                prev_date.strftime("%m/%d/%Y") if prev_date else "—"
-            )
+            prev_str = prev_date.strftime("%m/%d/%Y") if prev_date else "—"
             prev_item = QTableWidgetItem(prev_str)
             self.table.setItem(row, 3, prev_item)
 
             # New Due Date
             new_str = (
-                unit.detailing_due_date.strftime("%m/%d/%Y")
-                if unit.detailing_due_date
-                else "—"
+                unit.detailing_due_date.strftime("%m/%d/%Y") if unit.detailing_due_date else "—"
             )
             new_item = QTableWidgetItem(new_str)
             if unit.detailing_due_date != prev_date:
-                new_item.setToolTip(
-                    f"Changed from {prev_str} to {new_str}"
-                )
+                new_item.setToolTip(f"Changed from {prev_str} to {new_str}")
             self.table.setItem(row, 4, new_item)
 
         layout.addWidget(self.table)

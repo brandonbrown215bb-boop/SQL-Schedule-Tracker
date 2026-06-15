@@ -258,8 +258,12 @@ class TestCalculatedStatusColor:
         """90-94% complete → purple (Ready for Checking)."""
         for pct in [90.0, 92.5, 94.0, 94.99]:
             unit = Unit(
-                com_number="X", job_name="Y", contract_number="Z",
-                description="D", detailer="E", checking_status="F",
+                com_number="X",
+                job_name="Y",
+                contract_number="Z",
+                description="D",
+                detailer="E",
+                checking_status="F",
                 percent_complete=pct,
                 working_days=[0, 1, 2, 3],
                 detailing_due_date=date.today() + timedelta(days=30),
@@ -270,8 +274,12 @@ class TestCalculatedStatusColor:
         """95-99% complete → orange (Checked & Returned)."""
         for pct in [95.0, 97.0, 99.0, 99.99]:
             unit = Unit(
-                com_number="X", job_name="Y", contract_number="Z",
-                description="D", detailer="E", checking_status="F",
+                com_number="X",
+                job_name="Y",
+                contract_number="Z",
+                description="D",
+                detailer="E",
+                checking_status="F",
                 percent_complete=pct,
                 working_days=[0, 1, 2, 3],
                 detailing_due_date=date.today() + timedelta(days=30),

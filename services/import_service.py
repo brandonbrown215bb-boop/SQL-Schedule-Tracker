@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ImportResult:
     """Result of an import operation."""
+
     inserted: int = 0
     updated: int = 0
     skipped: int = 0
@@ -30,6 +31,7 @@ class ImportResult:
 @dataclass
 class ImportDiff:
     """Preview of what would change during an import."""
+
     to_insert: list[dict] = field(default_factory=list)
     to_update: list[dict] = field(default_factory=list)
     unchanged: int = 0
@@ -69,7 +71,9 @@ class ImportService:
             errors=stats.get("errors", 0),
         )
 
-    def from_ssrs(self, url: str, lookback_days: int = 30, lookahead_days: int = 365) -> ImportResult:
+    def from_ssrs(
+        self, url: str, lookback_days: int = 30, lookahead_days: int = 365
+    ) -> ImportResult:
         """Fetch CSV from SSRS ReportServer and import into SQLite.
 
         Backs up the database before import. Returns ImportResult with stats.

@@ -25,7 +25,7 @@ ALL_THEMES = ["light", "dark"]
 
 # Background colors for alternating rows
 ROW_BG_LIGHT = {"bg_light": "#ffffff", "bg_dark": "#f1f5f9"}  # primary / tertiary
-ROW_BG_DARK = {"bg_light": "#0f172a", "bg_dark": "#334155"}     # primary / tertiary
+ROW_BG_DARK = {"bg_light": "#0f172a", "bg_dark": "#334155"}  # primary / tertiary
 
 WCAG_AA_THRESHOLD = 4.5
 WCAG_AA_LARGE_THRESHOLD = 3.0
@@ -172,23 +172,30 @@ class TestContrastAudit:
             print(f"\n[CONTRAST AUDIT] {len(base_failures)} base color failures:")
             for f in base_failures:
                 print(f"  {f['theme']}/{f['status']}: fg={f['fg']} bg={f['bg']} ratio={f['ratio']}")
-        assert len(base_failures) == 0, \
-            f"{len(base_failures)} base color combinations fail WCAG AA"
+        assert len(base_failures) == 0, f"{len(base_failures)} base color combinations fail WCAG AA"
 
         # CVD overrides: check they at least pass 3:1 (large text) on all backgrounds
-        cvd_below_large = [f for f in cvd_failures
-                          if ("list_panel" in f.get("component", "") and not f.get("pass_large", False))
-                          or ("calendar" in f.get("component", "") and f.get("ratio", 0) < 3.0)]
+        cvd_below_large = [
+            f
+            for f in cvd_failures
+            if ("list_panel" in f.get("component", "") and not f.get("pass_large", False))
+            or ("calendar" in f.get("component", "") and f.get("ratio", 0) < 3.0)
+        ]
         if cvd_below_large:
             print(f"\n[CONTRAST AUDIT] {len(cvd_below_large)} CVD combos below 3:1:")
             for f in cvd_below_large:
-                print(f"  {f['theme']}/{f['cvd_mode']}/{f['status']}: fg={f['fg']} bg={f['bg']} ratio={f['ratio']}")
-        assert len(cvd_below_large) == 0, \
+                print(
+                    f"  {f['theme']}/{f['cvd_mode']}/{f['status']}: fg={f['fg']} bg={f['bg']} ratio={f['ratio']}"
+                )
+        assert len(cvd_below_large) == 0, (
             f"{len(cvd_below_large)} CVD combinations below 3:1 (large text min)"
+        )
 
         # Report remaining CVD 4.5:1 failures (expected — mathematically impossible on all bgs)
         cvd_45_failures = [f for f in cvd_failures if f not in cvd_below_large]
         if cvd_45_failures:
-            print(f"\n[CONTRAST AUDIT] {len(cvd_45_failures)} CVD combos below 4.5:1 but ≥3:1 (acceptable)")
+            print(
+                f"\n[CONTRAST AUDIT] {len(cvd_45_failures)} CVD combos below 4.5:1 but ≥3:1 (acceptable)"
+            )
             for f in cvd_45_failures[:5]:
                 print(f"  {f['theme']}/{f['cvd_mode']}/{f['status']}: ratio={f['ratio']}")

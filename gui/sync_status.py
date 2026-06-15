@@ -94,9 +94,7 @@ class SyncStatusWidget(QWidget):
         # Custom format: percentage + remaining
         pct = round((processed / total) * 100) if total else 0
         self._bar.setFormat(f"{pct}%  ({processed}/{total})")
-        self._label.setText(
-            f"{remaining} update{'s' if remaining != 1 else ''} remaining"
-        )
+        self._label.setText(f"{remaining} update{'s' if remaining != 1 else ''} remaining")
         self.setAccessibleName(
             f"Sync in progress: {remaining} of {total} update{'s' if total != 1 else ''} remaining"
         )

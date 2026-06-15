@@ -154,7 +154,7 @@ class TestOnSaveEmitsCorrectData:
         edit_form.saved.connect(lambda u: saved_units.append(u))
 
         edit_form.set_unit(sample_unit)
-        edit_form.actual_hours_spin.setValue=42.0  # won't work, re-read from spin
+        edit_form.actual_hours_spin.setValue = 42.0  # won't work, re-read from spin
         edit_form._on_save()
 
         assert len(saved_units) == 1

@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # available (e.g. running this file in isolation) we create one ourselves.
 try:
     from PyQt5.QtWidgets import QApplication  # type: ignore[reportMissingImports]
+
     _app = QApplication.instance() or QApplication(sys.argv)
 except Exception:  # pragma: no cover - skip if PyQt5 unavailable
     pytest.skip("PyQt5 not available", allow_module_level=True)

@@ -8,6 +8,7 @@
 4. calculated_status_color is deterministic (same input → same output)
 5. unit_fingerprint is stable across Unit instances with same fields
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -40,29 +41,23 @@ def _any_unit() -> st.SearchStrategy[Unit]:
         department_hours=st.floats(min_value=-100, max_value=10000, allow_nan=False),
         target_department_hours=st.floats(min_value=-100, max_value=10000, allow_nan=False),
         iec_internal_hours=st.floats(min_value=0, max_value=5000, allow_nan=False),
-        percent_complete=st.floats(min_value=0, max_value=100, allow_nan=False, allow_infinity=False),
+        percent_complete=st.floats(
+            min_value=0, max_value=100, allow_nan=False, allow_infinity=False
+        ),
         actual_hours=st.floats(min_value=0, max_value=5000, allow_nan=False),
-        working_days=st.none() | st.lists(
-            st.integers(min_value=0, max_value=4), min_size=0, max_size=5
-        ),
-        unit_detailing_start_date=st.none() | st.dates(
-            min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)
-        ),
-        unit_moved_to_checking_date=st.none() | st.dates(
-            min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)
-        ),
-        unit_detailing_completion_date=st.none() | st.dates(
-            min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)
-        ),
-        dept_due_date_previous=st.none() | st.dates(
-            min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)
-        ),
-        detailing_due_date=st.none() | st.dates(
-            min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)
-        ),
-        build_date=st.none() | st.dates(
-            min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)
-        ),
+        working_days=st.none()
+        | st.lists(st.integers(min_value=0, max_value=4), min_size=0, max_size=5),
+        unit_detailing_start_date=st.none()
+        | st.dates(min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)),
+        unit_moved_to_checking_date=st.none()
+        | st.dates(min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)),
+        unit_detailing_completion_date=st.none()
+        | st.dates(min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)),
+        dept_due_date_previous=st.none()
+        | st.dates(min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)),
+        detailing_due_date=st.none()
+        | st.dates(min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)),
+        build_date=st.none() | st.dates(min_value=date(2020, 1, 1), max_value=date(2030, 12, 31)),
     )
 
 

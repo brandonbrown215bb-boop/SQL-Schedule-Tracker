@@ -1,4 +1,5 @@
 """Tests for data/tag_parser.py"""
+
 from data.tag_parser import (
     UnitTagRepository,
     _disable_test_tokens,
@@ -134,15 +135,30 @@ def test_global_feature_counts():
     from data.models import Unit
 
     units = [
-        Unit(com_number="1", job_name="", contract_number="",
-             description="O)2 8X8X13 PP SPPP/LAU", detailer="Test D",
-             checking_status=""),
-        Unit(com_number="2", job_name="", contract_number="",
-             description="I)3 YC 12X8X24 PP VFD/MMP/LAU", detailer="Test D",
-             checking_status=""),
-        Unit(com_number="3", job_name="", contract_number="",
-             description="O)2 10X10X10 PP SPPP/LAU/VFD", detailer="Test D",
-             checking_status=""),
+        Unit(
+            com_number="1",
+            job_name="",
+            contract_number="",
+            description="O)2 8X8X13 PP SPPP/LAU",
+            detailer="Test D",
+            checking_status="",
+        ),
+        Unit(
+            com_number="2",
+            job_name="",
+            contract_number="",
+            description="I)3 YC 12X8X24 PP VFD/MMP/LAU",
+            detailer="Test D",
+            checking_status="",
+        ),
+        Unit(
+            com_number="3",
+            job_name="",
+            contract_number="",
+            description="O)2 10X10X10 PP SPPP/LAU/VFD",
+            detailer="Test D",
+            checking_status="",
+        ),
     ]
 
     repo = UnitTagRepository(units)
@@ -162,35 +178,60 @@ def test_novelty_detection():
 
     # Detailer has done O)2 with SPPP/LAU, now gets I)3 with full feature set
     units = [
-        Unit(com_number="1", job_name="", contract_number="",
-             description="O)2 8X8X13 PP SPPP/LAU", detailer="Test D",
-             checking_status=""),
-        Unit(com_number="2", job_name="", contract_number="",
-             description="O)2 10X10X10 PP SPPP/LAU/VFD", detailer="Test D",
-             checking_status=""),
+        Unit(
+            com_number="1",
+            job_name="",
+            contract_number="",
+            description="O)2 8X8X13 PP SPPP/LAU",
+            detailer="Test D",
+            checking_status="",
+        ),
+        Unit(
+            com_number="2",
+            job_name="",
+            contract_number="",
+            description="O)2 10X10X10 PP SPPP/LAU/VFD",
+            detailer="Test D",
+            checking_status="",
+        ),
     ]
 
     repo = UnitTagRepository(units)
 
     # Same type, same features — not novel
-    unit = Unit(com_number="3", job_name="", contract_number="",
-                description="O)2 12X12X12 PP SPPP/LAU/VFD", detailer="Test D",
-                checking_status="")
+    unit = Unit(
+        com_number="3",
+        job_name="",
+        contract_number="",
+        description="O)2 12X12X12 PP SPPP/LAU/VFD",
+        detailer="Test D",
+        checking_status="",
+    )
     is_novel, reasons = repo.is_novel_for_detailer(unit, "Test D")
     assert not is_novel  # O)2 type and features are all known
 
     # New unit type
-    unit = Unit(com_number="4", job_name="", contract_number="",
-                description="I)3 12X8X24 PP VFD/MMP/LAU", detailer="Test D",
-                checking_status="")
+    unit = Unit(
+        com_number="4",
+        job_name="",
+        contract_number="",
+        description="I)3 12X8X24 PP VFD/MMP/LAU",
+        detailer="Test D",
+        checking_status="",
+    )
     is_novel, reasons = repo.is_novel_for_detailer(unit, "Test D")
     assert is_novel
     assert any("unit type" in r.lower() for r in reasons)
 
     # New feature
-    unit = Unit(com_number="5", job_name="", contract_number="",
-                description="O)2 8X8X13 PP SPPP/NEWFEATURE", detailer="Test D",
-                checking_status="")
+    unit = Unit(
+        com_number="5",
+        job_name="",
+        contract_number="",
+        description="O)2 8X8X13 PP SPPP/NEWFEATURE",
+        detailer="Test D",
+        checking_status="",
+    )
     is_novel, reasons = repo.is_novel_for_detailer(unit, "Test D")
     assert is_novel
     assert any("NEWFEATURE" in r for r in reasons)
@@ -200,15 +241,25 @@ def test_unassigned_detailer():
     from data.models import Unit
 
     units = [
-        Unit(com_number="1", job_name="", contract_number="",
-             description="O)2 8X8X13 PP SPPP/LAU", detailer="— Unassigned —",
-             checking_status=""),
+        Unit(
+            com_number="1",
+            job_name="",
+            contract_number="",
+            description="O)2 8X8X13 PP SPPP/LAU",
+            detailer="— Unassigned —",
+            checking_status="",
+        ),
     ]
     repo = UnitTagRepository(units)
 
-    unit = Unit(com_number="2", job_name="", contract_number="",
-                description="O)2 8X8X13 PP SPPP/LAU", detailer="— Unassigned —",
-                checking_status="")
+    unit = Unit(
+        com_number="2",
+        job_name="",
+        contract_number="",
+        description="O)2 8X8X13 PP SPPP/LAU",
+        detailer="— Unassigned —",
+        checking_status="",
+    )
     is_novel, _reasons = repo.is_novel_for_detailer(unit)
     assert not is_novel  # Unassigned detailers are skipped
 

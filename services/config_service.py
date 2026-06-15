@@ -48,6 +48,7 @@ REQUIRED_FOR_FUNCTION = ["sqlite_path"]
 
 class ConfigValidationError(Exception):
     """Raised when config validation fails."""
+
     pass
 
 

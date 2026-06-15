@@ -48,70 +48,76 @@ from data.tag_parser import UnitTagRepository, parse_description
 # (key, header, width, default_visible)
 
 COLUMN_DEFS: list[tuple[str, str, int, bool]] = [
-    ("com_number",              "COM",              70,  True),
-    ("detailing_due_date",      "Due Date",         80,  True),
-    ("dept_due_date_previous",  "Prev Due",         80,  True),
-    ("job_name",                "Job Name",         180, True),
-    ("detailer",                "Detailer",         100, True),
-    ("status_color",            "Status",           50,  True),
-    ("percent_complete",        "% Complete",       70,  True),
-    ("description_tags",        "Tags",             140, True),
-    ("department_hours",        "Dept Hours",       70,  False),
-    ("actual_hours",            "Actual Hours",     70,  False),
-    ("target_department_hours", "Target Hrs",       70,  False),
-    ("checking_status",         "Checking",         80,  False),
-    ("contract_number",         "Contract #",       90,  False),
-    ("build_date",              "Build Date",       80,  False),
-    ("unit_detailing_start_date", "Start Date",     80,  False),
-    ("working_days_in_checking",  "Check WD",        60,  False),
-    ("notes",                     "Notes",           200,  False),
-    ("alert_level",               "Alert",            80,  False),
+    ("com_number", "COM", 70, True),
+    ("detailing_due_date", "Due Date", 80, True),
+    ("dept_due_date_previous", "Prev Due", 80, True),
+    ("job_name", "Job Name", 180, True),
+    ("detailer", "Detailer", 100, True),
+    ("status_color", "Status", 50, True),
+    ("percent_complete", "% Complete", 70, True),
+    ("description_tags", "Tags", 140, True),
+    ("department_hours", "Dept Hours", 70, False),
+    ("actual_hours", "Actual Hours", 70, False),
+    ("target_department_hours", "Target Hrs", 70, False),
+    ("checking_status", "Checking", 80, False),
+    ("contract_number", "Contract #", 90, False),
+    ("build_date", "Build Date", 80, False),
+    ("unit_detailing_start_date", "Start Date", 80, False),
+    ("working_days_in_checking", "Check WD", 60, False),
+    ("notes", "Notes", 200, False),
+    ("alert_level", "Alert", 80, False),
 ]
 
 
 # ─── Status Color Map ───────────────────────────────────────────────
 
 STATUS_COLORS_FALLBACK: dict[str, QColor] = {
-    "gray":   QColor(148, 163, 184),
+    "gray": QColor(148, 163, 184),
     "yellow": QColor(234, 179, 8),
     "purple": QColor(168, 85, 247),
     "orange": QColor(249, 115, 22),
-    "green":  QColor(34, 197, 94),
-    "red":    QColor(239, 68, 68),
+    "green": QColor(34, 197, 94),
+    "red": QColor(239, 68, 68),
 }
 
 STATUS_LABELS: dict[str, str] = {
     "All": "All Statuses",
-    "gray":   "Unassigned",
+    "gray": "Unassigned",
     "yellow": "In Progress",
     "purple": "Ready for Checking",
     "orange": "Checked & Returned",
-    "green":  "Released",
-    "red":    "Overdue/Potential Miss",
+    "green": "Released",
+    "red": "Overdue/Potential Miss",
 }
 
 SEVERITY_ORDER: dict[str, int] = {
-    "red": 0, "orange": 1, "purple": 2, "yellow": 3, "gray": 4, "green": 5,
+    "red": 0,
+    "orange": 1,
+    "purple": 2,
+    "yellow": 3,
+    "gray": 4,
+    "green": 5,
 }
 
 
 # ─── Filter Presets ─────────────────────────────────────────────────
 
 DATE_FILTER_PRESETS: list[tuple[str, str | None]] = [
-    ("All",          None),
+    ("All", None),
     ("Custom Range", "custom"),
-    ("Overdue",      "overdue"),
-    ("Today",        "today"),
-    ("Next 3 Days",  "next_3_days"),
-    ("Next 7 Days",  "next_7_days"),
+    ("Overdue", "overdue"),
+    ("Today", "today"),
+    ("Next 3 Days", "next_3_days"),
+    ("Next 7 Days", "next_7_days"),
     ("Next 30 Days", "next_30_days"),
-    ("This Month",   "this_month"),
-    ("Next Month",   "next_month"),
+    ("This Month", "this_month"),
+    ("Next Month", "next_month"),
     ("Past 30 Days", "past_30_days"),
 ]
 
 
 # ─── UnitListModel ──────────────────────────────────────────────────
+
 
 class UnitListModel:
     """In-memory model: holds all units, applies filters + sort."""
@@ -119,9 +125,7 @@ class UnitListModel:
     def __init__(self, units: list[Unit], show_stale: bool = False):
         self._all_units: list[Unit] = list(units)
         self._filtered_units: list[Unit] = list(units)
-        self._visible_columns: list[str] = [
-            key for key, _, _, visible in COLUMN_DEFS if visible
-        ]
+        self._visible_columns: list[str] = [key for key, _, _, visible in COLUMN_DEFS if visible]
         self._show_stale: bool = show_stale
         # Current filter state for re-application
         self._current_status: str = "All"
@@ -189,27 +193,28 @@ class UnitListModel:
             result = self._filter_by_date(result, date_preset, date.today())
         elif date_preset == "custom" and date_from and date_to:
             result = [
-                u for u in result
-                if u.detailing_due_date is not None
-                and date_from <= u.detailing_due_date <= date_to
+                u
+                for u in result
+                if u.detailing_due_date is not None and date_from <= u.detailing_due_date <= date_to
             ]
         elif date_preset == "custom" and date_from:
             result = [
-                u for u in result
-                if u.detailing_due_date is not None
-                and u.detailing_due_date >= date_from
+                u
+                for u in result
+                if u.detailing_due_date is not None and u.detailing_due_date >= date_from
             ]
         elif date_preset == "custom" and date_to:
             result = [
-                u for u in result
-                if u.detailing_due_date is not None
-                and u.detailing_due_date <= date_to
+                u
+                for u in result
+                if u.detailing_due_date is not None and u.detailing_due_date <= date_to
             ]
 
         if com_search:
             query = com_search.lower().strip()
             result = [
-                u for u in result
+                u
+                for u in result
                 if query in u.com_number.lower()
                 or query in u.job_name.lower()
                 or query in u.contract_number.lower()
@@ -232,45 +237,44 @@ class UnitListModel:
             alert_filter=self._current_alert_filter,
         )
 
-    def _filter_by_date(
-        self, units: list[Unit], preset: str, today: date
-    ) -> list[Unit]:
+    def _filter_by_date(self, units: list[Unit], preset: str, today: date) -> list[Unit]:
         if preset == "overdue":
             return [
-                u for u in units
-                if u.detailing_due_date is not None
-                and u.detailing_due_date < today
+                u
+                for u in units
+                if u.detailing_due_date is not None and u.detailing_due_date < today
             ]
         if preset == "today":
             return [
-                u for u in units
-                if u.detailing_due_date is not None
-                and u.detailing_due_date == today
+                u
+                for u in units
+                if u.detailing_due_date is not None and u.detailing_due_date == today
             ]
         if preset == "next_3_days":
             end = today + timedelta(days=3)
             return [
-                u for u in units
-                if u.detailing_due_date is not None
-                and today <= u.detailing_due_date <= end
+                u
+                for u in units
+                if u.detailing_due_date is not None and today <= u.detailing_due_date <= end
             ]
         if preset == "next_7_days":
             end = today + timedelta(days=7)
             return [
-                u for u in units
-                if u.detailing_due_date is not None
-                and today <= u.detailing_due_date <= end
+                u
+                for u in units
+                if u.detailing_due_date is not None and today <= u.detailing_due_date <= end
             ]
         if preset == "next_30_days":
             end = today + timedelta(days=30)
             return [
-                u for u in units
-                if u.detailing_due_date is not None
-                and today <= u.detailing_due_date <= end
+                u
+                for u in units
+                if u.detailing_due_date is not None and today <= u.detailing_due_date <= end
             ]
         if preset == "this_month":
             return [
-                u for u in units
+                u
+                for u in units
                 if u.detailing_due_date is not None
                 and u.detailing_due_date.month == today.month
                 and u.detailing_due_date.year == today.year
@@ -283,7 +287,8 @@ class UnitListModel:
                 next_m = 1
                 next_y = today.year + 1
             return [
-                u for u in units
+                u
+                for u in units
                 if u.detailing_due_date is not None
                 and u.detailing_due_date.month == next_m
                 and u.detailing_due_date.year == next_y
@@ -291,9 +296,9 @@ class UnitListModel:
         if preset == "past_30_days":
             start = today - timedelta(days=30)
             return [
-                u for u in units
-                if u.detailing_due_date is not None
-                and start <= u.detailing_due_date <= today
+                u
+                for u in units
+                if u.detailing_due_date is not None and start <= u.detailing_due_date <= today
             ]
         return units
 
@@ -302,17 +307,25 @@ class UnitListModel:
     def sort_by(self, column_key: str, ascending: bool = True) -> None:
         """Sort filtered units in-place by the given column key."""
         if column_key == "status_color":
+
             def key_func(unit: Unit) -> int:
                 return SEVERITY_ORDER.get(unit.calculated_status_color, 99)
         elif column_key == "detailing_due_date":
+
             def key_func(unit: Unit):
                 d = unit.detailing_due_date
                 return (0, d) if d is not None else (1, date.max)
         elif column_key == "percent_complete":
+
             def key_func(unit: Unit) -> float:
                 return unit.percent_complete
-        elif column_key in ("department_hours", "actual_hours",
-                            "target_department_hours", "working_days_in_checking"):
+        elif column_key in (
+            "department_hours",
+            "actual_hours",
+            "target_department_hours",
+            "working_days_in_checking",
+        ):
+
             def key_func(unit: Unit) -> float:
                 return getattr(unit, column_key, 0.0)
         else:
@@ -335,6 +348,7 @@ class UnitListModel:
 
 
 # ─── ListPanel Widget ───────────────────────────────────────────────
+
 
 class ListPanel(QWidget):
     """Left-panel widget: sortable, filterable QTableWidget of units.
@@ -532,12 +546,8 @@ class ListPanel(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionsClickable(True)
-        self.table.horizontalHeader().sectionClicked.connect(
-            self._on_header_clicked
-        )
-        self.table.horizontalHeader().sectionResized.connect(
-            self._on_section_resized
-        )
+        self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
+        self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.doubleClicked.connect(self._on_double_clicked)
@@ -595,9 +605,12 @@ class ListPanel(QWidget):
         com_search = self.com_search.text()
         alert_filter = self.alert_combo.currentData() or "All"
         self._model.apply_filters(
-            status=status, detailer=detailer,
+            status=status,
+            detailer=detailer,
             date_preset=date_preset,
-            date_from=date_from, date_to=date_to, com_search=com_search,
+            date_from=date_from,
+            date_to=date_to,
+            com_search=com_search,
             alert_filter=alert_filter,
         )
         self._model.sort_by(self._sort_column, self._sort_ascending)
@@ -657,8 +670,7 @@ class ListPanel(QWidget):
             "new_order": [u.com_number for u in new_units],
         }
 
-    def _refresh_table_incremental(self, old_units: list[Unit],
-                                    new_units: list[Unit]) -> None:
+    def _refresh_table_incremental(self, old_units: list[Unit], new_units: list[Unit]) -> None:
         """Incrementally update the table using diff (US-020b).
 
         Matches units by com_number and only updates changed rows,
@@ -727,9 +739,13 @@ class ListPanel(QWidget):
                 item = QTableWidgetItem(display)
 
                 # Alignment
-                if key in ("percent_complete", "department_hours",
-                           "actual_hours", "target_department_hours",
-                           "working_days_in_checking"):
+                if key in (
+                    "percent_complete",
+                    "department_hours",
+                    "actual_hours",
+                    "target_department_hours",
+                    "working_days_in_checking",
+                ):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 elif key == "status_color":
                     item.setTextAlignment(Qt.AlignCenter)
@@ -739,12 +755,16 @@ class ListPanel(QWidget):
                 # Status color
                 if key == "status_color":
                     from gui.theme import status_style as _theme_status_style
+
                     computed_status = unit.calculated_status_color
                     hex_color, icon, label = _theme_status_style(
-                        self._theme_name, computed_status, self._cvd_mode)
+                        self._theme_name, computed_status, self._cvd_mode
+                    )
                     color = QColor(hex_color)
                     item.setBackground(QBrush(color))
-                    brightness = (color.red() * 299 + color.green() * 587 + color.blue() * 114) / 1000
+                    brightness = (
+                        color.red() * 299 + color.green() * 587 + color.blue() * 114
+                    ) / 1000
                     text_color = QColor("white") if brightness < 160 else QColor("#1e293b")
                     item.setForeground(QBrush(text_color))
                     item.setFont(bold_font)
@@ -752,8 +772,12 @@ class ListPanel(QWidget):
                     item.setToolTip(f"{icon} {label}")
 
                 # Overdue date highlight
-                if (key == "detailing_due_date" and value
-                        and isinstance(value, date) and value < date.today()):
+                if (
+                    key == "detailing_due_date"
+                    and value
+                    and isinstance(value, date)
+                    and value < date.today()
+                ):
                     item.setForeground(QBrush(QColor("#dc2626")))
                     item.setFont(bold_font)
 
@@ -930,9 +954,13 @@ class ListPanel(QWidget):
                 display = self._format_cell(key, value)
                 item = QTableWidgetItem(display)
 
-                if key in ("percent_complete", "department_hours",
-                           "actual_hours", "target_department_hours",
-                           "working_days_in_checking"):
+                if key in (
+                    "percent_complete",
+                    "department_hours",
+                    "actual_hours",
+                    "target_department_hours",
+                    "working_days_in_checking",
+                ):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 elif key == "status_color":
                     item.setTextAlignment(Qt.AlignCenter)
@@ -941,20 +969,28 @@ class ListPanel(QWidget):
 
                 if key == "status_color":
                     from gui.theme import status_style as _theme_status_style
+
                     computed_status = unit.calculated_status_color
                     hex_color, icon, label = _theme_status_style(
-                        self._theme_name, computed_status, self._cvd_mode)
+                        self._theme_name, computed_status, self._cvd_mode
+                    )
                     color = QColor(hex_color)
                     item.setBackground(QBrush(color))
-                    brightness = (color.red() * 299 + color.green() * 587 + color.blue() * 114) / 1000
+                    brightness = (
+                        color.red() * 299 + color.green() * 587 + color.blue() * 114
+                    ) / 1000
                     text_color = QColor("white") if brightness < 160 else QColor("#1e293b")
                     item.setForeground(QBrush(text_color))
                     item.setFont(bold_font)
                     item.setText(icon)
                     item.setToolTip(f"{icon} {label}")
 
-                if (key == "detailing_due_date" and value
-                        and isinstance(value, date) and value < date.today()):
+                if (
+                    key == "detailing_due_date"
+                    and value
+                    and isinstance(value, date)
+                    and value < date.today()
+                ):
                     item.setForeground(QBrush(QColor("#dc2626")))
                     item.setFont(bold_font)
 
@@ -1017,9 +1053,7 @@ class ListPanel(QWidget):
 
     # ── Column Width Persistence ──────────────────────────────────────
 
-    def _on_section_resized(
-        self, column_index: int, old_width: int, new_width: int
-    ) -> None:
+    def _on_section_resized(self, column_index: int, old_width: int, new_width: int) -> None:
         """Capture user-driven column resizes and emit for config save."""
         if self._emitting_widths or self._model is None:
             return
@@ -1109,17 +1143,13 @@ class ListPanel(QWidget):
             layout.addWidget(cb)
             all_checkboxes.append((key, cb))
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
 
         if dialog.exec_() == QDialog.Accepted:
-            new_visible = [
-                key for key, cb in all_checkboxes if cb.isChecked()
-            ]
+            new_visible = [key for key, cb in all_checkboxes if cb.isChecked()]
             if new_visible:
                 self._model.set_visible_columns(new_visible)
                 self._refresh_table_full()

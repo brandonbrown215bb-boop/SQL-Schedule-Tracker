@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DueDateChange:
     """Represents a detected due date change for a unit."""
+
     unit: Unit
     previous_due_date: date | None
 
@@ -74,9 +75,7 @@ class UnitService:
 
         conn = self._get_conn()
         conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT * FROM units WHERE com_number = ?", (com_number,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM units WHERE com_number = ?", (com_number,)).fetchone()
         if row is None:
             return None
         return row_to_unit(row)
@@ -146,9 +145,7 @@ class UnitService:
 
     # ── Audit ─────────────────────────────────────────────────────────
 
-    def get_audit_trail(
-        self, com_number: str | None = None, limit: int = 100
-    ) -> list[dict]:
+    def get_audit_trail(self, com_number: str | None = None, limit: int = 100) -> list[dict]:
         """Retrieve audit log entries.
 
         Args:

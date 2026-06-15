@@ -14,7 +14,7 @@ from gui.theme import get_status_colors, status_style
 # ── Expected color values from theme.py ──────────────────────────────
 
 EXPECTED_LIGHT = {
-    "gray": "#6f6f6f",    # darkened for WCAG AA 4.5:1 on bg_tertiary
+    "gray": "#6f6f6f",  # darkened for WCAG AA 4.5:1 on bg_tertiary
     "yellow": "#92600a",
     "purple": "#7e3fb0",
     "orange": "#b24e00",  # darkened for WCAG AA 4.5:1 on bg_primary
@@ -23,12 +23,12 @@ EXPECTED_LIGHT = {
 }
 
 EXPECTED_DARK = {
-    "gray": "#9faec3",    # lightened for WCAG AA 4.5:1 on bg_tertiary
+    "gray": "#9faec3",  # lightened for WCAG AA 4.5:1 on bg_tertiary
     "yellow": "#facc15",
     "purple": "#d69aff",  # lightened for WCAG AA 4.5:1 on bg_tertiary
     "orange": "#fb923c",
     "green": "#4ade80",
-    "red": "#ff9999",     # lightened for WCAG AA 4.5:1 on bg_tertiary
+    "red": "#ff9999",  # lightened for WCAG AA 4.5:1 on bg_tertiary
 }
 
 ALL_STATUSES = ["gray", "yellow", "purple", "orange", "green", "red"]
@@ -40,7 +40,9 @@ class TestStatusColorsLight:
     @pytest.mark.parametrize("status,expected", EXPECTED_LIGHT.items())
     def test_light_status_color(self, status, expected):
         colors = get_status_colors("light")
-        assert colors[status] == expected, f"Light {status}: got {colors[status]}, expected {expected}"
+        assert colors[status] == expected, (
+            f"Light {status}: got {colors[status]}, expected {expected}"
+        )
 
 
 class TestStatusColorsDark:
@@ -49,7 +51,9 @@ class TestStatusColorsDark:
     @pytest.mark.parametrize("status,expected", EXPECTED_DARK.items())
     def test_dark_status_color(self, status, expected):
         colors = get_status_colors("dark")
-        assert colors[status] == expected, f"Dark {status}: got {colors[status]}, expected {expected}"
+        assert colors[status] == expected, (
+            f"Dark {status}: got {colors[status]}, expected {expected}"
+        )
 
 
 class TestStatusStyleReturnsCorrectTuple:

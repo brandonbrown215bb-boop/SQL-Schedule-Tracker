@@ -47,46 +47,46 @@ from PyQt5.QtWidgets import (
 # ─── Theme Token Dicts ───────────────────────────────────────────────
 
 _TOKENS_LIGHT: dict[str, str] = {
-    "bg_primary":       "#ffffff",
-    "bg_secondary":     "#f8fafc",
-    "bg_tertiary":      "#f1f5f9",
-    "bg_hover":         "#e2e8f0",
-    "bg_selected":      "#dbeafe",
-    "text_primary":     "#1e293b",
-    "text_secondary":   "#64748b",
-    "text_muted":       "#94a3b8",
-    "text_on_accent":   "#ffffff",
-    "text_error":       "#dc2626",
-    "text_success":     "#16a34a",
-    "border":           "#e2e8f0",
-    "border_strong":    "#cbd5e1",
-    "accent":           "#3b82f6",
-    "accent_hover":     "#2563eb",
-    "accent_active":    "#1d4ed8",
+    "bg_primary": "#ffffff",
+    "bg_secondary": "#f8fafc",
+    "bg_tertiary": "#f1f5f9",
+    "bg_hover": "#e2e8f0",
+    "bg_selected": "#dbeafe",
+    "text_primary": "#1e293b",
+    "text_secondary": "#64748b",
+    "text_muted": "#94a3b8",
+    "text_on_accent": "#ffffff",
+    "text_error": "#dc2626",
+    "text_success": "#16a34a",
+    "border": "#e2e8f0",
+    "border_strong": "#cbd5e1",
+    "accent": "#3b82f6",
+    "accent_hover": "#2563eb",
+    "accent_active": "#1d4ed8",
 }
 
 _TOKENS_DARK: dict[str, str] = {
-    "bg_primary":       "#0f172a",
-    "bg_secondary":     "#1e293b",
-    "bg_tertiary":      "#334155",
-    "bg_hover":         "#475569",
-    "bg_selected":      "#334155",
-    "text_primary":     "#f1f5f9",
-    "text_secondary":   "#94a3b8",
-    "text_muted":       "#64748b",
-    "text_on_accent":   "#ffffff",
-    "text_error":       "#f87171",
-    "text_success":     "#4ade80",
-    "border":           "#334155",
-    "border_strong":    "#475569",
-    "accent":           "#60a5fa",
-    "accent_hover":     "#93c5fd",
-    "accent_active":    "#bfdbfe",
+    "bg_primary": "#0f172a",
+    "bg_secondary": "#1e293b",
+    "bg_tertiary": "#334155",
+    "bg_hover": "#475569",
+    "bg_selected": "#334155",
+    "text_primary": "#f1f5f9",
+    "text_secondary": "#94a3b8",
+    "text_muted": "#64748b",
+    "text_on_accent": "#ffffff",
+    "text_error": "#f87171",
+    "text_success": "#4ade80",
+    "border": "#334155",
+    "border_strong": "#475569",
+    "accent": "#60a5fa",
+    "accent_hover": "#93c5fd",
+    "accent_active": "#bfdbfe",
 }
 
 THEMES: dict[str, dict[str, str]] = {
     "light": _TOKENS_LIGHT,
-    "dark":  _TOKENS_DARK,
+    "dark": _TOKENS_DARK,
 }
 
 
@@ -96,38 +96,38 @@ THEMES: dict[str, dict[str, str]] = {
 # respective backgrounds. Values verified with the APCA contrast tool.
 
 _STATUS_COLORS_LIGHT: dict[str, str] = {
-    "gray":   "#6f6f6f",   # unassigned   — was #767676, darkened for 4.5:1 on bg_tertiary ✓
-    "yellow": "#92600a",   # in progress  — already passed ✓
-    "purple": "#7e3fb0",   # ready check  — already passed ✓
-    "orange": "#b24e00",   # returned     — was #c05c00, darkened for 4.5:1 on bg_primary ✓
-    "green":  "#1a7a4a",   # released     — already passed ✓
-    "red":    "#c0392b",   # overdue      — already passed ✓
+    "gray": "#6f6f6f",  # unassigned   — was #767676, darkened for 4.5:1 on bg_tertiary ✓
+    "yellow": "#92600a",  # in progress  — already passed ✓
+    "purple": "#7e3fb0",  # ready check  — already passed ✓
+    "orange": "#b24e00",  # returned     — was #c05c00, darkened for 4.5:1 on bg_primary ✓
+    "green": "#1a7a4a",  # released     — already passed ✓
+    "red": "#c0392b",  # overdue      — already passed ✓
 }
 
 _STATUS_COLORS_DARK: dict[str, str] = {
-    "gray":   "#9faec3",   # was #94a3b8, lightened for 4.5:1 on bg_tertiary ✓
-    "yellow": "#facc15",   # already passed ✓
-    "purple": "#d69aff",   # was #c084fc, lightened for 4.5:1 on bg_tertiary ✓
-    "orange": "#fb923c",   # already passed ✓
-    "green":  "#4ade80",   # already passed ✓
-    "red":    "#ff9999",   # was #ff8484, lightened to 5.16:1 on bg_tertiary ✓
+    "gray": "#9faec3",  # was #94a3b8, lightened for 4.5:1 on bg_tertiary ✓
+    "yellow": "#facc15",  # already passed ✓
+    "purple": "#d69aff",  # was #c084fc, lightened for 4.5:1 on bg_tertiary ✓
+    "orange": "#fb923c",  # already passed ✓
+    "green": "#4ade80",  # already passed ✓
+    "red": "#ff9999",  # was #ff8484, lightened to 5.16:1 on bg_tertiary ✓
 }
 
 STATUS_COLORS: dict[str, dict[str, str]] = {
     "light": _STATUS_COLORS_LIGHT,
-    "dark":  _STATUS_COLORS_DARK,
+    "dark": _STATUS_COLORS_DARK,
 }
 
 
 # ─── Status Shape Icons ───────────────────────────────────────────────
 
 STATUS_SHAPES: dict[str, str] = {
-    "gray":   "●",
+    "gray": "●",
     "yellow": "◆",
     "purple": "▲",
     "orange": "■",
-    "green":  "✓",
-    "red":    "✕",
+    "green": "✓",
+    "red": "✕",
 }
 
 
@@ -137,12 +137,12 @@ STATUS_SHAPES: dict[str, str] = {
 # Falls back to sensible defaults if the config key is absent.
 
 STATUS_LABELS: dict[str, str] = {
-    "gray":   "Unassigned",
+    "gray": "Unassigned",
     "yellow": "In Progress",
     "purple": "Ready for Check",
     "orange": "Checked & Returned",
-    "green":  "Released",
-    "red":    "Overdue/Potential Miss",
+    "green": "Released",
+    "red": "Overdue/Potential Miss",
 }
 
 
@@ -164,23 +164,23 @@ def init_labels(config_labels: dict[str, str]) -> None:
 
 _CVD_DEUTERANOPIA: dict[str, dict[str, str]] = {
     "light": {
-        "red":   "#7f1d1d",   # dark red — 7.4:1 on #fff ✓
-        "green": "#0f766e",   # dark teal — 4.5:1 on #fff ✓
+        "red": "#7f1d1d",  # dark red — 7.4:1 on #fff ✓
+        "green": "#0f766e",  # dark teal — 4.5:1 on #fff ✓
     },
     "dark": {
-        "red":   "#ff9999",   # light red — 5.2:1 on #334155 ✓
-        "green": "#5eead4",   # light teal — 4.6:1 on #334155 ✓
+        "red": "#ff9999",  # light red — 5.2:1 on #334155 ✓
+        "green": "#5eead4",  # light teal — 4.6:1 on #334155 ✓
     },
 }
 
 _CVD_PROTANOPIA: dict[str, dict[str, str]] = {
     "light": {
-        "red":   "#1e3a8a",   # dark blue — 8.1:1 on #fff ✓
-        "green": "#92400e",   # dark amber — 5.5:1 on #fff ✓
+        "red": "#1e3a8a",  # dark blue — 8.1:1 on #fff ✓
+        "green": "#92400e",  # dark amber — 5.5:1 on #fff ✓
     },
     "dark": {
-        "red":   "#93c5fd",   # light blue — 4.5:1 on #334155 ✓
-        "green": "#fbbf24",   # light amber — 5.4:1 on #334155 ✓
+        "red": "#93c5fd",  # light blue — 4.5:1 on #334155 ✓
+        "green": "#fbbf24",  # light amber — 5.4:1 on #334155 ✓
     },
 }
 
@@ -197,8 +197,8 @@ _CVD_TRITANOPIA: dict[str, dict[str, str]] = {
 
 CVD_OVERRIDES: dict[str, dict[str, dict[str, str]]] = {
     "deuteranopia": _CVD_DEUTERANOPIA,
-    "protanopia":   _CVD_PROTANOPIA,
-    "tritanopia":   _CVD_TRITANOPIA,
+    "protanopia": _CVD_PROTANOPIA,
+    "tritanopia": _CVD_TRITANOPIA,
 }
 
 
@@ -331,6 +331,7 @@ _CARD = """\
 
 # ─── Helper Functions ─────────────────────────────────────────────────
 
+
 def _stylesheet(tokens: dict[str, str], template: str) -> str:
     """Interpolate a token dict into a stylesheet template."""
     return template.format(**tokens)
@@ -363,8 +364,7 @@ def get_status_colors(theme_name: str, cvd_mode: str = "none") -> dict[str, str]
     return colors
 
 
-def get_badge_style(theme_name: str, status: str,
-                    cvd_mode: str = "none") -> str:
+def get_badge_style(theme_name: str, status: str, cvd_mode: str = "none") -> str:
     """Return an inline CSS string for a status badge.
 
     Derives colors from get_status_colors() so that CVD overrides and
@@ -383,8 +383,7 @@ def get_badge_style(theme_name: str, status: str,
     )
 
 
-def status_style(theme_name: str, status: str,
-                 cvd_mode: str = "none") -> tuple[str, str, str]:
+def status_style(theme_name: str, status: str, cvd_mode: str = "none") -> tuple[str, str, str]:
     """Get display info for a status level.
 
     Returns:
@@ -413,57 +412,61 @@ def _style_button(widget: QWidget, tokens: dict[str, str]) -> None:
     else:
         widget.setStyleSheet(_stylesheet(tokens, _BTN_DEFAULT))
 
+
 def _style_table(widget: QWidget, tokens: dict[str, str]) -> None:
     widget.setStyleSheet(_stylesheet(tokens, _TABLE))
+
 
 def _style_input(widget: QWidget, tokens: dict[str, str]) -> None:
     widget.setStyleSheet(_stylesheet(tokens, _INPUT))
 
+
 def _style_card(widget: QWidget, tokens: dict[str, str]) -> None:
     widget.setStyleSheet(_stylesheet(tokens, _CARD))
+
 
 def _style_calendar(widget: QWidget, tokens: dict[str, str]) -> None:
     t = tokens
     widget.setStyleSheet(f"""
         QCalendarWidget QTableView {{
-            background: {t['bg_primary']};
-            color: {t['text_primary']};
-            selection-background-color: {t['accent']};
-            selection-color: {t['text_on_accent']};
-            alternate-background-color: {t['bg_tertiary']};
+            background: {t["bg_primary"]};
+            color: {t["text_primary"]};
+            selection-background-color: {t["accent"]};
+            selection-color: {t["text_on_accent"]};
+            alternate-background-color: {t["bg_tertiary"]};
         }}
         QCalendarWidget QToolButton {{
-            color: {t['text_primary']};
-            background: {t['bg_tertiary']};
+            color: {t["text_primary"]};
+            background: {t["bg_tertiary"]};
             border-radius: 4px;
             padding: 4px;
             min-width: 24px;
             min-height: 24px;
         }}
         QCalendarWidget QToolButton:hover {{
-            background: {t['bg_hover']};
+            background: {t["bg_hover"]};
         }}
         QCalendarWidget QToolButton:pressed {{
-            background: {t['accent']};
-            color: {t['text_on_accent']};
+            background: {t["accent"]};
+            color: {t["text_on_accent"]};
         }}
         QCalendarWidget QMenu {{
-            background: {t['bg_primary']};
-            color: {t['text_primary']};
-            border: 1px solid {t['border']};
+            background: {t["bg_primary"]};
+            color: {t["text_primary"]};
+            border: 1px solid {t["border"]};
             padding: 2px 0px;
         }}
         QCalendarWidget QMenu::item {{
             padding: 6px 30px 6px 20px;
         }}
         QCalendarWidget QMenu::item:selected {{
-            background: {t['accent']};
-            color: {t['text_on_accent']};
+            background: {t["accent"]};
+            color: {t["text_on_accent"]};
         }}
         QCalendarWidget QSpinBox {{
-            background: {t['bg_primary']};
-            color: {t['text_primary']};
-            border: 1px solid {t['border']};
+            background: {t["bg_primary"]};
+            color: {t["text_primary"]};
+            border: 1px solid {t["border"]};
         }}
     """)
 
@@ -506,8 +509,9 @@ def _style_widget(widget: QWidget, tokens: dict[str, str]) -> None:
     # No handler found — safe fallback, continue to children
 
 
-def apply_theme(widget: QWidget, theme_name: str,
-                cvd_mode: str = "none", high_contrast: bool = False) -> None:
+def apply_theme(
+    widget: QWidget, theme_name: str, cvd_mode: str = "none", high_contrast: bool = False
+) -> None:
     """Apply a theme to a widget and all its children recursively.
 
     Args:

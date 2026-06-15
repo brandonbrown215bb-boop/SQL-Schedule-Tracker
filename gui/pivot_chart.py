@@ -1,5 +1,6 @@
 # gui/pivot_chart.py
 """Pivot chart dialog — shows scheduling dashboard with segmented bars and PNG export."""
+
 import sqlite3
 from datetime import date, timedelta
 
@@ -21,10 +22,10 @@ from PyQt5.QtWidgets import (
 # These are theme-relative token names resolved at runtime so dark mode
 # and CVD settings are respected automatically.
 COLOR_KEYS: dict[str, str] = {
-    "allocated":   "accent",        # remaining hours  (theme accent)
+    "allocated": "accent",  # remaining hours  (theme accent)
     "pct_complete": "text_success",  # completed hours  (theme success)
-    "completed":   "green",         # units completed  (status green)
-    "not_completed": "yellow",      # units not completed (status yellow)
+    "completed": "green",  # units completed  (status green)
+    "not_completed": "yellow",  # units not completed (status yellow)
 }
 
 
@@ -37,8 +38,7 @@ class PivotTableView(QWidget):
     HALF_GAP = 2  # gap between the two halves of a bar
     TEXT_PADDING = 4
 
-    def __init__(self, parent=None, theme_name: str = "light",
-                 cvd_mode: str = "none"):
+    def __init__(self, parent=None, theme_name: str = "light", cvd_mode: str = "none"):
         super().__init__(parent)
         self._data: list[dict] = []
         self._max_hours = 0.0
@@ -50,6 +50,7 @@ class PivotTableView(QWidget):
 
     def _load_theme_colors(self) -> None:
         from gui.theme import THEMES, get_status_colors
+
         t = THEMES.get(self._theme_name, THEMES["light"])
         self._bg = QColor(t["bg_primary"])
         self._text_primary = QColor(t["text_primary"])
@@ -68,13 +69,11 @@ class PivotTableView(QWidget):
     def set_data(self, data: list[dict]) -> None:
         self._data = data
         if data:
-            self._max_hours = max(
-                row["allocated_hours"] for row in data
-            ) or 1.0
-            self._max_units = max(
-                (row["unit_completed"] or 0) + (row["unit_not_completed"] or 0)
-                for row in data
-            ) or 1
+            self._max_hours = max(row["allocated_hours"] for row in data) or 1.0
+            self._max_units = (
+                max((row["unit_completed"] or 0) + (row["unit_not_completed"] or 0) for row in data)
+                or 1
+            )
         else:
             self._max_hours = 1.0
             self._max_units = 1
@@ -121,8 +120,9 @@ class PivotTableView(QWidget):
             # Week label
             label = str(row["week_label"])
             p.setPen(QPen(self._text_primary))
-            p.drawText(QRect(0, y, label_w, self.BAR_HEIGHT),
-                       Qt.AlignVCenter | Qt.AlignRight, label)
+            p.drawText(
+                QRect(0, y, label_w, self.BAR_HEIGHT), Qt.AlignVCenter | Qt.AlignRight, label
+            )
 
             alloc = row["allocated_hours"] or 0.0
             pct = row["pct_hours_complete"] or 0.0  # 0-100
@@ -141,14 +141,21 @@ class PivotTableView(QWidget):
 
             # Units: proportional
             done_w = units_area_w * (completed_units / self._max_units) if self._max_units else 0
-            left_w = units_area_w * (not_completed_units / self._max_units) if self._max_units else 0
+            left_w = (
+                units_area_w * (not_completed_units / self._max_units) if self._max_units else 0
+            )
 
             # ── Hours half (left 50%) ──
             hours_x = bar_area_x
             # Allocated hours bar (blue)
             self._draw_segment(
-                p, hours_x, y, alloc_w, self.BAR_HEIGHT,
-                alloc, self._max_hours,
+                p,
+                hours_x,
+                y,
+                alloc_w,
+                self.BAR_HEIGHT,
+                alloc,
+                self._max_hours,
                 self._segment_colors["allocated"],
                 f"{alloc:.0f} hrs",
             )
@@ -157,8 +164,13 @@ class PivotTableView(QWidget):
             pct_bar_w = max(pct_max_w * (pct / 100.0), 8 if pct >= 0 else 0)
             hours_remaining = alloc * (1.0 - pct / 100.0)
             self._draw_segment(
-                p, hours_x + alloc_w + 2, y, pct_bar_w, self.BAR_HEIGHT,
-                pct, 100.0,
+                p,
+                hours_x + alloc_w + 2,
+                y,
+                pct_bar_w,
+                self.BAR_HEIGHT,
+                pct,
+                100.0,
                 self._segment_colors["pct_complete"],
                 f"{hours_remaining:.0f} hrs left",
             )
@@ -167,15 +179,25 @@ class PivotTableView(QWidget):
             units_x = bar_area_x + hours_area_w + gap
             # Units completed (green) — always starts at units_x
             self._draw_segment(
-                p, units_x, y, done_w, self.BAR_HEIGHT,
-                completed_units, self._max_units,
+                p,
+                units_x,
+                y,
+                done_w,
+                self.BAR_HEIGHT,
+                completed_units,
+                self._max_units,
                 self._segment_colors["completed"],
                 str(completed_units),
             )
             # Units not completed (yellow) — strictly after done bar
             self._draw_segment(
-                p, units_x + done_w + 2, y, left_w, self.BAR_HEIGHT,
-                not_completed_units, self._max_units,
+                p,
+                units_x + done_w + 2,
+                y,
+                left_w,
+                self.BAR_HEIGHT,
+                not_completed_units,
+                self._max_units,
                 self._segment_colors["not_completed"],
                 str(not_completed_units),
             )
@@ -192,10 +214,18 @@ class PivotTableView(QWidget):
 
         p.end()
 
-    def _draw_segment(self, p: QPainter, x: float, y: float,
-                      width: float, height: int,
-                      value: float, max_val: float,
-                      color: QColor, text: str) -> None:
+    def _draw_segment(
+        self,
+        p: QPainter,
+        x: float,
+        y: float,
+        width: float,
+        height: int,
+        value: float,
+        max_val: float,
+        color: QColor,
+        text: str,
+    ) -> None:
         """Draw a single colored bar segment with centered text."""
         if width < 1:
             return
@@ -211,15 +241,14 @@ class PivotTableView(QWidget):
             brightness = (color.red() * 299 + color.green() * 587 + color.blue() * 114) / 1000
             text_color = QColor("#ffffff") if brightness < 160 else QColor("#1e293b")
             p.setPen(QPen(text_color))
-            p.drawText(QRect(int(x), y, int(width), height),
-                       Qt.AlignCenter, text)
+            p.drawText(QRect(int(x), y, int(width), height), Qt.AlignCenter, text)
 
     def _draw_legend(self, p: QPainter, x: int, y: int) -> None:
         """Draw the color legend below the bars."""
         items = [
-            (self._segment_colors["allocated"],   "ALLOCATED HRS"),
+            (self._segment_colors["allocated"], "ALLOCATED HRS"),
             (self._segment_colors["pct_complete"], "% HOURS COMPLETE"),
-            (self._segment_colors["completed"],   "UNITS COMPLETED"),
+            (self._segment_colors["completed"], "UNITS COMPLETED"),
             (self._segment_colors["not_completed"], "UNITS NOT COMPLETED"),
         ]
         fm = QFontMetrics(QFont("Segoe UI", 9))
@@ -235,7 +264,9 @@ class PivotTableView(QWidget):
             cur_x += box_size + 5
             # Label text — use proper width so it's visible
             p.setPen(QPen(text_color))
-            tw = fm.horizontalAdvance(label) if hasattr(fm, "horizontalAdvance") else fm.width(label)
+            tw = (
+                fm.horizontalAdvance(label) if hasattr(fm, "horizontalAdvance") else fm.width(label)
+            )
             p.drawText(QRect(cur_x, y, tw, box_size), Qt.AlignVCenter, label)
             cur_x += tw + 20
 
@@ -243,8 +274,9 @@ class PivotTableView(QWidget):
 class PivotChartWidget(QDialog):
     """Dialog: horizontal bar chart showing weekly scheduling status with PNG export."""
 
-    def __init__(self, db_path: str, theme_name: str = "light",
-                 cvd_mode: str = "none", parent=None):
+    def __init__(
+        self, db_path: str, theme_name: str = "light", cvd_mode: str = "none", parent=None
+    ):
         super().__init__(parent)
         self.db_path = db_path
         self._theme_name = theme_name
@@ -323,7 +355,8 @@ class PivotChartWidget(QDialog):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             SELECT
                 week_ending_friday as week_label,
                 ROUND(SUM(department_hours), 2) as allocated_hours,
@@ -340,7 +373,9 @@ class PivotChartWidget(QDialog):
               AND week_ending_friday BETWEEN ? AND ?
             GROUP BY week_ending_friday
             ORDER BY week_ending_friday
-        """, (start, end))
+        """,
+            (start, end),
+        )
         rows = [dict(r) for r in cur.fetchall()]
         conn.close()
         return rows
@@ -348,42 +383,45 @@ class PivotChartWidget(QDialog):
     def _apply_theme(self, theme_name: str) -> None:
         """Apply background/foreground colors from the active theme."""
         from gui.theme import THEMES
+
         t = THEMES.get(theme_name, THEMES["light"])
         self.setStyleSheet(f"""
             QDialog {{
-                background: {t['bg_primary']};
-                color: {t['text_primary']};
+                background: {t["bg_primary"]};
+                color: {t["text_primary"]};
             }}
             QLabel {{
-                color: {t['text_primary']};
+                color: {t["text_primary"]};
             }}
             QPushButton {{
-                background: {t['bg_tertiary']};
-                color: {t['text_primary']};
-                border: 1px solid {t['border']};
+                background: {t["bg_tertiary"]};
+                color: {t["text_primary"]};
+                border: 1px solid {t["border"]};
                 border-radius: 6px;
                 padding: 6px 14px;
                 font-weight: 500;
             }}
             QPushButton:hover {{
-                background: {t['bg_hover']};
+                background: {t["bg_hover"]};
             }}
             QDateEdit {{
-                background: {t['bg_primary']};
-                color: {t['text_primary']};
-                border: 1px solid {t['border']};
+                background: {t["bg_primary"]};
+                color: {t["text_primary"]};
+                border: 1px solid {t["border"]};
                 border-radius: 5px;
                 padding: 3px 8px;
             }}
             QScrollArea {{
                 border: none;
-                background: {t['bg_primary']};
+                background: {t["bg_primary"]};
             }}
         """)
 
     def _export_png(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export Chart as PNG", "scheduling_dashboard.png",
+            self,
+            "Export Chart as PNG",
+            "scheduling_dashboard.png",
             "PNG Image (*.png);;All Files (*)",
         )
         if not path:

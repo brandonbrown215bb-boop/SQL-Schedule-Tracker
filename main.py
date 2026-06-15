@@ -32,6 +32,7 @@ def main():
     # Enable DPI awareness on Windows before QApplication is created.
     if sys.platform == "win32":
         from ctypes import windll
+
         try:
             windll.shcore.SetProcessDpiAwareness(2)
         except Exception:
@@ -76,7 +77,9 @@ def main():
     if not isinstance(config, dict):
         _safe_print("Error: config.yaml did not parse as a mapping.")
         QMessageBox.critical(
-            None, "Configuration Error", "config.yaml did not parse as a valid mapping (dict).",
+            None,
+            "Configuration Error",
+            "config.yaml did not parse as a valid mapping (dict).",
         )
         sys.exit(1)
 
@@ -94,9 +97,9 @@ def main():
         db_path = os.path.join(application_path, db_path)
     if not os.path.exists(db_path):
         QMessageBox.critical(
-            None, "Database Error",
-            f"SQLite database not found at:\n{db_path}\n\n"
-            "Run the migration script first."
+            None,
+            "Database Error",
+            f"SQLite database not found at:\n{db_path}\n\nRun the migration script first.",
         )
         sys.exit(1)
 
@@ -115,6 +118,7 @@ def main():
         _safe_print(f"Startup backup failed (non-fatal): {e}")
 
     from gui.main_window import MainWindow, ServiceRegistry
+
     services = ServiceRegistry(config, config_path, db_path)
     window = MainWindow(services)
     _safe_print("MainWindow created.")
@@ -144,12 +148,14 @@ def _startup_backup(db_path: str, application_path: str) -> None:
     backup_path = os.path.join(backup_dir, f"{ts}_startup_backup.db")
 
     from data.db import get_db
+
     conn = get_db(db_path)
     try:
         conn.execute(f"VACUUM INTO '{backup_path}'")
     except Exception:
         # Fallback: backup API
         import sqlite3
+
         backup_conn = sqlite3.connect(backup_path)
         conn.backup(backup_conn)
         backup_conn.close()

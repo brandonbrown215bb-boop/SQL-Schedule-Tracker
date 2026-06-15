@@ -127,9 +127,7 @@ class ConflictDialog(QDialog):
         btn_box = QDialogButtonBox(self)
 
         overwrite_btn = QPushButton("Overwrite with My Changes")
-        overwrite_btn.setToolTip(
-            "Ignore the remote revision and save your values over the top."
-        )
+        overwrite_btn.setToolTip("Ignore the remote revision and save your values over the top.")
         btn_box.addButton(overwrite_btn, QDialogButtonBox.ActionRole)
 
         reload_btn = QPushButton("Reload Remote Version")
@@ -170,8 +168,7 @@ class ConflictDialog(QDialog):
         ret = QMessageBox.question(
             self,
             "Confirm Reload",
-            "Your local changes will be discarded and the remote version loaded.\n\n"
-            "Continue?",
+            "Your local changes will be discarded and the remote version loaded.\n\nContinue?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )

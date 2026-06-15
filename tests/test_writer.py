@@ -55,9 +55,7 @@ class TestSaveUnit:
     def test_dates_stored_as_iso(self, db_with_units, unit_to_save):
         save_unit(db_with_units, unit_to_save)
         conn = sqlite3.connect(db_with_units)
-        cur = conn.execute(
-            "SELECT unit_detailing_start_date FROM units WHERE com_number = '14201'"
-        )
+        cur = conn.execute("SELECT unit_detailing_start_date FROM units WHERE com_number = '14201'")
         val = cur.fetchone()[0]
         conn.close()
         assert val == "2025-06-01"

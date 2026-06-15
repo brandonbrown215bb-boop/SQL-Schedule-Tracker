@@ -27,17 +27,14 @@ from dataclasses import dataclass, field
 
 # Regex for extracting dimension patterns like 8X8X13, 10'4"X11X35, 130x162x422
 DIMENSION_PATTERN = re.compile(
-    r"(\d+(?:'\d+\")?(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)" +
-    r"(?:\s*[Xx]\s*(\d+(?:\.\d+)?))?"
+    r"(\d+(?:'\d+\")?(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)" + r"(?:\s*[Xx]\s*(\d+(?:\.\d+)?))?"
 )
 
 # Unit type prefixes — must be followed by whitespace or end-of-string
 # Recognized: O)2, O2, O)3, I)2, I3, OA)2, OA2, OAI)2, OAI2
 # Note: RTF is NOT included here — RTF's trailing number is the first dimension,
 # not a revision number handled separately.
-UNIT_TYPE_PATTERN = re.compile(
-    r"^(O[AI]?|I)\s*\)?\s*(\d+)?"
-)
+UNIT_TYPE_PATTERN = re.compile(r"^(O[AI]?|I)\s*\)?\s*(\d+)?")
 
 # Special flags enclosed in asterisks like *PRE-PAINT*
 FLAG_PATTERN = re.compile(r"\*([^*]+)\*")
@@ -54,10 +51,10 @@ LEADING_DASH = re.compile(r"^-+")
 class ParsedTags:
     """Structured tags extracted from a unit description."""
 
-    unit_type: str = ""          # e.g. "O)2", "I)3", "RTF"
-    dimensions: str = ""         # e.g. "8X8X13", "144X144X186"
-    features: list[str] = field(default_factory=list)   # e.g. ["VFD", "UV", "TCF"]
-    flags: list[str] = field(default_factory=list)      # e.g. ["PRE-PAINT"]
+    unit_type: str = ""  # e.g. "O)2", "I)3", "RTF"
+    dimensions: str = ""  # e.g. "8X8X13", "144X144X186"
+    features: list[str] = field(default_factory=list)  # e.g. ["VFD", "UV", "TCF"]
+    flags: list[str] = field(default_factory=list)  # e.g. ["PRE-PAINT"]
 
     @property
     def feature_set(self) -> frozenset[str]:
@@ -73,17 +70,24 @@ class ParsedTags:
 
 # Features that should be kept as a single token (for compound names like "FLOOD TEST")
 _COMPOUND_FEATURES: set[str] = {
-    "FLOOD TEST", "FULL SEAM", "PLATE TO PLATE HX",
-    "SEIS CERT", "AL BASE", "316L SS",
+    "FLOOD TEST",
+    "FULL SEAM",
+    "PLATE TO PLATE HX",
+    "SEIS CERT",
+    "AL BASE",
+    "316L SS",
     "LEAK&DEFLECTION TEST",
     "LEAK & DEFLECTION TEST",
     "LEAK AND DEFLECTION TEST",
     "TEST-V SILICONE-FREE",
-    "WT-L FLOOD TEST", "WT-LD FLOOD TEST",
-    "316L-COMP/HUM/VFD", "EVERYTHING SS",
+    "WT-L FLOOD TEST",
+    "WT-LD FLOOD TEST",
+    "316L-COMP/HUM/VFD",
+    "EVERYTHING SS",
     "NO ELECTRICAL",
     "SIDE BY SIDE",
-    "DEFENSE PRIORITY", "DEF PRIORITY",
+    "DEFENSE PRIORITY",
+    "DEF PRIORITY",
 }
 
 
@@ -98,36 +102,88 @@ _WHITELIST: set[str] = {
     # High-frequency (≥50) tokens NOT in this list are intentionally excluded —
     # they were not marked for keep in the review document.
     # Extended with tokens required by test suite and UI expectations.
-    "TIER", "KDOWN", "HWHL", "AL-BASE", "HW", "SEIS-CERT",
-    "CAMFIL", "DEF-PRIORITY", "OBO",
-    "SEISMIC", "DEFENSE-PRIORITY", "CHEMBIO", "HSB", "FLOOD TEST",
-    "NOA", "STACK-W", "SEIS", "SIDEXSIDE-TUNNELS", "STACKED",
-    "PART-TIER", "SQ-TUNNEL", "VESTIBULE", "CURB", "PARTIAL-TIER",
-    "MOD-UTB", "SIDEXSIDE", "CEILING", "PLATE TO PLATE HX",
-    "SIDEXSIDE-W", "STACK", "SUSPENDED", "UTL", "SIDE-BY-SIDE",
-    "SPECIAL", "DECK", "DUAL-TUNNEL", "KNOCKDOWN", "NOAA",
-    "PARTIAL-KDOWN", "SECTION-KDOWN", "SEIS-CONST",
-    "UV", "YC",
+    "TIER",
+    "KDOWN",
+    "HWHL",
+    "AL-BASE",
+    "HW",
+    "SEIS-CERT",
+    "CAMFIL",
+    "DEF-PRIORITY",
+    "OBO",
+    "SEISMIC",
+    "DEFENSE-PRIORITY",
+    "CHEMBIO",
+    "HSB",
+    "FLOOD TEST",
+    "NOA",
+    "STACK-W",
+    "SEIS",
+    "SIDEXSIDE-TUNNELS",
+    "STACKED",
+    "PART-TIER",
+    "SQ-TUNNEL",
+    "VESTIBULE",
+    "CURB",
+    "PARTIAL-TIER",
+    "MOD-UTB",
+    "SIDEXSIDE",
+    "CEILING",
+    "PLATE TO PLATE HX",
+    "SIDEXSIDE-W",
+    "STACK",
+    "SUSPENDED",
+    "UTL",
+    "SIDE-BY-SIDE",
+    "SPECIAL",
+    "DECK",
+    "DUAL-TUNNEL",
+    "KNOCKDOWN",
+    "NOAA",
+    "PARTIAL-KDOWN",
+    "SECTION-KDOWN",
+    "SEIS-CONST",
+    "UV",
+    "YC",
 }
 
 # Tokens needed by the test suite but NOT in the production whitelist.
 # Tests call _enable_test_tokens() to temporarily add these.
 _TEST_EXTRA_WHITELIST: set[str] = {
-    "SPPP", "LAU", "PP", "VFD", "MMP", "FULLSEAM",
-    "MEDIUM", "FLOW", "AEROVENT", "DURACOLD", "PRE-PAINT",
-    "HIGH-PIPE-HOURS", "TEST-VIB", "VEST", "DRC", "TEST-LD",
+    "SPPP",
+    "LAU",
+    "PP",
+    "VFD",
+    "MMP",
+    "FULLSEAM",
+    "MEDIUM",
+    "FLOW",
+    "AEROVENT",
+    "DURACOLD",
+    "PRE-PAINT",
+    "HIGH-PIPE-HOURS",
+    "TEST-VIB",
+    "VEST",
+    "DRC",
+    "TEST-LD",
     "NEWFEATURE",
     # Compound variants that tests exercise
-    "NO ELECTRICAL", "SEIS CERT", "FULL SEAM", "AL BASE",
+    "NO ELECTRICAL",
+    "SEIS CERT",
+    "FULL SEAM",
+    "AL BASE",
 }
+
 
 def _enable_test_tokens() -> None:
     """Add test-only tokens to the whitelist. Call from test setup only."""
     _WHITELIST.update(_TEST_EXTRA_WHITELIST)
 
+
 def _disable_test_tokens() -> None:
     """Remove test-only tokens from the whitelist. Call from test teardown."""
     _WHITELIST.difference_update(_TEST_EXTRA_WHITELIST)
+
 
 # Normalization map: variant → canonical (whitelist) form.
 # Keys that ARE in _WHITELIST normalize to themselves (identity).
@@ -257,11 +313,11 @@ def parse_description(description: str) -> ParsedTags:
 
         if revision:
             tags.unit_type = f"{prefix}){revision}"
-            text = text[unit_match.end():].strip()
+            text = text[unit_match.end() :].strip()
         else:
             # For single-letter prefix without revision (e.g. "I 8X8X13"),
             # check if next char is a digit (short form like "I2")
-            remaining = text[unit_match.end():].strip()
+            remaining = text[unit_match.end() :].strip()
             if remaining and remaining[0].isdigit():
                 tags.unit_type = f"{prefix}){remaining[0]}"
                 text = remaining[1:].strip()
@@ -335,6 +391,7 @@ def get_features_from_description(description: str) -> frozenset[str]:
 
 # ── Detailer Experience Repository ───────────────────────────────────
 
+
 @dataclass
 class DetailerExperience:
     """Tracks what unit types and feature combinations a detailer has done.
@@ -342,6 +399,7 @@ class DetailerExperience:
     This is built from the entire unit list and can be used to flag
     novel assignments.
     """
+
     detailer: str
     unit_types: set[str] = field(default_factory=set)
     feature_sets: list[frozenset[str]] = field(default_factory=list)
@@ -376,8 +434,8 @@ class UnitTagRepository:
 
     def __init__(self, units: list | None = None):
         self._detailer_experience: dict[str, DetailerExperience] = {}
-        self._all_tags: dict[str, ParsedTags] = {}    # com_number -> tags
-        self._all_tag_counts: dict[str, int] = {}      # tag -> total count
+        self._all_tags: dict[str, ParsedTags] = {}  # com_number -> tags
+        self._all_tag_counts: dict[str, int] = {}  # tag -> total count
         if units:
             self.build(units)
 
@@ -425,6 +483,7 @@ class UnitTagRepository:
             detailer: The detailer name to rebuild experience for.
         """
         from data.models import Unit
+
         if detailer not in self._detailer_experience:
             self._detailer_experience[detailer] = DetailerExperience(detailer=detailer)
 
@@ -501,10 +560,7 @@ class UnitTagRepository:
 
     def get_all_features(self) -> list[tuple[str, int]]:
         """Get all tracked features sorted by frequency (most common first)."""
-        return sorted(
-            self._all_tag_counts.items(),
-            key=lambda x: (-x[1], x[0])
-        )
+        return sorted(self._all_tag_counts.items(), key=lambda x: (-x[1], x[0]))
 
     def get_detailer_experience(self, detailer: str) -> DetailerExperience | None:
         """Get the experience record for a detailer."""

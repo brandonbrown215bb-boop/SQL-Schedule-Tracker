@@ -45,9 +45,7 @@ class EventCalendarWidget(QCalendarWidget):
         if event.type() == QEvent.Type.ChildAdded:
             child = event.child()
             if isinstance(child, QMenu):
-                child.aboutToShow.connect(
-                    lambda menu=child: self._reposition_calendar_menu(menu)
-                )
+                child.aboutToShow.connect(lambda menu=child: self._reposition_calendar_menu(menu))
         return super().eventFilter(obj, event)
 
     def _reposition_calendar_menu(self, menu: QMenu) -> None:
@@ -92,6 +90,7 @@ class EventCalendarWidget(QCalendarWidget):
             units = self.events_by_date[date]
 
             from gui.theme import get_status_colors
+
             status_colors = get_status_colors(self._theme_name, self._cvd_mode)
             hex_to_qcolor = {k: QColor(v) for k, v in status_colors.items()}
 
@@ -138,6 +137,7 @@ class EventCalendarWidget(QCalendarWidget):
                     badge_text = "99+" if count > 99 else str(count)
                     # Badge font
                     from PyQt5.QtGui import QFont
+
                     badge_font = QFont("Segoe UI", 7, QFont.Bold)
                     painter.setFont(badge_font)
                     # Measure text for badge background
@@ -165,10 +165,7 @@ class EventCalendarWidget(QCalendarWidget):
                     painter.drawRoundedRect(badge_x, badge_y, badge_w, badge_h, 4.0, 4.0)
                     # Draw count text
                     painter.setPen(text_color)
-                    painter.drawText(
-                        badge_x, badge_y, badge_w, badge_h,
-                        Qt.AlignCenter, badge_text
-                    )
+                    painter.drawText(badge_x, badge_y, badge_w, badge_h, Qt.AlignCenter, badge_text)
             finally:
                 painter.restore()
         except Exception:
@@ -224,8 +221,10 @@ class CalendarPanel(QWidget):
 
     def _add_event_item(self, unit: Unit) -> None:
         from gui.theme import status_style
+
         hex_color, icon, _label = status_style(
-            self._theme_name, unit.calculated_status_color, self._cvd_mode)
+            self._theme_name, unit.calculated_status_color, self._cvd_mode
+        )
         suffix = " ⚠ Due changed" if unit.due_date_changed else ""
         item = QListWidgetItem(f"{icon} COM {unit.com_number} — {unit.job_name}{suffix}")
         item.setData(Qt.UserRole, unit)

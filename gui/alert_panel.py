@@ -39,23 +39,23 @@ from data.models import Unit
 # Same mapping as list_panel.py STATUS_COLORS_FALLBACK
 
 STATUS_COLORS: dict[str, QColor] = {
-    "gray":   QColor(148, 163, 184),
+    "gray": QColor(148, 163, 184),
     "yellow": QColor(234, 179, 8),
     "purple": QColor(168, 85, 247),
     "orange": QColor(249, 115, 22),
-    "green":  QColor(34, 197, 94),
-    "red":    QColor(239, 68, 68),
+    "green": QColor(34, 197, 94),
+    "red": QColor(239, 68, 68),
 }
 
 # ─── Alert Severity Order ─────────────────────────────────────────────
 
 ALERT_SEVERITY_ORDER: dict[str, int] = {
-    "OVERDUE":     0,
-    "URGENT":      1,
+    "OVERDUE": 0,
+    "URGENT": 1,
     "APPROACHING": 2,
-    "ON_TRACK":    3,
-    "COMPLETE":    4,
-    "UNSET":       5,
+    "ON_TRACK": 3,
+    "COMPLETE": 4,
+    "UNSET": 5,
 }
 
 # ─── Capacity Threshold ───────────────────────────────────────────────
@@ -64,6 +64,7 @@ CAPACITY_HOURS_THRESHOLD: float = 160.0  # 4 weeks x 40 hrs/week
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────
+
 
 def _alert_badge_stylesheet(color_name: str) -> str:
     """Return a stylesheet string for an alert-level badge."""
@@ -105,20 +106,23 @@ def _make_dot_pixmap(color: QColor, size: int = 10) -> QPixmap:
 
 # ─── Criticality Labels (for badge text + summary) ──────────────────
 CRITICALITY_LABELS: dict[str, str] = {
-    "red": "CRITICAL", "orange": "CHECKED",
-    "purple": "CHECKING", "yellow": "IN PROGRESS",
-    "gray": "UNASSIGNED", "green": "COMPLETE",
+    "red": "CRITICAL",
+    "orange": "CHECKED",
+    "purple": "CHECKING",
+    "yellow": "IN PROGRESS",
+    "gray": "UNASSIGNED",
+    "green": "COMPLETE",
 }
 
 # ─── Criticality Order (matches calculated_status_color severity) ────
 # Red = most critical, then orange, purple, yellow, gray, green
 CRITICALITY_ORDER: dict[str, int] = {
-    "red":    0,
+    "red": 0,
     "orange": 1,
     "purple": 2,
     "yellow": 3,
-    "gray":   4,
-    "green":  5,
+    "gray": 4,
+    "green": 5,
 }
 
 
@@ -136,11 +140,14 @@ def _detect_checking_surge(units: list) -> set[str]:
     entering checking in the same window means some won't clear in time.
     """
     from collections import defaultdict
+
     by_due = defaultdict(list)
     for u in units:
-        if (u.detailing_due_date is not None
-                and u.unit_moved_to_checking_date is None
-                and u.unit_detailing_completion_date is None):
+        if (
+            u.detailing_due_date is not None
+            and u.unit_moved_to_checking_date is None
+            and u.unit_detailing_completion_date is None
+        ):
             by_due[u.detailing_due_date].append(u)
 
     surge_coms: set[str] = set()
@@ -160,6 +167,7 @@ def _sort_key_for_alert(unit: Unit) -> tuple[int, date]:
 
 
 # ─── AlertPanel Widget ────────────────────────────────────────────────
+
 
 class AlertPanel(QWidget):
     """Per-detailer alert dashboard with drill-down signal.
@@ -261,11 +269,7 @@ class AlertPanel(QWidget):
         self.summary_label = QLabel("No alerts")
         self.summary_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.summary_label.setStyleSheet(
-            "QLabel {"
-            "  border-top: 1px solid palette(mid);"
-            "  padding: 4px 6px;"
-            "  font-size: 12px;"
-            "}"
+            "QLabel {  border-top: 1px solid palette(mid);  padding: 4px 6px;  font-size: 12px;}"
         )
         layout.addWidget(self.summary_label)
 
@@ -320,8 +324,9 @@ class AlertPanel(QWidget):
             desc = unit.description or ""
             if len(desc) > 40:
                 desc = desc[:37] + "..."
-            due_str = unit.detailing_due_date.strftime(
-                "%m/%d/%y") if unit.detailing_due_date else "—"
+            due_str = (
+                unit.detailing_due_date.strftime("%m/%d/%y") if unit.detailing_due_date else "—"
+            )
             pct_str = f"{unit.percent_complete:.0f}%"
             alert = unit.alert_level
 
@@ -391,8 +396,12 @@ class AlertPanel(QWidget):
     def _update_summary(self) -> None:
         """Update the summary bar at the bottom."""
         counts: dict[str, int] = {
-            "CRITICAL": 0, "CHECKED": 0, "CHECKING": 0,
-            "IN PROGRESS": 0, "UNASSIGNED": 0, "COMPLETE": 0,
+            "CRITICAL": 0,
+            "CHECKED": 0,
+            "CHECKING": 0,
+            "IN PROGRESS": 0,
+            "UNASSIGNED": 0,
+            "COMPLETE": 0,
         }
         for u in self._filtered_units:
             color = _status_color_name(u)

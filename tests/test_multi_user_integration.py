@@ -41,11 +41,29 @@ def shared_workbook(tmp_path) -> str:
 
     # Row 1: headers
     headers = [
-        "Detailing Due Date", "Prev Due Date", "COM Number", "",
-        "Detailer", "Job Name", "Contract", "Description",
-        "Build Date", "", "Dept Hours", "% Complete",
-        "Remaining Hours", "Actual Hours", "", "", "", "", "", "",
-        "Checking Status", "Target Hours", "IEC Hours",
+        "Detailing Due Date",
+        "Prev Due Date",
+        "COM Number",
+        "",
+        "Detailer",
+        "Job Name",
+        "Contract",
+        "Description",
+        "Build Date",
+        "",
+        "Dept Hours",
+        "% Complete",
+        "Remaining Hours",
+        "Actual Hours",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "Checking Status",
+        "Target Hours",
+        "IEC Hours",
     ]
     for col_idx, header in enumerate(headers, start=1):
         ws.cell(row=1, column=col_idx, value=header)
@@ -337,6 +355,7 @@ def test_session_stale_detection(tmp_path):
     session_file = Path(excel_path).parent / "UnitTracker" / "sessions" / "Stale@PC1.json"
     data = json.loads(session_file.read_text())
     import datetime
+
     data["last_heartbeat"] = (
         datetime.datetime.now() - datetime.timedelta(seconds=HEARTBEAT_TIMEOUT + 10)
     ).isoformat()

@@ -72,8 +72,7 @@ class TestLoadUnits:
     def test_null_dates_become_none(self, db_path):
         conn = sqlite3.connect(db_path)
         conn.execute(
-            "INSERT INTO units (com_number, detailing_due_date, build_date) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO units (com_number, detailing_due_date, build_date) VALUES (?, ?, ?)",
             ("99999", None, None),
         )
         conn.commit()
@@ -100,6 +99,7 @@ class TestFingerprint:
 
     def test_modified_field_changes_fingerprint(self, sample_unit):
         from data.loader import _fingerprint_cache
+
         fp1 = unit_fingerprint(sample_unit)
         # Clear cache to simulate fresh fingerprint after mutation
         _fingerprint_cache.clear()

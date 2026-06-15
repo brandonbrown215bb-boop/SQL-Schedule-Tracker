@@ -37,6 +37,7 @@ def existing_unit(db_with_units) -> Unit:
     row = conn.execute("SELECT * FROM units WHERE com_number = '14201'").fetchone()
     conn.close()
     from data.db import row_to_unit
+
     return row_to_unit(row)
 
 
@@ -123,9 +124,7 @@ class TestSave:
         svc_with_units.save(existing_unit)
         trail = svc_with_units.get_audit_trail(com_number="14201")
         assert len(trail) >= 1
-        detailer_entry = next(
-            (e for e in trail if e["field_name"] == "detailer"), None
-        )
+        detailer_entry = next((e for e in trail if e["field_name"] == "detailer"), None)
         assert detailer_entry is not None
         assert detailer_entry["new_value"] == "Brandon B"
 

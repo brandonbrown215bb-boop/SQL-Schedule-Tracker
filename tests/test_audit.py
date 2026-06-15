@@ -1,5 +1,6 @@
 # tests/test_audit.py
 """Tests for the audit log system (Sprint 2: Data Integrity & Audit)."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -25,9 +26,10 @@ class TestAuditLog:
     def test_audit_table_created(self, audit_db):
         """_audit_log table should exist after _ensure_audit_log."""
         conn = sqlite3.connect(audit_db)
-        tables = {row[0] for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
         conn.close()
         assert "_audit_log" in tables
 
@@ -42,9 +44,7 @@ class TestAuditLog:
         ).fetchone()
         conn.commit()
         # Read back the row
-        old_row = conn.execute(
-            "SELECT * FROM units WHERE com_number = 'TEST001'"
-        ).fetchone()
+        old_row = conn.execute("SELECT * FROM units WHERE com_number = 'TEST001'").fetchone()
 
         new_values = {
             "detailer": "Brandon B",
@@ -70,9 +70,7 @@ class TestAuditLog:
             ("TEST002", "Carl M"),
         )
         conn.commit()
-        old_row = conn.execute(
-            "SELECT * FROM units WHERE com_number = 'TEST002'"
-        ).fetchone()
+        old_row = conn.execute("SELECT * FROM units WHERE com_number = 'TEST002'").fetchone()
 
         new_values = {"detailer": "Carl M"}
         changes = log_field_changes(conn, "TEST002", old_row, new_values)
@@ -154,9 +152,10 @@ class TestAuditLog:
     def test_audit_index_created(self, audit_db):
         """Audit indexes should be created after _ensure_audit_log."""
         conn = sqlite3.connect(audit_db)
-        idx_names = {row[0] for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='index'"
-        ).fetchall()}
+        idx_names = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
+        }
         conn.close()
         assert "idx_audit_com" in idx_names
         assert "idx_audit_saved_at" in idx_names

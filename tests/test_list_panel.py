@@ -70,26 +70,52 @@ def _build_unit_list() -> list[Unit]:
     """
     today = date.today()
     return [
-        _make_unit("COM-100", "Jackie / IEC Internals", "red", 10.0,
-                   due=today - timedelta(days=5),
-                   job_name="Overdue Alpha"),
+        _make_unit(
+            "COM-100",
+            "Jackie / IEC Internals",
+            "red",
+            10.0,
+            due=today - timedelta(days=5),
+            job_name="Overdue Alpha",
+        ),
         # Give COM-200 a far enough due date that 50% progress is on track
         # (remaining 20h fits within available capacity after checking overhead).
-        _make_unit("COM-200", "Maria / RGV Team", "yellow", 50.0,
-                   due=today + timedelta(days=60),
-                   job_name="In Progress Beta"),
-        _make_unit("COM-300", "Chen / HOU Team", "green", 100.0,
-                   due=today + timedelta(days=10),
-                   job_name="Completed Gamma"),
-        _make_unit("COM-400", "Tracy / Checking", "gray", 0.0,
-                   due=None, job_name="Unassigned Delta"),
+        _make_unit(
+            "COM-200",
+            "Maria / RGV Team",
+            "yellow",
+            50.0,
+            due=today + timedelta(days=60),
+            job_name="In Progress Beta",
+        ),
+        _make_unit(
+            "COM-300",
+            "Chen / HOU Team",
+            "green",
+            100.0,
+            due=today + timedelta(days=10),
+            job_name="Completed Gamma",
+        ),
+        _make_unit(
+            "COM-400", "Tracy / Checking", "gray", 0.0, due=None, job_name="Unassigned Delta"
+        ),
         # Give COM-500 a far enough due date that 90% is on track (purple).
-        _make_unit("COM-500", "Jackie / IEC Internals", "purple", 90.0,
-                   due=today + timedelta(days=60),
-                   job_name="Checking Epsilon"),
-        _make_unit("COM-600", "Maria / RGV Team", "orange", 95.0,
-                   due=today + timedelta(days=30),
-                   job_name="Returned Zeta"),
+        _make_unit(
+            "COM-500",
+            "Jackie / IEC Internals",
+            "purple",
+            90.0,
+            due=today + timedelta(days=60),
+            job_name="Checking Epsilon",
+        ),
+        _make_unit(
+            "COM-600",
+            "Maria / RGV Team",
+            "orange",
+            95.0,
+            due=today + timedelta(days=30),
+            job_name="Returned Zeta",
+        ),
     ]
 
 
@@ -154,10 +180,7 @@ class TestUnitListModelFiltering:
     def test_filter_by_detailer(self):
         self.model.apply_filters(detailer="Jackie / IEC Internals")
         assert len(self.model.filtered_units) == 2
-        assert all(
-            u.detailer == "Jackie / IEC Internals"
-            for u in self.model.filtered_units
-        )
+        assert all(u.detailer == "Jackie / IEC Internals" for u in self.model.filtered_units)
 
     def test_filter_by_detailer_maria(self):
         self.model.apply_filters(detailer="Maria / RGV Team")
@@ -180,17 +203,13 @@ class TestUnitListModelFiltering:
 
     def test_filter_combines_and_logic(self):
         # Status=yellow AND Detailer=Maria
-        self.model.apply_filters(
-            status="yellow", detailer="Maria / RGV Team"
-        )
+        self.model.apply_filters(status="yellow", detailer="Maria / RGV Team")
         assert len(self.model.filtered_units) == 1
         assert self.model.filtered_units[0].com_number == "COM-200"
 
     def test_filter_combines_and_no_match(self):
         # Status=red AND Detailer=Maria → no units match both
-        self.model.apply_filters(
-            status="red", detailer="Maria / RGV Team"
-        )
+        self.model.apply_filters(status="red", detailer="Maria / RGV Team")
         assert len(self.model.filtered_units) == 0
 
     def test_filter_empty_search_returns_all(self):
@@ -344,9 +363,7 @@ class TestListPanelWidget:
     def test_refresh_preserves_filters(self, qapp):
         panel = ListPanel(self.units)
         # Apply a filter
-        panel.status_combo.setCurrentIndex(
-            panel.status_combo.findData("red")
-        )
+        panel.status_combo.setCurrentIndex(panel.status_combo.findData("red"))
         initial_count = panel.table.rowCount()
         assert initial_count == 1
 
@@ -357,9 +374,7 @@ class TestListPanelWidget:
     def test_clear_filters(self, qapp):
         panel = ListPanel(self.units)
         # Apply a filter
-        panel.status_combo.setCurrentIndex(
-            panel.status_combo.findData("red")
-        )
+        panel.status_combo.setCurrentIndex(panel.status_combo.findData("red"))
         assert panel.table.rowCount() == 1
 
         # Clear
@@ -438,6 +453,7 @@ class TestConstants:
 
     def test_status_labels_has_all_colors(self):
         from gui.theme import STATUS_LABELS
+
         for color in ["gray", "yellow", "purple", "orange", "green", "red"]:
             assert color in STATUS_LABELS
 

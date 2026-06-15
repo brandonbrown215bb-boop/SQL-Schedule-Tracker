@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 try:
     from PyQt5.QtWidgets import QApplication
+
     _app = QApplication.instance() or QApplication(sys.argv)
 except Exception:
     pytest.skip("PyQt5 not available", allow_module_level=True)
@@ -24,14 +25,19 @@ from gui.close_progress_dialog import CloseProgressDialog, _format_seconds
 class TestFormatSeconds:
     def test_zero(self):
         assert _format_seconds(0) == "<1s"
+
     def test_subsecond(self):
         assert _format_seconds(0.5) == "<1s"
+
     def test_seconds(self):
         assert _format_seconds(5) == "5s"
+
     def test_minutes(self):
         assert _format_seconds(75) == "1m 15s"
+
     def test_negative(self):
         assert _format_seconds(-3) == "—"
+
     def test_nan(self):
         assert _format_seconds(float("nan")) == "—"
 

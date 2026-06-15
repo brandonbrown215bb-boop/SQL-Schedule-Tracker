@@ -1,5 +1,6 @@
 # data/db.py
 """SQLite connection management and row-to-Unit conversion."""
+
 import json
 import logging
 import sqlite3
@@ -36,7 +37,9 @@ def get_db(db_path: str | None = None) -> sqlite3.Connection:
         _local.conn = conn
         _local.db_path = _db_path
         _migrate_schema(conn)
-        logger.info(f"SQLite connection opened for thread {threading.current_thread().name}: {_db_path}")
+        logger.info(
+            f"SQLite connection opened for thread {threading.current_thread().name}: {_db_path}"
+        )
     return conn
 
 
@@ -47,6 +50,7 @@ def _working_days_between(start_str: str | None, end_str: str | None) -> int | N
     """
     from datetime import date as _date
     from datetime import timedelta
+
     if not start_str or not end_str:
         return None
     try:
@@ -102,7 +106,8 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             "idx_units_status_color": "status_color",
         }
         existing_indexes = {
-            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
         }
         for idx_name, col in desired_indexes.items():
             if idx_name not in existing_indexes:
@@ -126,6 +131,7 @@ def close_db() -> None:
 
 # ── Audit log ────────────────────────────────────────────────────────────────
 
+
 def _ensure_audit_log(conn: sqlite3.Connection) -> None:
     """Create the _audit_log table if it doesn't exist."""
     conn.execute("""
@@ -140,12 +146,8 @@ def _ensure_audit_log(conn: sqlite3.Connection) -> None:
         )
     """)
     # Index for fast lookups by COM number
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_audit_com ON _audit_log(com_number)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_audit_saved_at ON _audit_log(saved_at)"
-    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_com ON _audit_log(com_number)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_saved_at ON _audit_log(saved_at)")
     conn.commit()
 
 
@@ -194,7 +196,9 @@ def log_field_changes(
         conn.commit()
         logger.info(
             "Audit: %d field(s) changed for COM %s by %s",
-            changes, com_number, saved_by,
+            changes,
+            com_number,
+            saved_by,
         )
     return changes
 
@@ -298,7 +302,9 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         notes=row["notes"] or "",
         status_color=row["status_color"] or "gray",  # persisted from last computed value
         department_hours=row["department_hours"] or 0.0,
-        target_department_hours=row["target_dept_hours"] if "target_dept_hours" in row and row["target_dept_hours"] is not None else 0.0,
+        target_department_hours=row["target_dept_hours"]
+        if "target_dept_hours" in row and row["target_dept_hours"] is not None
+        else 0.0,
         iec_internal_hours=row["iec_internal_hours"] or 0.0,
         percent_complete=(row["percent_complete"] or 0.0) * 100,
         actual_hours=row["actual_hours"] or 0.0,
@@ -309,7 +315,9 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         dept_due_date_previous=_parse_date(row["dept_due_date_previous"]),
         detailing_due_date=_parse_date(row["detailing_due_date"]),
         build_date=_parse_date(row["build_date"]),
-        working_days_in_checking=row["working_days_in_checking"] if "working_days_in_checking" in row and row["working_days_in_checking"] is not None else None,
+        working_days_in_checking=row["working_days_in_checking"]
+        if "working_days_in_checking" in row and row["working_days_in_checking"] is not None
+        else None,
         updated_at=row["updated_at"] or "",
     )
 
@@ -330,6 +338,7 @@ def _parse_date(val) -> date | None:
 # ---------------------------------------------------------------------------
 # Detailer schedule helpers
 # ---------------------------------------------------------------------------
+
 
 def get_detailer_schedules(db_path: str) -> dict[str, list[int]]:
     """Load all detailer schedules from the detailers table.
@@ -356,6 +365,3 @@ def get_detailer_schedules(db_path: str) -> dict[str, list[int]]:
         schedules[row[0]] = json.loads(row[1])
 
     return schedules
-
-
-

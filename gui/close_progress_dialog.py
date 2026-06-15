@@ -46,9 +46,7 @@ class CloseProgressDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("close_progress_dialog")
         self.setWindowTitle("Saving updates…")
-        self.setWindowFlags(
-            self.windowFlags() & ~Qt.WindowCloseButtonHint
-        )
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowCloseButtonHint)
         self.setModal(True)
         self.setMinimumWidth(420)
         self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
@@ -130,9 +128,7 @@ class CloseProgressDialog(QDialog):
         else:
             self._eta_label.setText("Estimated time remaining: …")
             return
-        self._eta_label.setText(
-            f"Estimated time remaining: ~{_format_seconds(eta)}"
-        )
+        self._eta_label.setText(f"Estimated time remaining: ~{_format_seconds(eta)}")
 
     def is_idle(self) -> bool:
         """Return True when the queue has fully drained."""

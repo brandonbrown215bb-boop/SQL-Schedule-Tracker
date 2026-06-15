@@ -48,7 +48,7 @@ class ClearableDateEdit(QDateEdit):
 class EditForm(QWidget):
     """Form for editing a Unit's properties."""
 
-    saved = pyqtSignal(Unit) # Re-added
+    saved = pyqtSignal(Unit)  # Re-added
     dirty_changed = pyqtSignal(bool)
 
     def __init__(self, default_detailers: list[str], parent=None):
@@ -86,7 +86,7 @@ class EditForm(QWidget):
         self.description_edit = QLineEdit()
         self.form.addRow(QLabel("Description:"), self.description_edit)
 
-        self.detailer_edit = QComboBox() # Changed to QComboBox
+        self.detailer_edit = QComboBox()  # Changed to QComboBox
         self.detailer_edit.addItems(default_detailers)
         self.form.addRow(QLabel("Detailer:"), self.detailer_edit)
 
@@ -169,15 +169,22 @@ class EditForm(QWidget):
         self._dirty = False
         self._loading = False
         _fields = (
-            self.job_name_edit, self.contract_edit, self.description_edit,
+            self.job_name_edit,
+            self.contract_edit,
+            self.description_edit,
             self.detailer_edit,
             self.checking_status_edit,
             self.notes_edit,
             self.dept_hours_spin,
-            self.iec_hours_spin, self.percent_spin, self.actual_hours_spin,
-            self.start_date_edit, self.checking_date_edit,
-            self.completion_date_edit, self.due_prev_date_edit,
-            self.due_date_edit, self.build_date_edit,
+            self.iec_hours_spin,
+            self.percent_spin,
+            self.actual_hours_spin,
+            self.start_date_edit,
+            self.checking_date_edit,
+            self.completion_date_edit,
+            self.due_prev_date_edit,
+            self.due_date_edit,
+            self.build_date_edit,
         )
         for f in _fields:
             if isinstance(f, QLineEdit):
@@ -230,14 +237,22 @@ class EditForm(QWidget):
         # Block signals during population to prevent dirty-tracking fires
         _signal_blocks = []
         _fields = (
-            self.job_name_edit, self.contract_edit, self.description_edit,
-            self.detailer_edit, self.checking_status_edit,
+            self.job_name_edit,
+            self.contract_edit,
+            self.description_edit,
+            self.detailer_edit,
+            self.checking_status_edit,
             self.notes_edit,
             self.dept_hours_spin,
-            self.iec_hours_spin, self.percent_spin, self.actual_hours_spin,
-            self.start_date_edit, self.checking_date_edit,
-            self.completion_date_edit, self.due_prev_date_edit,
-            self.due_date_edit, self.build_date_edit,
+            self.iec_hours_spin,
+            self.percent_spin,
+            self.actual_hours_spin,
+            self.start_date_edit,
+            self.checking_date_edit,
+            self.completion_date_edit,
+            self.due_prev_date_edit,
+            self.due_date_edit,
+            self.build_date_edit,
         )
         for f in _fields:
             f.blockSignals(True)
@@ -279,7 +294,6 @@ class EditForm(QWidget):
                 self.detailer_edit.setCurrentIndex(0)
             self.checking_status_edit.setText(unit.checking_status)
             self.notes_edit.setPlainText(unit.notes)
-
 
             self.dept_hours_spin.setValue(unit.department_hours)
             self.target_hours_spin.setValue(unit.target_department_hours)
@@ -397,7 +411,7 @@ class EditForm(QWidget):
         errors = self._validate_fields(updated)
         if errors:
             self.status_label.setText(
-                '<span style="color: red;">⚠ ' + "; ".join(errors) + '</span>'
+                '<span style="color: red;">⚠ ' + "; ".join(errors) + "</span>"
             )
             # Still allow save for warnings (date order), but block for hard errors
             hard_errors = [e for e in errors if "must be" in e.lower()]

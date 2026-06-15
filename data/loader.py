@@ -1,5 +1,6 @@
 # data/loader.py
 """Data loader — reads units from SQLite database."""
+
 import hashlib
 import json
 import logging

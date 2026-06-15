@@ -147,15 +147,18 @@ def db_path(tmp_path):
 def db_with_units(db_path):
     """SQLite database with a few sample units."""
     conn = sqlite3.connect(db_path)
-    conn.executemany("""
+    conn.executemany(
+        """
         INSERT INTO units (com_number, job_name, detailer, department_hours, percent_complete,
                           detailing_due_date, build_date)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, [
-        ("14201", "Job A", "Carl M", 40.0, 0.50, "2025-07-15", "2025-08-01"),
-        ("14202", "Job B", "Matthew E", 80.0, 0.25, "2025-06-01", "2025-07-01"),
-        ("14203", "Job C", "Carl M", 40.0, 1.00, "2025-05-01", "2025-06-01"),
-    ])
+    """,
+        [
+            ("14201", "Job A", "Carl M", 40.0, 0.50, "2025-07-15", "2025-08-01"),
+            ("14202", "Job B", "Matthew E", 80.0, 0.25, "2025-06-01", "2025-07-01"),
+            ("14203", "Job C", "Carl M", 40.0, 1.00, "2025-05-01", "2025-06-01"),
+        ],
+    )
     conn.commit()
     conn.close()
     return db_path

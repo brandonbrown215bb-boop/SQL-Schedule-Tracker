@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SyncStatus:
     """Current status of the multi-user sync system."""
+
     enabled: bool = False
     owner_id: str = ""
     active_sessions: list[str] = None  # type: ignore[assignment]
@@ -153,6 +154,7 @@ class SyncService:
         """Commit a revision for a COM. Raises RevisionConflictError on stale base."""
         if not self._revision_store:
             from sync.revision_store import UnitRevision
+
             return UnitRevision(
                 com_number=com_number,
                 revision=1,
@@ -160,9 +162,7 @@ class SyncService:
                 modified_by=user,
                 modified_at=__import__("datetime").datetime.now().isoformat(timespec="seconds"),
             )
-        return self._revision_store.commit(
-            com_number, base_revision, fingerprint, user, unit=unit
-        )
+        return self._revision_store.commit(com_number, base_revision, fingerprint, user, unit=unit)
 
     # ── Sessions ──────────────────────────────────────────────────────
 

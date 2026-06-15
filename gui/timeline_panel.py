@@ -94,12 +94,14 @@ class TimelineWidget(QWidget):
             offset_days = (d - min_date).days
             x = bar_x + int((offset_days / total_days) * bar_width)
             x = max(bar_x + 2, min(x, bar_x + bar_width - 2))
-            milestone_positions.append({
-                "name": name,
-                "date": d,
-                "row_y": row_y,
-                "x": x,
-            })
+            milestone_positions.append(
+                {
+                    "name": name,
+                    "date": d,
+                    "row_y": row_y,
+                    "x": x,
+                }
+            )
 
         # Pre-compute axis ticks
         axis_y = marker_area_top + len(milestones) * self.ROW_HEIGHT + 12
@@ -177,6 +179,7 @@ class TimelineWidget(QWidget):
 
         # --- Status color bar ---
         from gui.theme import STATUS_SHAPES, get_status_colors
+
         colors = get_status_colors(self._theme_name, self._cvd_mode)
         bar_color = QColor(colors.get(self.unit.calculated_status_color, colors["gray"]))
 

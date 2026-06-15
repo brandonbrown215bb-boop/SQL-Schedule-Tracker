@@ -31,10 +31,11 @@ from PyQt5.QtWidgets import (
 
 # ─── Walkthrough Steps ───────────────────────────────────────────────
 
+
 class WalkthroughStep(NamedTuple):
-    widget_name: str        # objectName of the widget to highlight
-    title: str              # short heading
-    description: str        # 1-sentence explanation
+    widget_name: str  # objectName of the widget to highlight
+    title: str  # short heading
+    description: str  # 1-sentence explanation
     position: str = "bottom"  # callout position: top, bottom, left, right
 
 
@@ -229,6 +230,7 @@ ONBOARDING_STEPS: list[WalkthroughStep] = [
 
 # ─── Onboarding Overlay ──────────────────────────────────────────────
 
+
 class OnboardingOverlay(QWidget):
     """Semi-transparent overlay that highlights one widget at a time.
 
@@ -236,8 +238,9 @@ class OnboardingOverlay(QWidget):
     transparent "hole" around the target widget, plus a callout bubble.
     """
 
-    def __init__(self, parent: QWidget, steps: list[WalkthroughStep],
-                 on_complete=None, on_skip=None):
+    def __init__(
+        self, parent: QWidget, steps: list[WalkthroughStep], on_complete=None, on_skip=None
+    ):
         super().__init__(parent)
         self.steps = steps
         self.current_step = 0
@@ -376,8 +379,7 @@ class OnboardingOverlay(QWidget):
             # Map target geometry to overlay coordinates.
             # mapTo() is safe here because showEvent has already fired.
             tl = self._map_widget_to_overlay(target, QPoint(0, 0))
-            br = self._map_widget_to_overlay(
-                target, QPoint(target.width(), target.height()))
+            br = self._map_widget_to_overlay(target, QPoint(target.width(), target.height()))
             self._highlight_rect = QRect(tl, br)
 
             # Position the callout relative to the target
@@ -507,6 +509,7 @@ class OnboardingOverlay(QWidget):
 
 # ─── Public API ──────────────────────────────────────────────────────
 
+
 def should_show_onboarding(config: dict) -> bool:
     """Check if the walkthrough should be shown."""
     return not config.get("ui", {}).get("onboarding_completed", False)
@@ -514,6 +517,7 @@ def should_show_onboarding(config: dict) -> bool:
 
 def show_onboarding(parent: QWidget, config: dict | None = None) -> None:
     """Show the onboarding walkthrough overlay."""
+
     def on_complete():
         if config is not None:
             config.setdefault("ui", {})["onboarding_completed"] = True

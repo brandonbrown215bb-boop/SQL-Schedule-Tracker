@@ -1,5 +1,6 @@
 # data/writer.py
 """Data writer — saves units to SQLite database."""
+
 import logging
 
 from data.db import _working_days_between, get_db, log_field_changes
@@ -24,13 +25,9 @@ def _validate_unit(unit: Unit) -> None:
             "This likely indicates a scale mismatch (0-1 vs 0-100)."
         )
     if unit.department_hours < 0:
-        raise ValidationError(
-            f"department_hours must be >= 0, got {unit.department_hours}."
-        )
+        raise ValidationError(f"department_hours must be >= 0, got {unit.department_hours}.")
     if unit.actual_hours < 0:
-        raise ValidationError(
-            f"actual_hours must be >= 0, got {unit.actual_hours}."
-        )
+        raise ValidationError(f"actual_hours must be >= 0, got {unit.actual_hours}.")
     if unit.target_department_hours < 0:
         raise ValidationError(
             f"target_department_hours must be >= 0, got {unit.target_department_hours}."
@@ -70,7 +67,8 @@ def save_unit(
         # Row has no updated_at yet (legacy/seeded data) — fall back to unlocked
         where_clause = "WHERE com_number = ?"
         where_params = (unit.com_number,)
-    cursor = conn.execute(f"""
+    cursor = conn.execute(
+        f"""
         UPDATE units SET
             job_name = ?,
             top_level_number = ?,
@@ -93,31 +91,41 @@ def save_unit(
             working_days_in_checking = ?,
             updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
         {where_clause}
-    """, (
-        unit.job_name,
-        unit.contract_number,
-        unit.description,
-        unit.detailer,
-        unit.checking_status,
-        unit.department_hours,
-        unit.percent_complete / 100,
-        unit.actual_hours,
-        unit.target_department_hours,  # Use the unit's value (may be 0 for non-primary identicals)
-        unit.iec_internal_hours,
-        unit.dept_due_date_previous.isoformat() if unit.dept_due_date_previous else None,
-        unit.detailing_due_date.isoformat() if unit.detailing_due_date else None,
-        unit.build_date.isoformat() if unit.build_date else None,
-        unit.unit_detailing_start_date.isoformat() if unit.unit_detailing_start_date else None,
-        unit.unit_moved_to_checking_date.isoformat() if unit.unit_moved_to_checking_date else None,
-        unit.unit_detailing_completion_date.isoformat() if unit.unit_detailing_completion_date else None,
-        unit.notes,
-        unit.calculated_status_color,
-        _working_days_between(
-            unit.unit_moved_to_checking_date.isoformat() if unit.unit_moved_to_checking_date else None,
-            unit.unit_detailing_completion_date.isoformat() if unit.unit_detailing_completion_date else None,
+    """,
+        (
+            unit.job_name,
+            unit.contract_number,
+            unit.description,
+            unit.detailer,
+            unit.checking_status,
+            unit.department_hours,
+            unit.percent_complete / 100,
+            unit.actual_hours,
+            unit.target_department_hours,  # Use the unit's value (may be 0 for non-primary identicals)
+            unit.iec_internal_hours,
+            unit.dept_due_date_previous.isoformat() if unit.dept_due_date_previous else None,
+            unit.detailing_due_date.isoformat() if unit.detailing_due_date else None,
+            unit.build_date.isoformat() if unit.build_date else None,
+            unit.unit_detailing_start_date.isoformat() if unit.unit_detailing_start_date else None,
+            unit.unit_moved_to_checking_date.isoformat()
+            if unit.unit_moved_to_checking_date
+            else None,
+            unit.unit_detailing_completion_date.isoformat()
+            if unit.unit_detailing_completion_date
+            else None,
+            unit.notes,
+            unit.calculated_status_color,
+            _working_days_between(
+                unit.unit_moved_to_checking_date.isoformat()
+                if unit.unit_moved_to_checking_date
+                else None,
+                unit.unit_detailing_completion_date.isoformat()
+                if unit.unit_detailing_completion_date
+                else None,
+            ),
+            *where_params,
         ),
-        *where_params,
-    ))
+    )
     if cursor.rowcount == 0:
         conn.rollback()
         raise ConcurrentEditError(
@@ -136,12 +144,22 @@ def save_unit(
         "actual_hours": unit.actual_hours,
         "target_dept_hours": unit.target_department_hours,
         "iec_internal_hours": unit.iec_internal_hours,
-        "dept_due_date_previous": unit.dept_due_date_previous.isoformat() if unit.dept_due_date_previous else None,
-        "detailing_due_date": unit.detailing_due_date.isoformat() if unit.detailing_due_date else None,
+        "dept_due_date_previous": unit.dept_due_date_previous.isoformat()
+        if unit.dept_due_date_previous
+        else None,
+        "detailing_due_date": unit.detailing_due_date.isoformat()
+        if unit.detailing_due_date
+        else None,
         "build_date": unit.build_date.isoformat() if unit.build_date else None,
-        "unit_detailing_start_date": unit.unit_detailing_start_date.isoformat() if unit.unit_detailing_start_date else None,
-        "unit_moved_to_checking_date": unit.unit_moved_to_checking_date.isoformat() if unit.unit_moved_to_checking_date else None,
-        "unit_detailing_completion_date": unit.unit_detailing_completion_date.isoformat() if unit.unit_detailing_completion_date else None,
+        "unit_detailing_start_date": unit.unit_detailing_start_date.isoformat()
+        if unit.unit_detailing_start_date
+        else None,
+        "unit_moved_to_checking_date": unit.unit_moved_to_checking_date.isoformat()
+        if unit.unit_moved_to_checking_date
+        else None,
+        "unit_detailing_completion_date": unit.unit_detailing_completion_date.isoformat()
+        if unit.unit_detailing_completion_date
+        else None,
         "notes": unit.notes,
         "status_color": unit.calculated_status_color,
     }

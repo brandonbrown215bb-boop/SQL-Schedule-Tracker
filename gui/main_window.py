@@ -169,8 +169,12 @@ class MainWindow(QMainWindow):
         self._current_theme_name = ui_cfg.get("theme", "light")
         self._current_cvd = ui_cfg.get("colorblind_mode", "none")
         self._current_hc = ui_cfg.get("high_contrast", False)
-        apply_theme(self, self._current_theme_name,
-                    cvd_mode=self._current_cvd, high_contrast=self._current_hc)
+        apply_theme(
+            self,
+            self._current_theme_name,
+            cvd_mode=self._current_cvd,
+            high_contrast=self._current_hc,
+        )
 
     def _init_status_bar(self) -> None:
         self.setWindowTitle("Unit Tracker")
@@ -293,9 +297,7 @@ class MainWindow(QMainWindow):
         help_menu = menubar.addMenu("&Help")
         walkthrough_action = help_menu.addAction("&Show Walkthrough")
         walkthrough_action.setToolTip("Show the onboarding walkthrough")
-        walkthrough_action.triggered.connect(
-            lambda: show_onboarding(self, self._services.config)
-        )
+        walkthrough_action.triggered.connect(lambda: show_onboarding(self, self._services.config))
         help_menu.addSeparator()
         about_action = help_menu.addAction("&About Unit Tracker")
         about_action.triggered.connect(self._show_about)
@@ -315,6 +317,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Dashboard", "No database loaded.")
             return
         from gui.pivot_chart import PivotChartWidget
+
         dlg = PivotChartWidget(
             self._services.db_path,
             theme_name=self._current_theme_name,
@@ -359,9 +362,11 @@ class MainWindow(QMainWindow):
         if not getattr(self, "_form_dirty", False):
             return True
         reply = QMessageBox.question(
-            self, "Unsaved Changes",
+            self,
+            "Unsaved Changes",
             "You have unsaved changes. Discard them?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
         return reply == QMessageBox.Yes
 
@@ -389,7 +394,8 @@ class MainWindow(QMainWindow):
     def _start_save_worker(self, unit: Unit) -> None:
         if self._services.sync_service.is_save_blocked():
             QMessageBox.warning(
-                self, "Save Blocked",
+                self,
+                "Save Blocked",
                 "Multi-user sync is unavailable. Saves are disabled until sync is available "
                 "or multi_user.enabled is false.",
             )
@@ -431,7 +437,8 @@ class MainWindow(QMainWindow):
             self._show_conflict_dialog(error_msg, failed_unit)
             return
         QMessageBox.warning(
-            self, "Save Failed",
+            self,
+            "Save Failed",
             f"Could not save to database:\n{error_msg}\n\n"
             f"Your changes are still in the form. Check your network connection and try saving again.",
         )
@@ -449,9 +456,12 @@ class MainWindow(QMainWindow):
         remote_values = self._unit_to_dict(remote_unit) if remote_unit else {}
         modified_at = remote_unit.updated_at if remote_unit else "unknown"
         dlg = ConflictDialog(
-            com_number=com_number, local_values=local_values,
-            remote_values=remote_values, modified_by="another user",
-            modified_at=modified_at, parent=self,
+            com_number=com_number,
+            local_values=local_values,
+            remote_values=remote_values,
+            modified_by="another user",
+            modified_at=modified_at,
+            parent=self,
         )
         dlg.exec_()
         if dlg.overwrite:
@@ -801,7 +811,8 @@ class MainWindow(QMainWindow):
             logger.error("MainWindow: Multi-user sync unavailable: %s", e)
             if sync.is_save_blocked():
                 QMessageBox.warning(
-                    self, "Sync Unavailable",
+                    self,
+                    "Sync Unavailable",
                     "Multi-user sync could not be initialized. Saves are disabled.",
                 )
 
@@ -853,10 +864,13 @@ class MainWindow(QMainWindow):
         try:
             diff = self._services.import_service.diff_before_import(source_path)
         except Exception as e:
-            QMessageBox.warning(self, "Import Preview Error", f"Could not compute import diff:\n{e}")
+            QMessageBox.warning(
+                self, "Import Preview Error", f"Could not compute import diff:\n{e}"
+            )
             self.status_bar.showMessage("Import preview failed", 5000)
             return
         from gui.import_preview_dialog import ImportPreviewDialog
+
         dlg = ImportPreviewDialog(diff, parent=self)
         dlg.exec_()
         if not dlg.approved:
@@ -877,7 +891,8 @@ class MainWindow(QMainWindow):
         ssrs_url = self._services.config.get("ssrs_url", "")
         if not ssrs_url:
             QMessageBox.warning(
-                self, "SSRS URL Missing",
+                self,
+                "SSRS URL Missing",
                 "No ssrs_url configured in config.yaml.\n"
                 "Add the SSRS ReportServer endpoint URL under the ssrs_url key.",
             )
@@ -885,11 +900,13 @@ class MainWindow(QMainWindow):
         lookback = self._services.config.get("ssrs_lookback_days", 30)
         lookahead = self._services.config.get("ssrs_lookahead_days", 365)
         reply = QMessageBox.question(
-            self, "Confirm SSRS Pull",
+            self,
+            "Confirm SSRS Pull",
             f"Fetch latest data from SSRS?\n\nURL: {ssrs_url}\n"
             f"Date range: {lookback} days back → {lookahead} days forward\n\n"
             f"This will upsert all report rows into the SQLite database.\nContinue?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
             return
@@ -914,30 +931,29 @@ class MainWindow(QMainWindow):
         if not excel_path or not os.path.exists(excel_path):
             reports_dir = self._services.config.get("unedited_reports_dir", "")
             if reports_dir:
-                excel_path = os.path.join(
-                    reports_dir, "SCHDetailingReport_all_plants_MASTER.xlsm"
-                )
+                excel_path = os.path.join(reports_dir, "SCHDetailingReport_all_plants_MASTER.xlsm")
         if not excel_path or not os.path.exists(excel_path):
             excel_path, _ = QFileDialog.getOpenFileName(
-                self, "Select Excel Workbook",
+                self,
+                "Select Excel Workbook",
                 os.path.dirname(excel_path) if excel_path else "",
                 "Excel Files (*.xlsm *.xlsx);;All Files (*)",
             )
             if not excel_path:
                 return
         reply = QMessageBox.question(
-            self, "Confirm Export",
+            self,
+            "Confirm Export",
             f"Export SQLite data to:\n{excel_path}\n\n"
             f"This will overwrite the 'Current List' sheet.\nContinue?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
             return
         self.status_bar.showMessage("Exporting to Excel...")
         try:
-            row_count = self._services.export_service.to_excel(
-                excel_path, self._services.db_path
-            )
+            row_count = self._services.export_service.to_excel(excel_path, self._services.db_path)
             self.status_bar.showMessage(f"✓ Exported {row_count} rows to Excel", 8000)
         except Exception as e:
             logger.exception("Excel export failed")
@@ -978,11 +994,11 @@ class MainWindow(QMainWindow):
 
     def _apply_theme_by_name(self, theme_name: str) -> None:
         from gui.theme import apply_theme
+
         apply_theme(self, theme_name, cvd_mode=self._current_cvd, high_contrast=self._current_hc)
         self._current_theme_name = theme_name
         self.theme_btn.setText("☀" if theme_name == "dark" else "🌙")
-        for panel in (self.calendar_panel, self.list_panel,
-                      self.timeline_panel, self.edit_form):
+        for panel in (self.calendar_panel, self.list_panel, self.timeline_panel, self.edit_form):
             if hasattr(panel, "set_theme"):
                 panel.set_theme(theme_name, self._current_cvd)
         self._save_ui_config()
@@ -1006,12 +1022,14 @@ class MainWindow(QMainWindow):
                 self._config_debounce_timer.stop()
 
     def _flush_config_save(self) -> None:
-        self._services.config.setdefault("ui", {}).update({
-            "theme": self._current_theme_name,
-            "colorblind_mode": self._current_cvd,
-            "high_contrast": self._current_hc,
-            "splitter_sizes": self.main_splitter.sizes(),
-        })
+        self._services.config.setdefault("ui", {}).update(
+            {
+                "theme": self._current_theme_name,
+                "colorblind_mode": self._current_cvd,
+                "high_contrast": self._current_hc,
+                "splitter_sizes": self.main_splitter.sizes(),
+            }
+        )
         config_path = self._services.config_path
         if config_path and os.path.exists(os.path.dirname(config_path)):
             try:
@@ -1021,9 +1039,12 @@ class MainWindow(QMainWindow):
 
     def _open_a11y_dialog(self) -> None:
         from gui.a11y_dialog import A11yDialog
+
         dlg = A11yDialog(
-            theme=self._current_theme_name, cvd_mode=self._current_cvd,
-            high_contrast=self._current_hc, parent=self,
+            theme=self._current_theme_name,
+            cvd_mode=self._current_cvd,
+            high_contrast=self._current_hc,
+            parent=self,
         )
         if dlg.exec_():
             self._current_cvd = dlg.cvd_mode
@@ -1034,6 +1055,7 @@ class MainWindow(QMainWindow):
 
     def _begin_close_with_sync(self):
         from gui.close_progress_dialog import CloseProgressDialog
+
         self._stop_debounce_flush()
         self._close_waiting = True
         self._close_progress = CloseProgressDialog(parent=self)
