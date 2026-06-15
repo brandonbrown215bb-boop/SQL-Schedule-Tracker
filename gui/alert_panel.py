@@ -60,7 +60,7 @@ ALERT_SEVERITY_ORDER: dict[str, int] = {
 
 # ─── Capacity Threshold ───────────────────────────────────────────────
 
-CAPACITY_HOURS_THRESHOLD: float = 160.0  # 4 weeks × 40 hrs/week
+CAPACITY_HOURS_THRESHOLD: float = 160.0  # 4 weeks x 40 hrs/week
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────

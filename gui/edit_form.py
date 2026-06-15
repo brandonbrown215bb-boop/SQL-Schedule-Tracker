@@ -117,7 +117,7 @@ class EditForm(QWidget):
         self.target_hours_spin.setDecimals(2)
         self.target_hours_spin.setSingleStep(0.25)
         self.target_hours_spin.setReadOnly(True)
-        self.target_hours_spin.setToolTip("Auto-calculated: Dept Hours − IEC Internal Hours")
+        self.target_hours_spin.setToolTip("Auto-calculated: Dept Hours - IEC Internal Hours")
         self.form.addRow(QLabel("Target Hours:"), self.target_hours_spin)
 
         self.iec_hours_spin = QDoubleSpinBox()

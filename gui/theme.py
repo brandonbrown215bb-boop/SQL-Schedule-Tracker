@@ -28,6 +28,8 @@ Usage:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QCalendarWidget,
@@ -400,8 +402,6 @@ def status_style(theme_name: str, status: str,
 # US-013: Widget-type handler registry for extensible theme application.
 # Adding a new widget type requires only adding one entry here — no changes
 # to apply_theme() or _style_widget() needed (Open/Closed Principle).
-
-from collections.abc import Callable
 
 
 def _style_button(widget: QWidget, tokens: dict[str, str]) -> None:

@@ -3,13 +3,12 @@
 import json
 import logging
 import sqlite3
+import threading
 from datetime import date
 
 from data.models import Unit
 
 logger = logging.getLogger(__name__)
-
-import threading
 
 _db_path: str | None = None
 _local = threading.local()

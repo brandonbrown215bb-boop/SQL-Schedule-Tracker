@@ -2,8 +2,8 @@
 """US-015a: Audit status color contrast across all themes and CVD modes.
 
 Produces a contrast ratio report for every status color against every row
-background across all themes and CVD modes (6 statuses × 2 themes × 4 CVD
-modes × 3 backgrounds = 144+ combinations).
+background across all themes and CVD modes (6 statuses x 2 themes x 4 CVD
+modes x 3 backgrounds = 144+ combinations).
 """
 
 from __future__ import annotations
@@ -116,9 +116,9 @@ class TestContrastAudit:
     def test_audit_produces_report(self, tmp_path):
         """AC#1, AC#2: Audit runs and produces a matrix report with all combinations."""
         report = run_audit()
-        # 6 statuses × 4 CVD modes × 2 themes × 2 row bgs = 96 list_panel entries
+        # 6 statuses x 4 CVD modes x 2 themes x 2 row bgs = 96 list_panel entries
         assert len(report["list_panel"]) == 96
-        # 6 statuses × 4 CVD modes × 2 themes = 48 calendar entries
+        # 6 statuses x 4 CVD modes x 2 themes = 48 calendar entries
         assert len(report["calendar"]) == 48
         # Save the report
         report_path = tmp_path / "contrast_audit.json"
