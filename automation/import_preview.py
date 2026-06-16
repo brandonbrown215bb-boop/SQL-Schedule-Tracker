@@ -89,16 +89,14 @@ def compute_diff(csv_path: str, db_path: str) -> ImportDiff:
     diff = ImportDiff(csv_path=csv_path)
 
     # Load existing units keyed by com_number
-    conn = get_db(db_path)
-    conn.row_factory = None  # Use tuples for raw access
+    # Use a separate connection to avoid mutating the app's shared connection
+    import sqlite3 as _sqlite3
+    conn = _sqlite3.connect(db_path)
+    conn.row_factory = _sqlite3.Row
     existing = {}
     for row in conn.execute("SELECT * FROM units").fetchall():
-        # row is a sqlite3.Row when using Row factory from get_db
-        com = row["com_number"] if hasattr(row, "keys") else row[1]  # com_number is column 2
-        existing[com] = row
-
-    # Reset row factory
-    conn.row_factory = None
+        existing[row["com_number"]] = row
+    conn.close()
 
     for csv_row_data in csv_rows:
         com = csv_row_data.get("com_number")
