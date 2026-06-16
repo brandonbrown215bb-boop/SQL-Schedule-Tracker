@@ -1,4 +1,5 @@
-csv_output_dir: P:/Detailing Schedule 2019/UnitTracker/csv_cache
+# config.yaml.example — copy to config.yaml and adjust paths for your machine
+csv_output_dir: ./csv_cache
 default_detailers:
 - — Unassigned —
 - Jackie H
@@ -97,17 +98,17 @@ detailer_schedules:
   - 1
   - 2
   - 3
-excel_path: P:/Detailing Schedule 2019/UnitTracker/SCHDetailingReport_all_plants_MASTER.xlsm
+excel_path: ./SCHDetailingReport_all_plants_MASTER.xlsm
 multi_user:
   enabled: false
   fallback_mode: block
   machine: ''
   username: ''
 sheet_name: Current List
-sqlite_path: /run/media/pigeon/890dd7cb-9753-4f6b-b8e6-58c98e531754/Downloads/Schedule-Viewer-App-v2/schedule.db
+sqlite_path: ./schedule.db
 ssrs_lookahead_days: 365
 ssrs_lookback_days: 30
-ssrs_url: http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHDetailingReport
+ssrs_url: http://your-report-server/ReportServer?%2fCustom%2fProduction+Control%2fSCHDetailingReport
 status_labels:
   gray: Unassigned (0%)
   green: Released (100%)
@@ -118,7 +119,7 @@ status_labels:
 ui:
   auto_refresh_minutes: 0
   colorblind_mode: none
-  high_contrast: true
+  high_contrast: false
   last_view: list
   list_column_widths:
     alert_level: 207
@@ -134,9 +135,9 @@ ui:
   - detailer
   - status_color
   - percent_complete
-  onboarding_completed: true
+  onboarding_completed: false
   splitter_sizes:
   - 653
   - 523
   theme: dark
-unedited_reports_dir: P:/Detailing Schedule 2019/Unedited Reports
+unedited_reports_dir: ./Unedited Reports

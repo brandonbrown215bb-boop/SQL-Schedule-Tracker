@@ -41,6 +41,14 @@ _setup_log.txt
 
 # SQLite database binary
 *.db
+*.db-shm
+*.db-wal
+
+# Local configuration (paths, secrets)
+config.yaml
+
+# Database backups
+backups/
 
 # Legacy/local files not for repo
 *.xlsm
