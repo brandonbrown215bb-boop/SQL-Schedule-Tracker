@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Analyze the detailer column to understand data patterns before cleanup."""
+
 import sqlite3
 import sys
 
@@ -18,7 +19,9 @@ def analyze(db_path: str) -> None:
     print(f"Units with notes already: {cur.fetchone()[0]}")
 
     # Distinct detailer count
-    cur.execute('SELECT COUNT(DISTINCT detailer) FROM units WHERE detailer IS NOT NULL AND detailer != ""')
+    cur.execute(
+        'SELECT COUNT(DISTINCT detailer) FROM units WHERE detailer IS NOT NULL AND detailer != ""'
+    )
     print(f"Distinct detailer values: {cur.fetchone()[0]}")
 
     print("\n=== Short entries WITHOUT slash (likely just names) ===")

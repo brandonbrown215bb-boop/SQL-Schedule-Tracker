@@ -9,7 +9,8 @@ from datetime import date
 import pytest
 
 from data.models import Unit
-from data.writer import ConcurrentEditError, ValidationError, save_unit
+from data.writer import ConcurrentEditError, save_unit
+from services.validation import ValidationError
 
 
 @pytest.fixture
@@ -90,7 +91,7 @@ class TestValidation:
             percent_complete=150.0,
             actual_hours=20.0,
         )
-        with pytest.raises(ValidationError, match="percent_complete must be 0-100"):
+        with pytest.raises(ValidationError, match="percent_complete: maximum 100"):
             save_unit(db_with_units, unit)
 
     def test_percent_complete_negative_raises(self, db_with_units):
@@ -105,7 +106,7 @@ class TestValidation:
             percent_complete=-5.0,
             actual_hours=20.0,
         )
-        with pytest.raises(ValidationError, match="percent_complete must be 0-100"):
+        with pytest.raises(ValidationError, match="percent_complete: minimum 0"):
             save_unit(db_with_units, unit)
 
     def test_percent_complete_zero_passes(self, db_with_units, unit_to_save):
@@ -130,7 +131,7 @@ class TestValidation:
             percent_complete=50.0,
             actual_hours=0.0,
         )
-        with pytest.raises(ValidationError, match="department_hours must be >= 0"):
+        with pytest.raises(ValidationError, match="department_hours: minimum 0"):
             save_unit(db_with_units, unit)
 
     def test_negative_actual_hours_raises(self, db_with_units):
@@ -145,7 +146,7 @@ class TestValidation:
             percent_complete=50.0,
             actual_hours=-1.0,
         )
-        with pytest.raises(ValidationError, match="actual_hours must be >= 0"):
+        with pytest.raises(ValidationError, match="actual_hours: minimum 0"):
             save_unit(db_with_units, unit)
 
     def test_negative_target_dept_hours_raises(self, db_with_units):
@@ -161,5 +162,5 @@ class TestValidation:
             actual_hours=0.0,
             target_department_hours=-1.0,
         )
-        with pytest.raises(ValidationError, match="target_department_hours must be >= 0"):
+        with pytest.raises(ValidationError, match="target_department_hours: minimum 0"):
             save_unit(db_with_units, unit)

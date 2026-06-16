@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass, field
 
 from data.db import get_db
-from automation.import_csv import CSV_TO_DB, PARSE_FUNCS
+from automation.import_csv import CSV_TO_DB, SANITIZE_FUNCS as PARSE_FUNCS
 
 logger = logging.getLogger(__name__)
 

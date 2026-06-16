@@ -23,6 +23,7 @@ from PyQt5.QtCore import QDate, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QFont
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QAction,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -43,6 +44,7 @@ from PyQt5.QtWidgets import (
 from data.loader import unit_fingerprint
 from data.models import Unit
 from data.tag_parser import UnitTagRepository, parse_description
+from gui.inline_edit_bar import InlineEditBar
 
 # ─── Column Definitions ─────────────────────────────────────────────
 # (key, header, width, default_visible)
@@ -357,10 +359,17 @@ class ListPanel(QWidget):
     """
 
     unit_selected = pyqtSignal(object)  # Unit
+    unit_saved = pyqtSignal(object)  # Unit (from inline edit bar)
     stale_changed = pyqtSignal(bool)  # show_stale
     column_widths_changed = pyqtSignal(dict)  # {key: width}
 
-    def __init__(self, units: list[Unit] | None = None, parent=None):
+    def __init__(
+        self,
+        units: list[Unit] | None = None,
+        default_detailers: list[str] | None = None,
+        db_path: str = "",
+        parent=None,
+    ):
         super().__init__(parent)
         self._model: UnitListModel | None = None
         self._sort_column: str = "detailing_due_date"
@@ -371,6 +380,8 @@ class ListPanel(QWidget):
         self._tag_repo: UnitTagRepository | None = None
         self._saved_widths: dict[str, int] = {}
         self._emitting_widths: bool = False
+        self._default_detailers: list[str] = default_detailers or []
+        self._db_path: str = db_path
         # Cache of pre-computed tag display strings, keyed by com_number.
         # Invalidated when the model (unit set) changes, preserved across
         # sort-only refreshes so we don't re-parse on every column click.
@@ -541,7 +552,7 @@ class ListPanel(QWidget):
         self.table.setColumnCount(0)
         self.table.setRowCount(0)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -553,12 +564,33 @@ class ListPanel(QWidget):
         self.table.doubleClicked.connect(self._on_double_clicked)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
+        # ── Ctrl+A Select All ──
+        select_all_action = QAction("Select All", self.table)
+        select_all_action.setShortcut("Ctrl+A")
+        select_all_action.triggered.connect(self.table.selectAll)
+        self.table.addAction(select_all_action)
+
         layout.addWidget(self.table, stretch=1)
+
+        # ── Inline Edit Bar ──
+        self._inline_edit_bar = InlineEditBar(self._default_detailers)
+        self._inline_edit_bar.unit_saved.connect(self._on_inline_save)
+        layout.addWidget(self._inline_edit_bar)
+
+        # ── Batch Edit Bar ──
+        self._batch_bar = self._build_batch_bar()
+        layout.addWidget(self._batch_bar)
 
         # ── Status label ──
         self.status_label = QLabel("No units loaded")
         self.status_label.setObjectName("list_status_label")
         layout.addWidget(self.status_label)
+
+        # ── Blame label ──
+        self.blame_label = QLabel("")
+        self.blame_label.setObjectName("blame_label")
+        self.blame_label.setStyleSheet("color: #64748b; font-size: 11px; padding-left: 4px;")
+        layout.addWidget(self.blame_label)
 
     # ── Public API ───────────────────────────────────────────────────
 
@@ -1091,7 +1123,143 @@ class ListPanel(QWidget):
         """Emit unit_selected when the user clicks a row."""
         unit = self._get_selected_unit()
         if unit is not None:
+            # If inline bar is dirty and user selected a different unit, warn
+            if (
+                self._inline_edit_bar.is_dirty
+                and self._inline_edit_bar._unit is not None
+                and unit.com_number != self._inline_edit_bar._unit.com_number
+            ):
+                from PyQt5.QtWidgets import QMessageBox
+
+                result = QMessageBox.question(
+                    self,
+                    "Unsaved Changes",
+                    "You have unsaved changes in the inline edit bar.\n"
+                    "Switching rows will discard them.\n\n"
+                    "Discard changes?",
+                    QMessageBox.Discard | QMessageBox.Cancel,
+                    QMessageBox.Cancel,
+                )
+                if result == QMessageBox.Cancel:
+                    # Revert selection back to the dirty unit
+                    self._select_com(self._inline_edit_bar._unit.com_number)
+                    return
+            self._inline_edit_bar.set_unit(unit)
             self.unit_selected.emit(unit)
+            self._update_blame(unit)
+        else:
+            self._inline_edit_bar.set_unit(None)
+            self.blame_label.setText("")
+        self._update_batch_bar()
+
+    def _update_blame(self, unit: Unit) -> None:
+        """Show last-editor info for the selected unit."""
+        try:
+            from data.db import get_audit_trail
+
+            entries = get_audit_trail(
+                self._db_path,
+                com_number=unit.com_number,
+                limit=1,
+            )
+            if entries:
+                entry = entries[0]
+                saved_by = entry.get("saved_by", "unknown")
+                saved_at = entry.get("saved_at", "")
+                # Format: "Last edited by Brandon B, Jun 10"
+                if saved_at:
+                    try:
+                        from datetime import datetime
+
+                        dt = datetime.fromisoformat(saved_at.replace(" ", "T"))
+                        date_str = dt.strftime("%b %d")
+                    except (ValueError, AttributeError):
+                        date_str = saved_at[:10]
+                    self.blame_label.setText(f"Last edited by {saved_by}, {date_str}")
+                else:
+                    self.blame_label.setText(f"Last edited by {saved_by}")
+            else:
+                self.blame_label.setText("")
+        except Exception:
+            self.blame_label.setText("")
+
+    def _on_inline_save(self, unit: Unit) -> None:
+        """Handle save from inline edit bar — emit unit_saved for MainWindow."""
+        self.unit_saved.emit(unit)
+
+    # ── Batch Edit Bar ────────────────────────────────────────────────
+
+    def _build_batch_bar(self) -> QWidget:
+        """Create the batch edit bar (hidden by default)."""
+        from PyQt5.QtWidgets import QPushButton
+
+        bar = QWidget()
+        bar.setObjectName("batch_edit_bar")
+        bar.setStyleSheet("#batch_edit_bar { background: #1e293b; border-radius: 4px; }")
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(6)
+
+        self._batch_count_label = QLabel("")
+        self._batch_count_label.setStyleSheet("color: #e2e8f0; font-weight: bold;")
+        layout.addWidget(self._batch_count_label)
+
+        layout.addStretch(1)
+
+        batch_edit_btn = QPushButton("📝 Batch Edit...")
+        batch_edit_btn.setStyleSheet(
+            "color: #e2e8f0; background: #334155; border: 1px solid #475569; "
+            "border-radius: 3px; padding: 3px 10px;"
+        )
+        batch_edit_btn.clicked.connect(self._on_batch_edit_clicked)
+        layout.addWidget(batch_edit_btn)
+
+        batch_clear_btn = QPushButton("✕ Clear Selection")
+        batch_clear_btn.setStyleSheet("color: #94a3b8; background: transparent; border: none;")
+        batch_clear_btn.clicked.connect(self.table.clearSelection)
+        layout.addWidget(batch_clear_btn)
+
+        bar.setVisible(False)
+        return bar
+
+    def _update_batch_bar(self) -> None:
+        """Show/hide batch bar based on selection count."""
+        selected = self._get_selected_units()
+        count = len(selected)
+        if count >= 2:
+            self._batch_count_label.setText(f"{count} units selected")
+            self._batch_bar.setVisible(True)
+            self._inline_edit_bar.setVisible(False)
+        else:
+            self._batch_bar.setVisible(False)
+            # Inline edit bar visibility is handled by _on_selection_changed
+
+    def _get_selected_units(self) -> list[Unit]:
+        """Return list of currently selected Unit objects (deduped, row-based)."""
+        seen_rows: set[int] = set()
+        units: list[Unit] = []
+        for index in self.table.selectedIndexes():
+            row = index.row()
+            if row in seen_rows:
+                continue
+            seen_rows.add(row)
+            item = self.table.item(row, 0)
+            if item is not None:
+                unit = item.data(Qt.UserRole)
+                if unit:
+                    units.append(unit)
+        return units
+
+    def _on_batch_edit_clicked(self) -> None:
+        """Open batch edit dialog for selected units."""
+        from gui.batch_edit_dialog import BatchEditDialog
+
+        selected = self._get_selected_units()
+        if len(selected) < 2:
+            return
+        dlg = BatchEditDialog(selected, self._default_detailers, self._tag_repo, parent=self)
+        dlg.unit_saved.connect(self._on_inline_save)  # reuse same save handler
+        dlg.exec_()
 
     def _on_double_clicked(self, index) -> None:
         """Double-click also selects (redundant with single-click but clear)."""

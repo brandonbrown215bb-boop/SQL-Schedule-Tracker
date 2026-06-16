@@ -12,6 +12,7 @@ Usage:
     python -m automation.cleanup_detailers --db schedule.db --dry-run
     python -m automation.cleanup_detailers --db schedule.db --apply
 """
+
 import re
 import sqlite3
 from collections import defaultdict
@@ -42,34 +43,147 @@ def load_canonical_detailers(conn: sqlite3.Connection) -> dict[str, str]:
 _SLASH_RE = re.compile(r"\s*/\s*")
 
 # Words that indicate notes/description rather than a person's name.
-_NON_NAME_WORDS = frozenset({
-    "iec", "internals", "new", "complete", "wip", "as",
-    "mirror", "obo", "cad", "only", "base", "moved", "canceled",
-    "not", "mom", "deflection", "test", "will", "need", "bracing",
-    "pre-eng", "hot", "helping", "and", "fiberglass", "platform",
-    "unassigned", "isg", "he", "just", "do", "bottom", "top",
-    "stacked", "stack", "partial", "tier", "alum", "steel",
-    "floor", "penetration", "raised", "drain", "pan", "funky",
-    "chopped", "housing", "embassy", "waiting", "product", "eng",
-    "info", "fan", "pe", "issues", "approved", "add", "splits",
-    "prc", "revised", "drawings", "swap", "service",
-    "order", "won't", "generate", "surfaces", "done", "except",
-    "training", "next", "first", "second", "complicated",
-})
+_NON_NAME_WORDS = frozenset(
+    {
+        "iec",
+        "internals",
+        "new",
+        "complete",
+        "wip",
+        "as",
+        "mirror",
+        "obo",
+        "cad",
+        "only",
+        "base",
+        "moved",
+        "canceled",
+        "not",
+        "mom",
+        "deflection",
+        "test",
+        "will",
+        "need",
+        "bracing",
+        "pre-eng",
+        "hot",
+        "helping",
+        "and",
+        "fiberglass",
+        "platform",
+        "unassigned",
+        "isg",
+        "he",
+        "just",
+        "do",
+        "bottom",
+        "top",
+        "stacked",
+        "stack",
+        "partial",
+        "tier",
+        "alum",
+        "steel",
+        "floor",
+        "penetration",
+        "raised",
+        "drain",
+        "pan",
+        "funky",
+        "chopped",
+        "housing",
+        "embassy",
+        "waiting",
+        "product",
+        "eng",
+        "info",
+        "fan",
+        "pe",
+        "issues",
+        "approved",
+        "add",
+        "splits",
+        "prc",
+        "revised",
+        "drawings",
+        "swap",
+        "service",
+        "order",
+        "won't",
+        "generate",
+        "surfaces",
+        "done",
+        "except",
+        "training",
+        "next",
+        "first",
+        "second",
+        "complicated",
+    }
+)
 
 # Common first names that appear in the data (not necessarily canonical).
-_KNOWN_FIRST_NAMES = frozenset({
-    "amarjeet", "amol", "brady", "brandon", "carl", "daniel",
-    "david", "derrick", "emilio", "evan", "jd", "jackie", "james",
-    "jeremy", "johnathan", "jonathan", "jonhathan", "josh", "joshua",
-    "katie", "ken", "kenneth", "kevin", "kris", "kyle",
-    "mahantesh", "matt", "matthew", "melvin", "morgan", "paul",
-    "ricky", "ryan", "stewart", "stoney", "tanner", "thomas",
-    "tim", "timothy", "tommy", "tracy", "mark", "john",
-    "bryan", "jake", "sam", "tom", "todd", "dan", "mike",
-    "chris", "joe", "steve", "jeff", "greg", "keith",
-    "austin",
-})
+_KNOWN_FIRST_NAMES = frozenset(
+    {
+        "amarjeet",
+        "amol",
+        "brady",
+        "brandon",
+        "carl",
+        "daniel",
+        "david",
+        "derrick",
+        "emilio",
+        "evan",
+        "jd",
+        "jackie",
+        "james",
+        "jeremy",
+        "johnathan",
+        "jonathan",
+        "jonhathan",
+        "josh",
+        "joshua",
+        "katie",
+        "ken",
+        "kenneth",
+        "kevin",
+        "kris",
+        "kyle",
+        "mahantesh",
+        "matt",
+        "matthew",
+        "melvin",
+        "morgan",
+        "paul",
+        "ricky",
+        "ryan",
+        "stewart",
+        "stoney",
+        "tanner",
+        "thomas",
+        "tim",
+        "timothy",
+        "tommy",
+        "tracy",
+        "mark",
+        "john",
+        "bryan",
+        "jake",
+        "sam",
+        "tom",
+        "todd",
+        "dan",
+        "mike",
+        "chris",
+        "joe",
+        "steve",
+        "jeff",
+        "greg",
+        "keith",
+        "austin",
+    }
+)
 
 # Known typos → correct spelling
 _NAME_TYPOS = {
@@ -80,17 +194,22 @@ _NAME_TYPOS = {
 
 # Suffixes that should be stripped from names (scratch-pad markers)
 _STRIP_SUFFIXES = [
-    r"\s+same-as.*",           # "Johnathan Same-as 18821" → "Johnathan"
-    r"\s*\(same.*",            # "Johnathan(same" → "Johnathan"
-    r"\s+hsb.*",              # "Johnathan HSB" → "Johnathan"
-    r"\s+special.*",          # "Johnathan Special" → "Johnathan"
-    r"\.stewart.*",           # "Matthew E.Stewart" → "Matthew E"
-    r"\s+moved.*",            # "Moved ..." → notes
+    r"\s+same-as.*",  # "Johnathan Same-as 18821" → "Johnathan"
+    r"\s*\(same.*",  # "Johnathan(same" → "Johnathan"
+    r"\s+hsb.*",  # "Johnathan HSB" → "Johnathan"
+    r"\s+special.*",  # "Johnathan Special" → "Johnathan"
+    r"\.stewart.*",  # "Matthew E.Stewart" → "Matthew E"
+    r"\s+moved.*",  # "Moved ..." → notes
 ]
 
 # Entire values that are notes-only (not a person's name at all)
 _NOTES_ONLY_VALUES = {
-    "iec", "base", "deflection", "same", "same-as", "moved",
+    "iec",
+    "base",
+    "deflection",
+    "same",
+    "same-as",
+    "moved",
 }
 
 
@@ -139,8 +258,8 @@ def _strip_suffixes(raw: str) -> tuple[str, str]:
     for pattern in _STRIP_SUFFIXES:
         match = re.search(pattern, name, re.IGNORECASE)
         if match:
-            notes = name[match.start():].strip()
-            name = name[:match.start()].strip()
+            notes = name[match.start() :].strip()
+            name = name[: match.start()].strip()
             break
 
     return name, notes
@@ -188,17 +307,19 @@ def extract_name_from_segment(segment: str) -> tuple[str, str]:
             break
         # Allow: capitalized words, known names, single letters (initials),
         # words with apostrophes
-        if (clean in _KNOWN_FIRST_NAMES
-                or (word[0].isupper() and len(clean) > 1)
-                or len(clean) == 1  # Initial like "E" in "Matthew E"
-                or "'" in word):
+        if (
+            clean in _KNOWN_FIRST_NAMES
+            or (word[0].isupper() and len(clean) > 1)
+            or len(clean) == 1  # Initial like "E" in "Matthew E"
+            or "'" in word
+        ):
             name_words.append(word)
         else:
             break
 
     if name_words:
         name = " ".join(name_words)
-        rest = segment[len(name):].strip()
+        rest = segment[len(name) :].strip()
         # Strip leading punctuation from rest
         rest = re.sub(r"^[,\s]+", "", rest)
         # Combine suffix notes with rest
@@ -250,21 +371,21 @@ def match_name_to_detailer(
     if len(parts) == 2 and len(parts[1]) == 1:
         # parts[1] is an initial
         initial = parts[1]
-        for base, canon in canonical.items():
+        for _base, canon in canonical.items():
             canon_parts = canon.lower().rstrip(". ").split()
-            if (len(canon_parts) == 2
-                    and canon_parts[0] == parts[0]
-                    and len(canon_parts[1]) == 1
-                    and canon_parts[1] == initial):
+            if (
+                len(canon_parts) == 2
+                and canon_parts[0] == parts[0]
+                and len(canon_parts[1]) == 1
+                and canon_parts[1] == initial
+            ):
                 return canon
 
     # Typos / fuzzy: require first 4+ chars to match (not just 3)
     # to avoid false matches like "brady" → "brandon"
     if len(norm) >= 5:
         for base, canon in canonical.items():
-            if (len(base) >= 5
-                    and abs(len(norm) - len(base)) <= 2
-                    and norm[:4] == base[:4]):
+            if len(base) >= 5 and abs(len(norm) - len(base)) <= 2 and norm[:4] == base[:4]:
                 return canon
 
     return None
@@ -300,7 +421,9 @@ def parse_detailer_field(
 
     # Special known non-name entries
     _NOTES_ONLY = {
-        "— unassigned —", "not in mom", "canceled in mom",
+        "— unassigned —",
+        "not in mom",
+        "canceled in mom",
         "pre-eng 5/29",
     }
     if raw.lower() in _NOTES_ONLY:
@@ -350,18 +473,14 @@ def parse_detailer_field(
     if first_matched:
         notes = " / ".join(note_parts) if note_parts else first_notes
         if also_names:
-            notes = f"also: {', '.join(also_names)}" + (
-                f" — {notes}" if notes else ""
-            )
+            notes = f"also: {', '.join(also_names)}" + (f" — {notes}" if notes else "")
         return first_matched, notes
 
     if first_name:
         # First part is a recognizable name but not canonical — keep it clean
         notes = " / ".join(note_parts) if note_parts else first_notes
         if also_names:
-            notes = f"also: {', '.join(also_names)}" + (
-                f" — {notes}" if notes else ""
-            )
+            notes = f"also: {', '.join(also_names)}" + (f" — {notes}" if notes else "")
         return first_name, notes
 
     if also_names:
@@ -435,12 +554,14 @@ def cleanup_detailers(
         elif existing_notes:
             notes = existing_notes
 
-        changes.append({
-            "com_number": com,
-            "old_detailer": raw,
-            "new_detailer": matched,
-            "notes": notes,
-        })
+        changes.append(
+            {
+                "com_number": com,
+                "old_detailer": raw,
+                "new_detailer": matched,
+                "notes": notes,
+            }
+        )
 
     # Report
     print(f"Total units with detailer: {stats['total']}")
@@ -457,8 +578,10 @@ def cleanup_detailers(
             old = c["old_detailer"]
             new = c["new_detailer"] or "(no match)"
             notes = c["notes"][:80] if c["notes"] else ""
-            print(f"  COM {c['com_number']}: {old!r} → {new!r}"
-                  + (f"  notes={notes!r}" if notes else ""))
+            print(
+                f"  COM {c['com_number']}: {old!r} → {new!r}"
+                + (f"  notes={notes!r}" if notes else "")
+            )
 
         # Show unmatched entries
         unmatched = [c for c in changes if not c["new_detailer"]]
@@ -486,15 +609,12 @@ def cleanup_detailers(
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(
-        description="Clean up units.detailer scratch-pad data"
-    )
+
+    parser = argparse.ArgumentParser(description="Clean up units.detailer scratch-pad data")
     parser.add_argument("--db", default="schedule.db", help="SQLite database path")
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--dry-run", action="store_true",
-                       help="Report changes without writing")
-    group.add_argument("--apply", action="store_true",
-                       help="Write changes to database")
+    group.add_argument("--dry-run", action="store_true", help="Report changes without writing")
+    group.add_argument("--apply", action="store_true", help="Write changes to database")
     args = parser.parse_args()
 
     cleanup_detailers(args.db, apply=args.apply, dry_run=args.dry_run)

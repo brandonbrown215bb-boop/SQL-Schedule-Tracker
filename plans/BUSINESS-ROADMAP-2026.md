@@ -1,7 +1,7 @@
 # Unit Tracker — Business-Optimized Roadmap 2026
 
 **Status**: Final  
-**Last Updated**: 2026-06-14  
+**Last Updated**: 2026-06-16  
 **Source**: Synthesis of 27 improvement plans + deep critical analysis  
 
 ---
@@ -33,7 +33,7 @@ Every timeline, threshold, and dependency in this document has been stress-teste
 
 *No architectural changes required. These ship directly against the current codebase.*
 
-### Sprint 1: Quick Wins & Safety (2 weeks, 10 days)
+### Sprint 1: Quick Wins & Safety (2 weeks, 10 days) — ✅ COMPLETE
 
 | Priority | Task | Days | Why First |
 |----------|------|------|-----------|
@@ -50,7 +50,7 @@ Every timeline, threshold, and dependency in this document has been stress-teste
 
 **Business impact**: Zero data loss risk, 10x faster queries, CI catches regressions, first property test catches unknown edge cases.
 
-### Sprint 2: Data Integrity & Audit (2 weeks, 10 days)
+### Sprint 2: Data Integrity & Audit (2 weeks, 10 days) — ✅ COMPLETE
 
 | Priority | Task | Days | Why First |
 |----------|------|------|-----------|
@@ -70,7 +70,7 @@ Every timeline, threshold, and dependency in this document has been stress-teste
 
 *Requires service layer extraction, enables everything else to be testable.*
 
-### Sprint 3-4: Service Layer Extraction (4 weeks, 20 days)
+### Sprint 3-4: Service Layer Extraction / ARCH-001 (4 weeks, 20 days) — ✅ COMPLETE
 
 | Phase | Task | Days | Key Insight from Critique |
 |-------|------|------|--------------------------|
@@ -88,19 +88,21 @@ Every timeline, threshold, and dependency in this document has been stress-teste
 
 **Business impact**: All business logic is testable independently of the GUI. API layer (future) can reuse services. CLI tool can be built without Qt.
 
-### Sprint 5: Validation Layer (2 weeks, 10 days)
+### Sprint 5: Validation Layer (2 weeks, 10 days) — ✅ COMPLETE
 
-| Phase | Task | Days | Key Insight |
-|-------|------|------|-------------|
-| 1 | **Define UnitSchema** — single source of truth for field types, ranges, scales | 2 | Fix root cause, not symptoms |
-| 2 | **FieldValidator** — reads from UnitSchema, validates all field operations | 2 | |
-| 3 | **Validation error UI** — red border + tooltip on invalid fields, block save | 2 | Users see WHY save is blocked |
-| 4 | **Schema migration registry** — versioned, ordered, rollback-capable | 3 | Replace ad-hoc `_migrate_schema` |
-| 5 | **Pre-save hooks** — date order, percent_complete range, cross-field rules | 1 | Business rules enforced at the data layer |
+| Phase | Task | Days | Status |
+|-------|------|------|--------|
+| 1 | Define UnitSchema / FieldRule | 2 | ✅ Done |
+| 2 | FieldValidator + `validate_unit()` | 2 | ✅ Done |
+| 3 | Validation error UI — red border + tooltip on invalid fields | 2 | ✅ Done |
+| 4 | Schema migration registry | 3 | ✅ Done |
+| 5 | Pre-save hooks (date order, percent range, non-negative hours, target hours, identicals) | 1 | ✅ Done |
+| 6 | Wire validation into `UnitService.save()` | — | ✅ Done |
+| 7 | Wire `InputSanitizer` into `import_csv.py` + row-level validation | — | ✅ Done |
 
 **Total: 10 days**
 
-**Business impact**: Zero invalid data ever written to DB. Users get immediate visual feedback on entry errors. Schema changes are audited and reversible.
+**Business impact**: Zero invalid data ever written to DB — neither through the GUI nor through CSV import. Users get immediate visual feedback on entry errors. Schema changes are audited and reversible. Import data is sanitized and validated before touching the database.
 
 ---
 
@@ -260,11 +262,27 @@ Realistic schedule: **27 weeks** for committed features, **5 more weeks** for co
 
 ## How to Use This Roadmap
 
-1. **Start with Sprint 1** — these are safe, high-value, changes to the current codebase. No refactoring required.
-2. **After Sprint 2** — schedule the Sprint Retrospective to review: "Is data integrity actually improved?"
-3. **Before Sprints 3-4** — ensure team has bandwidth for the service layer extraction. It's the hardest part.
-4. **After Sprint 9** — performance benchmarks should show 10x improvement. If not, escalate.
-5. **Before Sprints 13-15** — decide: do we actually need the API? If no integration is waiting, defer.
+**Sprints 1 through 8 are COMPLETE as of 2026-06-16.** The codebase has:
+- Data safety (backups, validation, indexes, WAL mode)
+- Audit log system (field-level change tracking on every save)
+- Full service layer extraction (UnitService, ImportService, ExportService, SyncService, ConfigService)
+- Validation layer (field rules, pre-save hooks, import sanitizer)
+- Bulk operations (multi-select, batch edit dialog, inline edit bar, Ctrl+A)
+- Audit trail UI (AuditDialog with filter/blame overlay, History button in main window)
+- 376 tests passing, CI green, lint clean
+
+Next up: Sprint 9 (Performance).
+
+1. ~~**Start with Sprint 1**~~ — ✅ Done
+2. ~~**After Sprint 2**~~ — ✅ Done (data integrity verified: audit log, validation, import safety)
+3. ~~**Before Sprints 3-4**~~ — ✅ Done (ARCH-001 complete, services extracted)
+4. ~~**Validate Sprint 3-4 deliverables**~~ — ✅ Done (all 5 services extracted, MainWindow < 1200 lines, 254+ tests passing)
+5. ~~**Sprint 5: Validation Layer**~~ — ✅ Done (validation wired into save path, import sanitizer integrated, 4 new tests)
+6. ~~**Sprint 6-7: Bulk Operations + Inline Edit**~~ — ✅ Mostly done (multi-select, batch edit dialog, inline edit bar, Ctrl+A, 20 new tests). **Gaps:** undo batch (needs ARCH-002), batch export
+7. ~~**Sprint 8: Audit Trail UI**~~ — ✅ Done (AuditDialog w/ filter/blame overlay, History button in main window). **Gap:** human-readable change descriptions use `repr()` — needs field label + unit formatting
+8. **Next: Sprint 9 (Performance)** — virtual scrolling, lazy tag parsing, fingerprint cache, benchmark suite
+9. **After Sprint 9** — performance benchmarks should show 10x improvement. If not, escalate.
+10. **Before Sprints 13-15** — decide: do we actually need the API? If no integration is waiting, defer.
 
 Each sprint's plan includes:
 - Success criteria (measurable, specific)

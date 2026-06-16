@@ -1,43 +1,49 @@
 # data/writer.py
-"""Data writer — saves units to SQLite database."""
+"""Data writer — saves units to SQLite database.
+
+Uses the validation layer (services.validation) for field validation
+and supports pre-save hooks via PreSaveHookRegistry.
+"""
+
+from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from data.db import _working_days_between, get_db, log_field_changes
 from data.models import Unit
 
+if TYPE_CHECKING:
+    from services.pre_save_hooks import PreSaveHookRegistry
+
 logger = logging.getLogger(__name__)
 
 
-class ValidationError(Exception):
-    """Raised when a unit fails validation before save."""
+class ConcurrentEditError(Exception):
+    """Raised when optimistic locking detects a concurrent edit conflict."""
 
 
 def _validate_unit(unit: Unit) -> None:
-    """Validate unit fields before saving.
+    """Validate unit fields before saving using the validation layer.
 
     Raises:
         ValidationError: If any field value is out of valid range.
     """
-    if not (0.0 <= unit.percent_complete <= 100.0):
-        raise ValidationError(
-            f"percent_complete must be 0-100, got {unit.percent_complete}. "
-            "This likely indicates a scale mismatch (0-1 vs 0-100)."
-        )
-    if unit.department_hours < 0:
-        raise ValidationError(f"department_hours must be >= 0, got {unit.department_hours}.")
-    if unit.actual_hours < 0:
-        raise ValidationError(f"actual_hours must be >= 0, got {unit.actual_hours}.")
-    if unit.target_department_hours < 0:
-        raise ValidationError(
-            f"target_department_hours must be >= 0, got {unit.target_department_hours}."
-        )
+    # Lazy import to avoid circular dependency:
+    # data/writer -> services.validation -> services/__init__ -> services.unit_service -> data/writer
+    from services.validation import ValidationError, validate_unit
+
+    valid, errors = validate_unit(unit)
+    if not valid:
+        raise ValidationError(errors)
 
 
 def save_unit(
     db_path: str,
     unit: Unit,
-) -> None:
+    hook_registry: PreSaveHookRegistry | None = None,
+    context: dict | None = None,
+) -> list[str]:
     """Write a unit's data to the SQLite database.
 
     Updates all operator-editable fields for the row matching unit.com_number.
@@ -47,26 +53,38 @@ def save_unit(
     Args:
         db_path: Path to the SQLite database.
         unit: The unit to write.
+        hook_registry: Optional PreSaveHookRegistry for business rule hooks.
+        context: Optional context dict passed to hooks (e.g., {"is_new": True}).
+
+    Returns:
+        List of warning strings from pre-save hooks (non-fatal issues).
 
     Raises:
         ValidationError: If any field value is out of valid range.
         ConcurrentEditError: If another user modified the row after it was loaded.
     """
+    # Phase 1: Field-level validation
     _validate_unit(unit)
+
+    # Phase 2: Pre-save hooks (business rules)
+    warnings: list[str] = []
+    if hook_registry is not None:
+        warnings = hook_registry.run_all(unit, context or {})
+
+    # Phase 3: Write to DB
     conn = get_db(db_path)
-    # Read old row BEFORE the update (for audit logging)
     old_row = conn.execute(
         "SELECT * FROM units WHERE com_number = ?",
         (unit.com_number,),
     ).fetchone()
-    # Optimistic lock: only update if updated_at hasn't changed since we loaded it
+
     if unit.updated_at:
         where_clause = "WHERE com_number = ? AND updated_at = ?"
         where_params: tuple = (unit.com_number, unit.updated_at)
     else:
-        # Row has no updated_at yet (legacy/seeded data) — fall back to unlocked
         where_clause = "WHERE com_number = ?"
         where_params = (unit.com_number,)
+
     cursor = conn.execute(
         f"""
         UPDATE units SET
@@ -101,7 +119,7 @@ def save_unit(
             unit.department_hours,
             unit.percent_complete / 100,
             unit.actual_hours,
-            unit.target_department_hours,  # Use the unit's value (may be 0 for non-primary identicals)
+            unit.target_department_hours,
             unit.iec_internal_hours,
             unit.dept_due_date_previous.isoformat() if unit.dept_due_date_previous else None,
             unit.detailing_due_date.isoformat() if unit.detailing_due_date else None,
@@ -126,13 +144,15 @@ def save_unit(
             *where_params,
         ),
     )
+
     if cursor.rowcount == 0:
         conn.rollback()
         raise ConcurrentEditError(
             f"COM {unit.com_number} was modified by another user after you loaded it. "
             "Your changes were not saved."
         )
-    # Record audit trail: compare old row vs new values
+
+    # Audit trail
     new_values = {
         "job_name": unit.job_name,
         "top_level_number": unit.contract_number,
@@ -164,15 +184,15 @@ def save_unit(
         "status_color": unit.calculated_status_color,
     }
     log_field_changes(conn, unit.com_number, old_row, new_values)
+
     refreshed = conn.execute(
         "SELECT updated_at FROM units WHERE com_number = ?",
         (unit.com_number,),
     ).fetchone()
     if refreshed:
         unit.updated_at = refreshed["updated_at"] if hasattr(refreshed, "keys") else refreshed[0]
+
     conn.commit()
     logger.info(f"Saved unit {unit.com_number} to SQLite")
 
-
-class ConcurrentEditError(Exception):
-    """Raised when optimistic locking detects a concurrent edit conflict."""
+    return warnings

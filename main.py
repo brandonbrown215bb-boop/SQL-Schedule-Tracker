@@ -137,7 +137,6 @@ def _startup_backup(db_path: str, application_path: str) -> None:
     a ``backups/`` subdirectory next to the database file.
     """
     import glob
-    import os
     from datetime import datetime, timedelta
 
     backup_dir = os.path.join(os.path.dirname(db_path), "backups")
@@ -146,8 +145,6 @@ def _startup_backup(db_path: str, application_path: str) -> None:
     # Create the backup using VACUUM INTO
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_path = os.path.join(backup_dir, f"{ts}_startup_backup.db")
-
-    from data.db import get_db
 
     conn = get_db(db_path)
     try:

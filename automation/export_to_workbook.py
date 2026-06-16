@@ -24,37 +24,37 @@ CURRENT_LIST_SHEET = "Current List"
 # Column layout: (excel_column_letter, db_field_name, value_formatter)
 # Covers A through AG, skipping R/S/T (computed by workbook formulas).
 EXPORT_COLUMNS = [
-    ("A",  "detailing_due_date",            "date"),
-    ("B",  "dept_due_date_previous",        "str"),
-    ("C",  "com_number",                    "str"),
-    ("D",  "manufacturing_location",        "str"),
-    ("E",  "detailer",                      "str"),
-    ("F",  "job_name",                      "str"),
-    ("G",  "top_level_number",              "str"),
-    ("H",  "description",                   "str"),
-    ("I",  "build_date",                    "date"),
-    ("J",  "build_cycle",                   "int"),
-    ("K",  "department_hours",              "float"),
-    ("L",  "percent_complete",              "percent"),
-    ("M",  "remaining_hours",               "float"),
-    ("N",  "actual_hours",                  "float"),
-    ("O",  "week_ending_friday",            "date"),
-    ("P",  "notes",                         "str"),
-    ("Q",  "late",                          "int"),
+    ("A", "detailing_due_date", "date"),
+    ("B", "dept_due_date_previous", "str"),
+    ("C", "com_number", "str"),
+    ("D", "manufacturing_location", "str"),
+    ("E", "detailer", "str"),
+    ("F", "job_name", "str"),
+    ("G", "top_level_number", "str"),
+    ("H", "description", "str"),
+    ("I", "build_date", "date"),
+    ("J", "build_cycle", "int"),
+    ("K", "department_hours", "float"),
+    ("L", "percent_complete", "percent"),
+    ("M", "remaining_hours", "float"),
+    ("N", "actual_hours", "float"),
+    ("O", "week_ending_friday", "date"),
+    ("P", "notes", "str"),
+    ("Q", "late", "int"),
     # R, S, T are COMPUTED — workbook formulas, skip
-    ("U",  "checking_status",               "str"),
-    ("V",  "target_dept_hours",             "float"),
-    ("W",  "iec_internal_hours",            "float"),
-    ("X",  "unit_detailing_start_date",     "date"),
-    ("Y",  "unit_moved_to_checking_date",   "date"),
-    ("Z",  "unit_detailing_completion_date","date"),
-    ("AA", "actual_hours_to_detail_unit",   "float"),
-    ("AB", "hour_variance",                 "float"),
-    ("AC", "remaining_demand",              "float"),
-    ("AD", "same_as",                       "str"),
-    ("AE", "dr_checks",                     "str"),
-    ("AF", "dvl_checks",                    "str"),
-    ("AG", "hours_checking",                "float"),
+    ("U", "checking_status", "str"),
+    ("V", "target_dept_hours", "float"),
+    ("W", "iec_internal_hours", "float"),
+    ("X", "unit_detailing_start_date", "date"),
+    ("Y", "unit_moved_to_checking_date", "date"),
+    ("Z", "unit_detailing_completion_date", "date"),
+    ("AA", "actual_hours_to_detail_unit", "float"),
+    ("AB", "hour_variance", "float"),
+    ("AC", "remaining_demand", "float"),
+    ("AD", "same_as", "str"),
+    ("AE", "dr_checks", "str"),
+    ("AF", "dvl_checks", "str"),
+    ("AG", "hours_checking", "float"),
 ]
 
 
@@ -65,6 +65,7 @@ def _format_value(val, fmt: str):
     if fmt == "date":
         if isinstance(val, str):
             from datetime import datetime
+
             try:
                 return datetime.strptime(val, "%Y-%m-%d")
             except ValueError:
@@ -105,9 +106,7 @@ def export_to_workbook(db_path: str, excel_path: str) -> int:
 
     if CURRENT_LIST_SHEET not in wb.sheetnames:
         available = ", ".join(wb.sheetnames)
-        raise ValueError(
-            f"Sheet '{CURRENT_LIST_SHEET}' not found. Available: {available}"
-        )
+        raise ValueError(f"Sheet '{CURRENT_LIST_SHEET}' not found. Available: {available}")
     ws = wb[CURRENT_LIST_SHEET]
 
     # Build column index map from column letters
@@ -135,14 +134,13 @@ def export_to_workbook(db_path: str, excel_path: str) -> int:
                 ws.cell(row=row_idx, column=col_idx, value=None)
 
     wb.save(excel_path)
-    log.info(
-        f"Exported {new_count} rows to {excel_path} ({CURRENT_LIST_SHEET} sheet)"
-    )
+    log.info(f"Exported {new_count} rows to {excel_path} ({CURRENT_LIST_SHEET} sheet)")
     return new_count
 
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="Export SQLite to Excel Current List")
     parser.add_argument("--db", required=True, help="Path to SQLite database")
     parser.add_argument("--excel-path", required=True, help="Path to Excel workbook")

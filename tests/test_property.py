@@ -18,7 +18,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from data.models import Unit
-from data.writer import ValidationError, _validate_unit
+from data.writer import _validate_unit
+from services.validation import ValidationError
 
 # ── Strategies ───────────────────────────────────────────────────────────────
 
@@ -30,11 +31,30 @@ def _any_unit() -> st.SearchStrategy[Unit]:
     """Build a Unit with arbitrary but valid inputs."""
     return st.builds(
         Unit,
-        com_number=st.from_regex(r"[0-9A-Za-z]{1,20}", fullmatch=True),
+        com_number=st.from_regex(r"\d{4,6}", fullmatch=True),
         job_name=st.text(min_size=0, max_size=50),
         contract_number=st.text(min_size=0, max_size=20),
         description=st.text(min_size=0, max_size=100),
-        detailer=st.text(min_size=0, max_size=30),
+        detailer=st.sampled_from(
+            [
+                "— Unassigned —",
+                "Jackie H",
+                "Tommy N",
+                "Matthew S",
+                "Matthew E",
+                "Carl M",
+                "Stewart D",
+                "David K",
+                "Katie D",
+                "Kris L",
+                "Emilio P",
+                "Timothy B",
+                "Jeremy B",
+                "Brandon B",
+                "Tracy V",
+                "Tanner D",
+            ]
+        ),
         checking_status=st.text(min_size=0, max_size=30),
         notes=st.text(min_size=0, max_size=200),
         status_color=st.sampled_from(sorted(VALID_STATUS_COLORS)),
@@ -92,11 +112,11 @@ def test_validate_percent_complete_boundaries(pct: float):
     """Unit with percent_complete in [0,100] must pass validation.
     Values outside must raise ValidationError."""
     unit = Unit(
-        com_number="TEST",
+        com_number="123456",
         job_name="",
         contract_number="",
         description="",
-        detailer="",
+        detailer="Carl M",
         checking_status="",
         percent_complete=pct,
         department_hours=40.0,

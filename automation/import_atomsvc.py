@@ -88,9 +88,11 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60) -> str:
     # Try curl with NTLM negotiation (Windows 10+ has curl built in)
     try:
         import subprocess
+
         result = subprocess.run(
             ["curl", "-s", "--ntlm", "--negotiate", "-u", ":", url],
-            capture_output=True, timeout=timeout,
+            capture_output=True,
+            timeout=timeout,
         )
         if result.returncode == 0 and result.stdout:
             tmp_path = os.path.join(tempfile.gettempdir(), "_ssrs_pull.csv")
@@ -216,17 +218,30 @@ def run_ssrs_import(
 def main():
     parser = argparse.ArgumentParser(description="Auto-pull SSRS report into SQLite")
     parser.add_argument("--db", required=True, help="Path to SQLite database")
-    parser.add_argument("--ssrs-url", default=None,
-                        help="SSRS report URL (without date params)")
-    parser.add_argument("--lookback-days", type=int, default=30,
-                        help="Days before today for start date (default: 30)")
-    parser.add_argument("--lookahead-days", type=int, default=365,
-                        help="Days after today for end date (default: 365)")
-    parser.add_argument("--date-format", default="%m/%d/%Y",
-                        help="strftime format for date params (default: %%m/%%d/%%Y)")
+    parser.add_argument("--ssrs-url", default=None, help="SSRS report URL (without date params)")
+    parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=30,
+        help="Days before today for start date (default: 30)",
+    )
+    parser.add_argument(
+        "--lookahead-days",
+        type=int,
+        default=365,
+        help="Days after today for end date (default: 365)",
+    )
+    parser.add_argument(
+        "--date-format",
+        default="%m/%d/%Y",
+        help="strftime format for date params (default: %%m/%%d/%%Y)",
+    )
     args = parser.parse_args()
 
-    url = args.ssrs_url or "http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHDetailingReport&rs:Format=CSV"
+    url = (
+        args.ssrs_url
+        or "http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHDetailingReport&rs:Format=CSV"
+    )
 
     t0 = time.perf_counter()
     stats = run_ssrs_import(

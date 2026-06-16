@@ -32,17 +32,17 @@ def qapp():
 
 @pytest.fixture
 def default_detailers():
-    return ["— Unassigned —", "Jackie / IEC Internals", "Maria / RGV Team"]
+    return ["— Unassigned —", "Jackie / IEC Internals", "Maria / RGV Team", "Carl M"]
 
 
 @pytest.fixture
 def sample_unit():
     return Unit(
-        com_number="COM-TEST-001",
+        com_number="123456",
         job_name="Test Job Alpha",
         contract_number="CNT-2024-001",
         description="A sample unit",
-        detailer="Jackie / IEC Internals",
+        detailer="Carl M",
         checking_status="In Progress",
         status_color="yellow",
         department_hours=40.0,
@@ -76,7 +76,7 @@ class TestSetUnitPopulatesAllFields:
 
     def test_identity_fields_populated(self, edit_form, sample_unit):
         edit_form.set_unit(sample_unit)
-        assert edit_form.com_number_edit.text() == "COM-TEST-001"
+        assert edit_form.com_number_edit.text() == "123456"
         assert edit_form.job_name_edit.text() == "Test Job Alpha"
         assert edit_form.contract_edit.text() == "CNT-2024-001"
         assert edit_form.description_edit.text() == "A sample unit"
@@ -84,7 +84,7 @@ class TestSetUnitPopulatesAllFields:
 
     def test_detailer_combo_set(self, edit_form, sample_unit):
         edit_form.set_unit(sample_unit)
-        assert edit_form.detailer_edit.currentText() == "Jackie / IEC Internals"
+        assert edit_form.detailer_edit.currentText() == "Carl M"
 
     def test_numeric_fields_populated(self, edit_form, sample_unit):
         edit_form.set_unit(sample_unit)
@@ -161,8 +161,8 @@ class TestOnSaveEmitsCorrectData:
         emitted = saved_units[0]
         assert emitted.actual_hours == 20.0  # from sample_unit
         assert emitted.job_name == "Test Job Alpha"
-        assert emitted.com_number == "COM-TEST-001"
-        assert emitted.detailer == "Jackie / IEC Internals"
+        assert emitted.com_number == "123456"
+        assert emitted.detailer == "Carl M"
         assert emitted.department_hours == 40.0
         assert emitted.percent_complete == 50.0
 

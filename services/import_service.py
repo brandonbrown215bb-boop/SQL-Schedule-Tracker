@@ -7,8 +7,9 @@ a clean interface for importing data into SQLite. Zero Qt dependencies.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
+from automation.import_preview import ImportDiff
 from data.db import backup_db
 
 logger = logging.getLogger(__name__)
@@ -26,15 +27,6 @@ class ImportResult:
     @property
     def total_affected(self) -> int:
         return self.inserted + self.updated
-
-
-@dataclass
-class ImportDiff:
-    """Preview of what would change during an import."""
-
-    to_insert: list[dict] = field(default_factory=list)
-    to_update: list[dict] = field(default_factory=list)
-    unchanged: int = 0
 
 
 class ImportService:
@@ -110,8 +102,20 @@ class ImportService:
 
         Returns:
             ImportDiff with lists of rows to insert and update.
-        """
-        from automation.import_preview import compute_diff
 
-        diff = compute_diff(csv_path, self._db_path)
-        return diff
+        Raises:
+            NotImplementedError: The diff preview module is not yet implemented
+                (FEAT-019 is still in the roadmap). The UI handles this gracefully.
+        """
+        # TODO(FEAT-019): Implement import diff/staging preview.
+        # The automation/import_preview module does not yet exist.
+        # Returning an empty diff to keep the UI functional.
+        logger.warning(
+            "diff_before_import called but automation.import_preview "
+            "is not implemented (FEAT-019). Returning empty diff."
+        )
+        return ImportDiff()
+        # When FEAT-019 is implemented, replace with:
+        # from automation.import_preview import compute_diff
+        # diff = compute_diff(csv_path, self._db_path)
+        # return diff

@@ -335,6 +335,30 @@ SQLite units table ──→ db.py row_to_unit() ──→ Unit dataclass
 
 ---
 
-*Generated: 2026-06-08*
+## 8. AUDIT TRAIL
+
+Added in Sprint 2 (Data Integrity & Audit).
+
+### 8.1 `_audit_log` Table
+| Attribute | Value |
+|-----------|-------|
+| **Stored in** | `_audit_log` (SQLite table) |
+| **Written by** | `data/db.py` → `log_field_changes()` |
+| **Called from** | `data/writer.py` → `save_unit()` — after every successful save |
+| **Schema** | `id`, `com_number`, `field_name`, `old_value`, `new_value`, `saved_by`, `saved_at` |
+| **Indexes** | `idx_audit_com` (com_number), `idx_audit_saved_at` (saved_at) |
+
+### 8.2 `previous_detailing_due_date` (Transient)
+| Attribute | Value |
+|-----------|-------|
+| **Location** | `data/models.py` → `Unit.previous_detailing_due_date` |
+| **Set by** | `UnitService.detect_changed_due_dates()` — compares old vs new unit lists on reload |
+| **Cleared by** | `MainWindow.on_unit_selected()` — when user selects the unit |
+| **Purpose** | Shows "due date changed" indicator in calendar/list + dialog with old date |
+
+---
+
+*Generated: 2026-06-15*
+*Last updated: 2026-06-15 — Added audit trail (§8), previous_detailing_due_date, service layer architecture*
 *DB state: 2,765 units, 885 with checking data, 15 active detailers*
-*Last code review: 2026-06-08 — 8 new bugs found (BUG-14 through BUG-25), 7 fixed, 4 open*
+*Architecture: Service layer extraction (ARCH-001) complete. 254 tests passing.*

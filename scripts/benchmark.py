@@ -18,6 +18,7 @@ Produces a report like:
     Query by due_date             1.8          idx_units_detailing_due_date
     Fingerprint 100 units        15.3
 """
+
 from __future__ import annotations
 
 import argparse
@@ -68,24 +69,25 @@ class Timer:
 def bench_db_connection(db_path: str, runs: int = 5) -> Timer:
     """Time a fresh SQLite connection open (not reusing thread-local)."""
     import threading
+
     t = Timer()
     for _ in range(runs):
         # Use a unique thread to force a fresh connection
-        result: list[sqlite3.Connection] = []
+        container: list[sqlite3.Connection] = []
 
-        def _open():
+        def _open(_c: list[sqlite3.Connection] = container) -> None:
             # Import here to bypass thread-local cache
             conn = sqlite3.connect(db_path)
             conn.execute("PRAGMA journal_mode=WAL")
             conn.row_factory = sqlite3.Row
-            result.append(conn)
+            _c.append(conn)
 
         th = threading.Thread(target=_open)
         th.start()
         th.join()
         with t:
-            if result:
-                result[0].close()
+            if container:
+                container[0].close()
     return t
 
 
@@ -223,9 +225,19 @@ def main():
 
     print("  Running benchmarks...")
     results.append(("DB connection (cold)", bench_db_connection(db_path, args.runs), ""))
-    results.append(("Load all units", bench_load_units(db_path, min(args.runs, 3)), f"{count} rows"))
-    results.append(("Query by detailer", bench_query_by_detailer(db_path, args.runs), "idx_units_detailer"))
-    results.append(("Query by due_date", bench_query_by_due_date(db_path, args.runs), "idx_units_detailing_due_date"))
+    results.append(
+        ("Load all units", bench_load_units(db_path, min(args.runs, 3)), f"{count} rows")
+    )
+    results.append(
+        ("Query by detailer", bench_query_by_detailer(db_path, args.runs), "idx_units_detailer")
+    )
+    results.append(
+        (
+            "Query by due_date",
+            bench_query_by_due_date(db_path, args.runs),
+            "idx_units_detailing_due_date",
+        )
+    )
     results.append(("Fingerprint 100 units", bench_fingerprint(db_path, min(args.runs, 3)), ""))
     results.append(("Full table scan", bench_full_scan(db_path, args.runs), ""))
 

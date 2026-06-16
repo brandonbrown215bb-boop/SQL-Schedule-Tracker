@@ -4,6 +4,7 @@
 Usage:
     python -m automation.create_db --db PATH
 """
+
 import argparse
 import logging
 import sqlite3

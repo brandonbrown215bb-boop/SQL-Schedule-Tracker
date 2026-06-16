@@ -12,9 +12,6 @@ from data.models import Unit
 
 logger = logging.getLogger(__name__)
 
-# Legacy COLUMN_MAP — kept for test compatibility only
-COLUMN_MAP: dict[str, str] = {}
-
 _fingerprint_cache: dict[str, str] = {}
 
 
@@ -100,14 +97,12 @@ def _apply_identicals(units: list[Unit]) -> None:
 def load_units(
     db_path: str,
     detailer_schedules: dict | None = None,
-    force_reload: bool = False,
 ) -> list[Unit]:
     """Load all units from SQLite database.
 
     Args:
         db_path: Path to the SQLite database.
         detailer_schedules: Dict of detailer name → working weekdays.
-        force_reload: Ignored for SQLite (always fast).
 
     Returns:
         List of Unit objects ordered by detailing_due_date, with the

@@ -47,7 +47,7 @@ class Finding:
 
     def __str__(self) -> str:
         prefix = {
-            Severity.INFO: "ℹ",
+            Severity.INFO: "i",
             Severity.WARNING: "⚠",
             Severity.FAIL: "✗",
         }[self.severity]
@@ -95,7 +95,9 @@ def read_file(path: str) -> str | None:
         return None
 
 
-def get_changed_files(since_commit: str | None = None, staged: bool = False, diff_only: bool = False) -> set[str]:
+def get_changed_files(
+    since_commit: str | None = None, staged: bool = False, diff_only: bool = False
+) -> set[str]:
     """Get set of changed file paths from git."""
     if staged:
         cmd = ["git", "diff", "--cached", "--name-only"]
@@ -124,6 +126,7 @@ def dir_exists(path: str) -> bool:
 def glob_exists(pattern: str) -> bool:
     """Check if any file matching a glob pattern exists."""
     from glob import glob
+
     return len(glob(pattern)) > 0
 
 
@@ -161,24 +164,27 @@ def check_architecture(project_root: str, changed_files: set[str]) -> CheckResul
     agents_path = os.path.join(project_root, "agents.md")
     content = read_file(agents_path)
     if content is None:
-        result.findings.append(Finding(
-            doc="agents.md", check="existence",
-            severity=Severity.WARNING,
-            message="agents.md not found — skipping architecture check",
-        ))
+        result.findings.append(
+            Finding(
+                doc="agents.md",
+                check="existence",
+                severity=Severity.WARNING,
+                message="agents.md not found — skipping architecture check",
+            )
+        )
         return result
 
     # Extract the project structure tree (between ``` markers after "## 2. Project Structure")
-    structure_match = re.search(
-        r"## 2\. Project Structure\s*```\s*\n(.*?)```",
-        content, re.DOTALL
-    )
+    structure_match = re.search(r"## 2\. Project Structure\s*```\s*\n(.*?)```", content, re.DOTALL)
     if not structure_match:
-        result.findings.append(Finding(
-            doc="agents.md", check="structure_section",
-            severity=Severity.WARNING,
-            message="Could not find Project Structure code block in agents.md",
-        ))
+        result.findings.append(
+            Finding(
+                doc="agents.md",
+                check="structure_section",
+                severity=Severity.WARNING,
+                message="Could not find Project Structure code block in agents.md",
+            )
+        )
         return result
 
     tree_text = structure_match.group(1)
@@ -225,23 +231,29 @@ def check_architecture(project_root: str, changed_files: set[str]) -> CheckResul
                 tree_files[fname] = fname
 
     if not tree_files:
-        result.findings.append(Finding(
-            doc="agents.md", check="structure_parse",
-            severity=Severity.WARNING,
-            message="Could not parse any file paths from Project Structure tree",
-        ))
+        result.findings.append(
+            Finding(
+                doc="agents.md",
+                check="structure_parse",
+                severity=Severity.WARNING,
+                message="Could not parse any file paths from Project Structure tree",
+            )
+        )
         return result
 
     # Check: files in tree that don't exist
-    for fname, fpath in sorted(tree_files.items()):
+    for _fname, fpath in sorted(tree_files.items()):
         full_path = os.path.join(project_root, fpath)
         if not file_exists(full_path):
-            result.findings.append(Finding(
-                doc="agents.md", check="stale_reference",
-                severity=Severity.FAIL,
-                message=f"File '{fpath}' listed in Project Structure but does not exist",
-                suggestion=f"Remove '{fpath}' from the tree, or restore the file",
-            ))
+            result.findings.append(
+                Finding(
+                    doc="agents.md",
+                    check="stale_reference",
+                    severity=Severity.FAIL,
+                    message=f"File '{fpath}' listed in Project Structure but does not exist",
+                    suggestion=f"Remove '{fpath}' from the tree, or restore the file",
+                )
+            )
 
     # Check: Python files in src dirs that aren't in the tree
     # Build reverse lookup: full path -> filename
@@ -255,12 +267,15 @@ def check_architecture(project_root: str, changed_files: set[str]) -> CheckResul
             if fname.endswith(".py") and fname != "__init__.py" and not fname.startswith("_"):
                 full_path = f"{src_dir}/{fname}"
                 if full_path not in tree_by_fullpath:
-                    result.findings.append(Finding(
-                        doc="agents.md", check="missing_file",
-                        severity=Severity.WARNING,
-                        message=f"File '{full_path}' exists but is not listed in Project Structure",
-                        suggestion=f"Add '{full_path}' to the Project Structure tree",
-                    ))
+                    result.findings.append(
+                        Finding(
+                            doc="agents.md",
+                            check="missing_file",
+                            severity=Severity.WARNING,
+                            message=f"File '{full_path}' exists but is not listed in Project Structure",
+                            suggestion=f"Add '{full_path}' to the Project Structure tree",
+                        )
+                    )
 
     return result
 
@@ -274,29 +289,34 @@ def check_bug_tracking(project_root: str, changed_files: set[str]) -> CheckResul
     review_path = os.path.join(project_root, "CODE_REVIEW.md")
     content = read_file(review_path)
     if content is None:
-        result.findings.append(Finding(
-            doc="CODE_REVIEW.md", check="existence",
-            severity=Severity.INFO,
-            message="CODE_REVIEW.md not found — skipping bug tracking check",
-        ))
+        result.findings.append(
+            Finding(
+                doc="CODE_REVIEW.md",
+                check="existence",
+                severity=Severity.INFO,
+                message="CODE_REVIEW.md not found — skipping bug tracking check",
+            )
+        )
         return result
 
     # Extract all bug entries: ### BUG-N: ... **Status**: **STATUS**
     bug_pattern = re.compile(
-        r"### (BUG-\d+):\s*(.*?)\s*\n.*?\*\*Status\*\*:\s*\*?\*?([^*]+?)\*?\*?(?:\n|$)",
-        re.DOTALL
+        r"### (BUG-\d+):\s*(.*?)\s*\n.*?\*\*Status\*\*:\s*\*?\*?([^*]+?)\*?\*?(?:\n|$)", re.DOTALL
     )
 
     all_py_files = find_files_recursive(project_root, ".py")
     # Exclude venv, __pycache__, .codegraph
-    all_py_files = {f for f in all_py_files
-                    if "/venv/" not in f and "__pycache__" not in f and "/.codegraph/" not in f}
+    all_py_files = {
+        f
+        for f in all_py_files
+        if "/venv/" not in f and "__pycache__" not in f and "/.codegraph/" not in f
+    }
 
     for match in bug_pattern.finditer(content):
         bug_id = match.group(1)
         match.group(2).strip()
         status = match.group(3).strip()
-        line_num = content[:match.start()].count("\n") + 1
+        line_num = content[: match.start()].count("\n") + 1
 
         # Check: OPEN bugs — verify referenced files still exist
         if status == "OPEN":
@@ -312,13 +332,16 @@ def check_bug_tracking(project_root: str, changed_files: set[str]) -> CheckResul
                 for ref in file_refs:
                     full_ref = os.path.join(project_root, ref)
                     if not file_exists(full_ref):
-                        result.findings.append(Finding(
-                            doc="CODE_REVIEW.md", check="bug_stale_ref",
-                            severity=Severity.WARNING,
-                            message=f"{bug_id} references '{ref}' which no longer exists",
-                            line_number=line_num,
-                            suggestion=f"Update {bug_id} file reference or mark as NOT REPRODUCABLE",
-                        ))
+                        result.findings.append(
+                            Finding(
+                                doc="CODE_REVIEW.md",
+                                check="bug_stale_ref",
+                                severity=Severity.WARNING,
+                                message=f"{bug_id} references '{ref}' which no longer exists",
+                                line_number=line_num,
+                                suggestion=f"Update {bug_id} file reference or mark as NOT REPRODUCABLE",
+                            )
+                        )
 
         # Check: FIXED bugs — verify the fix comment exists in code
         if "FIXED" in status:
@@ -326,23 +349,29 @@ def check_bug_tracking(project_root: str, changed_files: set[str]) -> CheckResul
             fix_comments = grep_in_files(rf"# {bug_id}", all_py_files)
             if not fix_comments:
                 # Not all fixed bugs have comments — this is informational
-                result.findings.append(Finding(
-                    doc="CODE_REVIEW.md", check="bug_fix_comment",
-                    severity=Severity.INFO,
-                    message=f"{bug_id} is marked FIXED but no '# {bug_id}' comment found in code",
-                    line_number=line_num,
-                    suggestion=f"Add '# {bug_id}: <brief fix description>' comment near the fix",
-                ))
+                result.findings.append(
+                    Finding(
+                        doc="CODE_REVIEW.md",
+                        check="bug_fix_comment",
+                        severity=Severity.INFO,
+                        message=f"{bug_id} is marked FIXED but no '# {bug_id}' comment found in code",
+                        line_number=line_num,
+                        suggestion=f"Add '# {bug_id}: <brief fix description>' comment near the fix",
+                    )
+                )
 
         # Check: PARTIALLY FIXED — flag for review
         if "PARTIALLY" in status:
-            result.findings.append(Finding(
-                doc="CODE_REVIEW.md", check="bug_partial",
-                severity=Severity.WARNING,
-                message=f"{bug_id} is PARTIALLY FIXED — needs follow-up",
-                line_number=line_num,
-                suggestion=f"Review {bug_id} and either complete the fix or split into sub-bugs",
-            ))
+            result.findings.append(
+                Finding(
+                    doc="CODE_REVIEW.md",
+                    check="bug_partial",
+                    severity=Severity.WARNING,
+                    message=f"{bug_id} is PARTIALLY FIXED — needs follow-up",
+                    line_number=line_num,
+                    suggestion=f"Review {bug_id} and either complete the fix or split into sub-bugs",
+                )
+            )
 
     return result
 
@@ -355,16 +384,22 @@ def check_feature_plans(project_root: str, changed_files: set[str]) -> CheckResu
     result = CheckResult(doc="plans/*.md")
     plans_dir = os.path.join(project_root, "plans")
     if not dir_exists(plans_dir):
-        result.findings.append(Finding(
-            doc="plans/*.md", check="existence",
-            severity=Severity.INFO,
-            message="plans/ directory not found — skipping feature plan check",
-        ))
+        result.findings.append(
+            Finding(
+                doc="plans/*.md",
+                check="existence",
+                severity=Severity.INFO,
+                message="plans/ directory not found — skipping feature plan check",
+            )
+        )
         return result
 
     all_py_files = find_files_recursive(project_root, ".py")
-    all_py_files = {f for f in all_py_files
-                    if "/venv/" not in f and "__pycache__" not in f and "/.codegraph/" not in f}
+    all_py_files = {
+        f
+        for f in all_py_files
+        if "/venv/" not in f and "__pycache__" not in f and "/.codegraph/" not in f
+    }
 
     for fname in sorted(os.listdir(plans_dir)):
         if not fname.endswith(".md"):
@@ -388,44 +423,60 @@ def check_feature_plans(project_root: str, changed_files: set[str]) -> CheckResu
         if status == "NOT_STARTED":
             # Look for files mentioned in the plan
             file_refs = re.findall(r"`([^`]+\.py)`", content)
-            existing_refs = [ref for ref in file_refs if file_exists(os.path.join(project_root, ref))]
+            existing_refs = [
+                ref for ref in file_refs if file_exists(os.path.join(project_root, ref))
+            ]
             if existing_refs:
-                result.findings.append(Finding(
-                    doc=fname, check="plan_status",
-                    severity=Severity.WARNING,
-                    message=f"{plan_id} is NOT STARTED but {len(existing_refs)} referenced file(s) exist: {', '.join(existing_refs[:3])}",
-                    suggestion="Update status to IN_PROGRESS or verify these files are unrelated",
-                ))
+                result.findings.append(
+                    Finding(
+                        doc=fname,
+                        check="plan_status",
+                        severity=Severity.WARNING,
+                        message=f"{plan_id} is NOT STARTED but {len(existing_refs)} referenced file(s) exist: {', '.join(existing_refs[:3])}",
+                        suggestion="Update status to IN_PROGRESS or verify these files are unrelated",
+                    )
+                )
 
             # Also check for # FEAT-XX or # IMP-XX comments in code
             code_comments = grep_in_files(rf"# {plan_id}", all_py_files)
             if code_comments:
-                result.findings.append(Finding(
-                    doc=fname, check="plan_code_mismatch",
-                    severity=Severity.WARNING,
-                    message=f"{plan_id} is NOT STARTED but {len(code_comments)} code comment(s) reference it",
-                    suggestion="Update status to IN_PROGRESS",
-                ))
+                result.findings.append(
+                    Finding(
+                        doc=fname,
+                        check="plan_code_mismatch",
+                        severity=Severity.WARNING,
+                        message=f"{plan_id} is NOT STARTED but {len(code_comments)} code comment(s) reference it",
+                        suggestion="Update status to IN_PROGRESS",
+                    )
+                )
 
         # Check: IN_PROGRESS or DONE but code is incomplete
         if status in ("IN_PROGRESS", "DONE"):
             file_refs = re.findall(r"`([^`]+\.py)`", content)
-            missing_refs = [ref for ref in file_refs if not file_exists(os.path.join(project_root, ref))]
+            missing_refs = [
+                ref for ref in file_refs if not file_exists(os.path.join(project_root, ref))
+            ]
             if missing_refs and status == "DONE":
-                result.findings.append(Finding(
-                    doc=fname, check="plan_incomplete",
-                    severity=Severity.FAIL,
-                    message=f"{plan_id} is DONE but {len(missing_refs)} referenced file(s) don't exist: {', '.join(missing_refs[:3])}",
-                    suggestion="Verify these files were removed intentionally, or update the plan",
-                ))
+                result.findings.append(
+                    Finding(
+                        doc=fname,
+                        check="plan_incomplete",
+                        severity=Severity.FAIL,
+                        message=f"{plan_id} is DONE but {len(missing_refs)} referenced file(s) don't exist: {', '.join(missing_refs[:3])}",
+                        suggestion="Verify these files were removed intentionally, or update the plan",
+                    )
+                )
 
         # Check: PROPOSED plans (MOC-*) — informational
         if status == "PROPOSED":
-            result.findings.append(Finding(
-                doc=fname, check="plan_proposed",
-                severity=Severity.INFO,
-                message=f"{plan_id} is PROPOSED — not yet scheduled",
-            ))
+            result.findings.append(
+                Finding(
+                    doc=fname,
+                    check="plan_proposed",
+                    severity=Severity.INFO,
+                    message=f"{plan_id} is PROPOSED — not yet scheduled",
+                )
+            )
 
     return result
 
@@ -443,11 +494,14 @@ def check_onboarding(project_root: str, changed_files: set[str]) -> CheckResult:
         onboarding_path = os.path.join(project_root, "ONBOARDING_STEPS.md")
         content = read_file(onboarding_path)
     if content is None:
-        result.findings.append(Finding(
-            doc="ONBOARDING_STEPS.md", check="existence",
-            severity=Severity.INFO,
-            message="ONBOARDING_STEPS.md not found — skipping onboarding check",
-        ))
+        result.findings.append(
+            Finding(
+                doc="ONBOARDING_STEPS.md",
+                check="existence",
+                severity=Severity.INFO,
+                message="ONBOARDING_STEPS.md not found — skipping onboarding check",
+            )
+        )
         return result
 
     # Extract widget targets from the steps table (column 2)
@@ -466,11 +520,14 @@ def check_onboarding(project_root: str, changed_files: set[str]) -> CheckResult:
                 widget_names.update(names)
 
     if not widget_names:
-        result.findings.append(Finding(
-            doc="ONBOARDING_STEPS.md", check="parse",
-            severity=Severity.WARNING,
-            message="Could not extract widget names from ONBOARDING_STEPS.md table",
-        ))
+        result.findings.append(
+            Finding(
+                doc="ONBOARDING_STEPS.md",
+                check="parse",
+                severity=Severity.WARNING,
+                message="Could not extract widget names from ONBOARDING_STEPS.md table",
+            )
+        )
         return result
 
     # Also extract from the objectName reference table at the bottom
@@ -497,15 +554,18 @@ def check_onboarding(project_root: str, changed_files: set[str]) -> CheckResult:
         matches = grep_in_files(pattern, gui_files)
         if not matches:
             # Also check for self.setObjectName in class definitions
-            pattern2 = rf'self\.{widget_name}\b.*=.*Q\w+\('
+            pattern2 = rf"self\.{widget_name}\b.*=.*Q\w+\("
             matches2 = grep_in_files(pattern2, gui_files)
             if not matches2:
-                result.findings.append(Finding(
-                    doc="ONBOARDING_STEPS.md", check="widget_not_found",
-                    severity=Severity.FAIL,
-                    message=f"Widget '{widget_name}' referenced in onboarding but not found in gui/*.py",
-                    suggestion=f"Remove '{widget_name}' from onboarding or verify the widget exists",
-                ))
+                result.findings.append(
+                    Finding(
+                        doc="ONBOARDING_STEPS.md",
+                        check="widget_not_found",
+                        severity=Severity.FAIL,
+                        message=f"Widget '{widget_name}' referenced in onboarding but not found in gui/*.py",
+                        suggestion=f"Remove '{widget_name}' from onboarding or verify the widget exists",
+                    )
+                )
 
     return result
 
@@ -519,39 +579,46 @@ def check_computation_audit(project_root: str, changed_files: set[str]) -> Check
     audit_path = os.path.join(project_root, "docs", "COMPUTATION_AUDIT.md")
     content = read_file(audit_path)
     if content is None:
-        result.findings.append(Finding(
-            doc="COMPUTATION_AUDIT.md", check="existence",
-            severity=Severity.INFO,
-            message="COMPUTATION_AUDIT.md not found — skipping computation audit check",
-        ))
+        result.findings.append(
+            Finding(
+                doc="COMPUTATION_AUDIT.md",
+                check="existence",
+                severity=Severity.INFO,
+                message="COMPUTATION_AUDIT.md not found — skipping computation audit check",
+            )
+        )
         return result
 
     # Extract constants from the Constants Reference table
     # Pattern: | `CONSTANT_NAME` | value | file | description |
-    constants_pattern = re.compile(
-        r"\|\s*`(\w+)`\s*\|\s*([\d.]+)\s*\|\s*([\w./]+)\s*\|"
-    )
+    constants_pattern = re.compile(r"\|\s*`(\w+)`\s*\|\s*([\d.]+)\s*\|\s*([\w./]+)\s*\|")
 
     all_py_files = find_files_recursive(project_root, ".py")
-    all_py_files = {f for f in all_py_files
-                    if "/venv/" not in f and "__pycache__" not in f and "/.codegraph/" not in f}
+    all_py_files = {
+        f
+        for f in all_py_files
+        if "/venv/" not in f and "__pycache__" not in f and "/.codegraph/" not in f
+    }
 
     for match in constants_pattern.finditer(content):
         const_name = match.group(1)
         doc_value = match.group(2)
         doc_file = match.group(3)
-        line_num = content[:match.start()].count("\n") + 1
+        line_num = content[: match.start()].count("\n") + 1
 
         # Check: does the referenced file exist?
         full_file = os.path.join(project_root, doc_file)
         if not file_exists(full_file):
-            result.findings.append(Finding(
-                doc="COMPUTATION_AUDIT.md", check="stale_file_ref",
-                severity=Severity.FAIL,
-                message=f"Constant '{const_name}' references '{doc_file}' which doesn't exist",
-                line_number=line_num,
-                suggestion=f"Update file reference for '{const_name}'",
-            ))
+            result.findings.append(
+                Finding(
+                    doc="COMPUTATION_AUDIT.md",
+                    check="stale_file_ref",
+                    severity=Severity.FAIL,
+                    message=f"Constant '{const_name}' references '{doc_file}' which doesn't exist",
+                    line_number=line_num,
+                    suggestion=f"Update file reference for '{const_name}'",
+                )
+            )
             continue
 
         # Check: does the constant value match the code?
@@ -567,22 +634,28 @@ def check_computation_audit(project_root: str, changed_files: set[str]) -> Check
                     doc_f = float(doc_value)
                     code_f = float(raw_val)
                     if abs(doc_f - code_f) > 0.001:
-                        result.findings.append(Finding(
-                            doc="COMPUTATION_AUDIT.md", check="stale_constant",
-                            severity=Severity.FAIL,
-                            message=f"Constant '{const_name}' is {doc_f} in audit but {code_f} in {doc_file}",
-                            line_number=line_num,
-                            suggestion=f"Update audit: | \\`{const_name}\\` | {code_f} | {doc_file} |",
-                        ))
+                        result.findings.append(
+                            Finding(
+                                doc="COMPUTATION_AUDIT.md",
+                                check="stale_constant",
+                                severity=Severity.FAIL,
+                                message=f"Constant '{const_name}' is {doc_f} in audit but {code_f} in {doc_file}",
+                                line_number=line_num,
+                                suggestion=f"Update audit: | \\`{const_name}\\` | {code_f} | {doc_file} |",
+                            )
+                        )
                 except ValueError:
                     # String comparison
                     if raw_val.strip("'\"") != doc_value.strip("'\""):
-                        result.findings.append(Finding(
-                            doc="COMPUTATION_AUDIT.md", check="stale_constant",
-                            severity=Severity.WARNING,
-                            message=f"Constant '{const_name}' value mismatch: audit='{doc_value}' code='{raw_val}'",
-                            line_number=line_num,
-                        ))
+                        result.findings.append(
+                            Finding(
+                                doc="COMPUTATION_AUDIT.md",
+                                check="stale_constant",
+                                severity=Severity.WARNING,
+                                message=f"Constant '{const_name}' value mismatch: audit='{doc_value}' code='{raw_val}'",
+                                line_number=line_num,
+                            )
+                        )
 
     return result
 
@@ -612,21 +685,23 @@ def format_report(results: list[CheckResult], fmt: str = "text") -> str:
     if fmt == "json":
         data = []
         for r in results:
-            data.append({
-                "doc": r.doc,
-                "failures": len(r.failures),
-                "warnings": len(r.warnings),
-                "findings": [
-                    {
-                        "check": f.check,
-                        "severity": f.severity.value,
-                        "message": f.message,
-                        "suggestion": f.suggestion,
-                        "line": f.line_number,
-                    }
-                    for f in r.findings
-                ],
-            })
+            data.append(
+                {
+                    "doc": r.doc,
+                    "failures": len(r.failures),
+                    "warnings": len(r.warnings),
+                    "findings": [
+                        {
+                            "check": f.check,
+                            "severity": f.severity.value,
+                            "message": f.message,
+                            "suggestion": f.suggestion,
+                            "line": f.line_number,
+                        }
+                        for f in r.findings
+                    ],
+                }
+            )
         return json.dumps(data, indent=2)
 
     # Text format
@@ -638,8 +713,10 @@ def format_report(results: list[CheckResult], fmt: str = "text") -> str:
         lines.append("✓ All documentation checks passed.\n")
     else:
         docs_with_issues = sum(1 for r in results if r.findings)
-        lines.append(f"{'✗' if total_failures > 0 else '⚠'} {docs_with_issues} doc(s) need attention: "
-                      f"{total_failures} failures, {total_warnings} warnings\n")
+        lines.append(
+            f"{'✗' if total_failures > 0 else '⚠'} {docs_with_issues} doc(s) need attention: "
+            f"{total_failures} failures, {total_warnings} warnings\n"
+        )
 
     for r in results:
         lines.append(str(r))
@@ -650,19 +727,36 @@ def format_report(results: list[CheckResult], fmt: str = "text") -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Check documentation freshness against codebase")
-    parser.add_argument("--diff-only", action="store_true",
-                        help="Only check docs related to files changed in working tree")
-    parser.add_argument("--staged-only", action="store_true",
-                        help="Only check docs related to staged files")
-    parser.add_argument("--since-commit", type=str, default=None,
-                        help="Only check docs related to files changed since this commit")
-    parser.add_argument("--format", choices=["text", "json"], default="text",
-                        help="Output format (default: text)")
-    parser.add_argument("--checks", nargs="+",
-                        choices=["architecture", "bugs", "plans", "onboarding", "computation", "all"],
-                        default=["all"], help="Which checks to run")
-    parser.add_argument("--project-root", type=str, default=".",
-                        help="Project root directory (default: current directory)")
+    parser.add_argument(
+        "--diff-only",
+        action="store_true",
+        help="Only check docs related to files changed in working tree",
+    )
+    parser.add_argument(
+        "--staged-only", action="store_true", help="Only check docs related to staged files"
+    )
+    parser.add_argument(
+        "--since-commit",
+        type=str,
+        default=None,
+        help="Only check docs related to files changed since this commit",
+    )
+    parser.add_argument(
+        "--format", choices=["text", "json"], default="text", help="Output format (default: text)"
+    )
+    parser.add_argument(
+        "--checks",
+        nargs="+",
+        choices=["architecture", "bugs", "plans", "onboarding", "computation", "all"],
+        default=["all"],
+        help="Which checks to run",
+    )
+    parser.add_argument(
+        "--project-root",
+        type=str,
+        default=".",
+        help="Project root directory (default: current directory)",
+    )
     args = parser.parse_args()
 
     project_root = os.path.abspath(args.project_root)
@@ -677,8 +771,11 @@ def main():
         changed_files = get_changed_files(since_commit=args.since_commit)
 
     # Determine which checks to run
-    checks = ["architecture", "bugs", "plans", "onboarding", "computation"] \
-        if "all" in args.checks else args.checks
+    checks = (
+        ["architecture", "bugs", "plans", "onboarding", "computation"]
+        if "all" in args.checks
+        else args.checks
+    )
 
     # Run checks
     results = run_checks(project_root, changed_files, checks)

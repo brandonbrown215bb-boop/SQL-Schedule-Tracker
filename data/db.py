@@ -355,13 +355,26 @@ def get_detailer_schedules(db_path: str) -> dict[str, list[int]]:
     cur.execute("SELECT working_weekdays FROM default_schedule WHERE id = 1")
     row = cur.fetchone()
     if row:
-        schedules["default"] = json.loads(row[0])
+        try:
+            schedules["default"] = json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            logger.warning(
+                "Malformed JSON in default_schedule.working_weekdays; using default (Mon-Thu)"
+            )
+            schedules["default"] = [0, 1, 2, 3]
     else:
         schedules["default"] = [0, 1, 2, 3]
 
     # Load detailers
     cur.execute("SELECT name, working_weekdays FROM detailers ORDER BY display_order")
     for row in cur.fetchall():
-        schedules[row[0]] = json.loads(row[1])
+        try:
+            schedules[row[0]] = json.loads(row[1])
+        except (json.JSONDecodeError, TypeError):
+            logger.warning(
+                "Malformed JSON in detailers.working_weekdays for '%s'; using default (Mon-Thu)",
+                row[0],
+            )
+            schedules[row[0]] = [0, 1, 2, 3]
 
     return schedules

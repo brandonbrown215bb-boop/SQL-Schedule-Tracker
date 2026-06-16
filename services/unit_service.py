@@ -14,6 +14,7 @@ from data.db import get_audit_trail, row_to_unit
 from data.loader import _apply_identicals, load_units, unit_fingerprint
 from data.models import Unit
 from data.writer import save_unit
+from services.pre_save_hooks import PreSaveHookRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +40,15 @@ class UnitService:
         single = svc.get_by_com("14201")
     """
 
-    def __init__(self, db_path: str, detailer_schedules: dict | None = None):
+    def __init__(
+        self,
+        db_path: str,
+        detailer_schedules: dict | None = None,
+        hook_registry: PreSaveHookRegistry | None = None,
+    ):
         self._db_path = db_path
         self._detailer_schedules = detailer_schedules or {}
+        self._hook_registry = hook_registry
 
     @property
     def db_path(self) -> str:
@@ -49,11 +56,8 @@ class UnitService:
 
     # ── Load ──────────────────────────────────────────────────────────
 
-    def load_all(self, force: bool = False) -> list[Unit]:
+    def load_all(self) -> list[Unit]:
         """Load all units from SQLite, apply identicals rule, return ordered list.
-
-        Args:
-            force: Ignored for SQLite (always fast), kept for interface compat.
 
         Returns:
             List of Unit objects ordered by detailing_due_date.
@@ -61,7 +65,6 @@ class UnitService:
         units = load_units(
             self._db_path,
             detailer_schedules=self._detailer_schedules,
-            force_reload=force,
         )
         return units
 
@@ -82,19 +85,27 @@ class UnitService:
 
     # ── Save ──────────────────────────────────────────────────────────
 
-    def save(self, unit: Unit) -> Unit:
-        """Save a unit to SQLite with optimistic locking.
+    def save(self, unit: Unit, context: dict | None = None) -> Unit:
+        """Save a unit to SQLite with optimistic locking and validation.
 
         On success, updates the unit's updated_at from the DB.
         Raises ConcurrentEditError if the row was modified by another user.
+        Raises ValidationError if field values are out of valid range.
 
         Args:
             unit: The unit to save. Must have updated_at set from load time.
+            context: Optional context dict passed to pre-save hooks
+                (e.g., {"is_new": True}).
 
         Returns:
             The saved Unit with updated_at refreshed from DB.
         """
-        save_unit(self._db_path, unit)
+        save_unit(
+            self._db_path,
+            unit,
+            hook_registry=self._hook_registry,
+            context=context,
+        )
         return unit
 
     # ── Fingerprint ──────────────────────────────────────────────────

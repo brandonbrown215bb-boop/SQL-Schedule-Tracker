@@ -17,8 +17,10 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Lock
 
-HEARTBEAT_INTERVAL = 30   # seconds between heartbeat writes
-HEARTBEAT_TIMEOUT = 90    # seconds — sessions older than this are stale
+from PyQt5.QtCore import QObject
+
+HEARTBEAT_INTERVAL = 30  # seconds between heartbeat writes
+HEARTBEAT_TIMEOUT = 90  # seconds — sessions older than this are stale
 
 SESSIONS_DIR = "sessions"
 
@@ -26,6 +28,7 @@ SESSIONS_DIR = "sessions"
 @dataclass
 class SessionInfo:
     """Information about a running app session."""
+
     owner: str
     session_id: str
     pid: int
@@ -90,6 +93,7 @@ class SessionRegistry:
         if parent is not None:
             try:
                 from PyQt5.QtCore import QTimer
+
                 self._timer = QTimer(parent)
                 self._timer.setInterval(HEARTBEAT_INTERVAL * 1000)
                 self._timer.timeout.connect(self.beat)
@@ -121,9 +125,7 @@ class SessionRegistry:
     @staticmethod
     def list_active(excel_path: str) -> list[SessionInfo]:
         """Return all non-stale sessions for this workbook."""
-        sessions_dir = (
-            Path(excel_path).parent / "UnitTracker" / SESSIONS_DIR
-        )
+        sessions_dir = Path(excel_path).parent / "UnitTracker" / SESSIONS_DIR
         if not sessions_dir.is_dir():
             return []
 
@@ -172,9 +174,7 @@ class SessionRegistry:
     def _read_started_at(self) -> str:
         """Return the original ``started_at`` from the file, else now."""
         try:
-            data = json.loads(
-                self._session_path.read_text(encoding="utf-8")
-            )
+            data = json.loads(self._session_path.read_text(encoding="utf-8"))
             return data.get("started_at", datetime.now().isoformat(timespec="seconds"))
         except (FileNotFoundError, OSError, json.JSONDecodeError):
             return datetime.now().isoformat(timespec="seconds")

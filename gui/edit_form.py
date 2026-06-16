@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
 )
 
 from data.models import Unit
+from services.validation import validate_unit
 
 # Style for invalid fields (red border + red background)
 _INVALID_STYLE = "border: 2px solid red; background-color: #fff0f0;"
@@ -313,8 +314,12 @@ class EditForm(QWidget):
             self._loading = False
 
     def _validate_fields(self, unit: Unit) -> list[str]:
-        """Validate form fields and set visual indicators. Returns list of error messages."""
-        errors = []
+        """Validate form fields using the validation layer and set visual indicators.
+
+        Returns list of error messages. Hard errors (range violations) block save;
+        warnings (date order) are non-fatal.
+        """
+        errors: list[str] = []
 
         # Clear all inline validation styles
         self.percent_spin.setStyleSheet(_VALID_STYLE)
@@ -322,36 +327,37 @@ class EditForm(QWidget):
         self.actual_hours_spin.setStyleSheet(_VALID_STYLE)
         self.due_date_edit.setStyleSheet(_VALID_STYLE)
 
-        # Percent complete range
-        if not (0.0 <= unit.percent_complete <= 100.0):
-            self.percent_spin.setStyleSheet(_INVALID_STYLE)
-            self.percent_spin.setToolTip(f"Must be 0-100, got {unit.percent_complete}")
-            errors.append(f"Percent complete must be 0-100 (got {unit.percent_complete})")
+        # Use the validation layer for field-level checks
+        valid, validation_errors = validate_unit(unit)
+        if not valid:
+            # Map validation errors to visual indicators
+            for err in validation_errors:
+                field = err.split(":")[0] if ":" in err else ""
+                if field == "percent_complete":
+                    self.percent_spin.setStyleSheet(_INVALID_STYLE)
+                    self.percent_spin.setToolTip(err)
+                elif field == "department_hours":
+                    self.dept_hours_spin.setStyleSheet(_INVALID_STYLE)
+                    self.dept_hours_spin.setToolTip(err)
+                elif field == "actual_hours":
+                    self.actual_hours_spin.setStyleSheet(_INVALID_STYLE)
+                    self.actual_hours_spin.setToolTip(err)
+                elif field == "target_department_hours":
+                    self.target_hours_spin.setStyleSheet(_INVALID_STYLE)
+                    self.target_hours_spin.setToolTip(err)
+            errors.extend(validation_errors)
         else:
+            # Clear tooltips on valid fields
             self.percent_spin.setToolTip("")
-
-        # Non-negative numeric fields
-        if unit.department_hours < 0:
-            self.dept_hours_spin.setStyleSheet(_INVALID_STYLE)
-            self.dept_hours_spin.setToolTip(f"Must be >= 0, got {unit.department_hours}")
-            errors.append(f"Dept hours must be >= 0 (got {unit.department_hours})")
-        else:
             self.dept_hours_spin.setToolTip("")
-
-        if unit.actual_hours < 0:
-            self.actual_hours_spin.setStyleSheet(_INVALID_STYLE)
-            self.actual_hours_spin.setToolTip(f"Must be >= 0, got {unit.actual_hours}")
-            errors.append(f"Actual hours must be >= 0 (got {unit.actual_hours})")
-        else:
             self.actual_hours_spin.setToolTip("")
 
-        # Date order validation: Detailing Start ≤ Moved to Checking ≤ Detailing Complete
+        # Date order validation (warning, not fatal)
         dates = [
             ("Detailing Start", unit.unit_detailing_start_date),
             ("Moved to Checking", unit.unit_moved_to_checking_date),
             ("Detailing Complete", unit.unit_detailing_completion_date),
         ]
-        # Filter to only set dates
         set_dates = [(name, d) for name, d in dates if d is not None]
         if len(set_dates) >= 2:
             for i in range(len(set_dates) - 1):

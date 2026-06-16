@@ -47,17 +47,6 @@ STATUS_COLORS: dict[str, QColor] = {
     "red": QColor(239, 68, 68),
 }
 
-# ─── Alert Severity Order ─────────────────────────────────────────────
-
-ALERT_SEVERITY_ORDER: dict[str, int] = {
-    "OVERDUE": 0,
-    "URGENT": 1,
-    "APPROACHING": 2,
-    "ON_TRACK": 3,
-    "COMPLETE": 4,
-    "UNSET": 5,
-}
-
 # ─── Capacity Threshold ───────────────────────────────────────────────
 
 CAPACITY_HOURS_THRESHOLD: float = 160.0  # 4 weeks x 40 hrs/week

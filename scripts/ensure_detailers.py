@@ -6,6 +6,7 @@ Safe to run multiple times — uses IF NOT EXISTS / INSERT OR IGNORE.
 Usage:
     python ensure_detailers.py [--db PATH]
 """
+
 import argparse
 import sqlite3
 import sys

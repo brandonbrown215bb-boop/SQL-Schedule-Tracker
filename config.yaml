@@ -119,9 +119,10 @@ ui:
   auto_refresh_minutes: 0
   colorblind_mode: none
   high_contrast: true
-  last_view: calendar
+  last_view: list
   list_column_widths:
     alert_level: 207
+    description_tags: 362
     notes: 410
     percent_complete: 93
   list_sort_ascending: true
@@ -135,7 +136,7 @@ ui:
   - percent_complete
   onboarding_completed: true
   splitter_sizes:
-  - 743
-  - 433
+  - 653
+  - 523
   theme: dark
 unedited_reports_dir: P:/Detailing Schedule 2019/Unedited Reports

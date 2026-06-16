@@ -22,6 +22,7 @@ SHARED_CACHE_SCHEMA_VERSION = 1
 @dataclass
 class SharedUnitEntry:
     """The remote-side view of a single unit in the shared cache."""
+
     com_number: str
     job_name: str
     contract_number: str
@@ -44,9 +45,7 @@ class SharedUnitEntry:
     revision: int
 
     @classmethod
-    def from_unit(
-        cls, unit: Unit, revision: UnitRevision
-    ) -> SharedUnitEntry:
+    def from_unit(cls, unit: Unit, revision: UnitRevision) -> SharedUnitEntry:
         """Build a cache entry from a Unit and the just-committed revision."""
         return cls(
             com_number=unit.com_number,
@@ -62,28 +61,26 @@ class SharedUnitEntry:
             actual_hours=unit.actual_hours,
             unit_detailing_start_date=(
                 unit.unit_detailing_start_date.isoformat()
-                if unit.unit_detailing_start_date else None
+                if unit.unit_detailing_start_date
+                else None
             ),
             unit_moved_to_checking_date=(
                 unit.unit_moved_to_checking_date.isoformat()
-                if unit.unit_moved_to_checking_date else None
+                if unit.unit_moved_to_checking_date
+                else None
             ),
             unit_detailing_completion_date=(
                 unit.unit_detailing_completion_date.isoformat()
-                if unit.unit_detailing_completion_date else None
+                if unit.unit_detailing_completion_date
+                else None
             ),
             dept_due_date_previous=(
-                unit.dept_due_date_previous.isoformat()
-                if unit.dept_due_date_previous else None
+                unit.dept_due_date_previous.isoformat() if unit.dept_due_date_previous else None
             ),
             detailing_due_date=(
-                unit.detailing_due_date.isoformat()
-                if unit.detailing_due_date else None
+                unit.detailing_due_date.isoformat() if unit.detailing_due_date else None
             ),
-            build_date=(
-                unit.build_date.isoformat()
-                if unit.build_date else None
-            ),
+            build_date=(unit.build_date.isoformat() if unit.build_date else None),
             modified_by=revision.modified_by,
             modified_at=revision.modified_at,
             revision=revision.revision,
@@ -130,9 +127,7 @@ class SharedCache:
             return None
         return SharedUnitEntry.from_payload(raw)
 
-    def update(
-        self, com_number: str, unit: Unit, revision: UnitRevision
-    ) -> None:
+    def update(self, com_number: str, unit: Unit, revision: UnitRevision) -> None:
         """Atomically upsert the shared cache entry for one COM."""
         self.root_dir.mkdir(parents=True, exist_ok=True)
         entries = self._read_all()
@@ -150,8 +145,7 @@ class SharedCache:
         """Return all entries (used for session presence / admin views)."""
         raw = self._read_all()
         return {
-            k: {kk: vv for kk, vv in v.items() if not kk.startswith("_")}
-            for k, v in raw.items()
+            k: {kk: vv for kk, vv in v.items() if not kk.startswith("_")} for k, v in raw.items()
         }
 
     def clear(self) -> None:

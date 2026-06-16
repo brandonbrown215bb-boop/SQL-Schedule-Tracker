@@ -1,84 +1,72 @@
 #!/usr/bin/env python3
 """CSV Import Pipeline — reads SSRS CSV and upserts into SQLite.
 
+Uses InputSanitizer for parsing and validate_unit for row-level validation
+before any data touches the database.
+
 Usage:
     python -m automation.import_csv --source csv --csv-path PATH --db PATH
     python -m automation.import_csv --source auto --db PATH
 """
+
 import csv
 import logging
 import sys
 import time
-from datetime import datetime
+
+from services.sanitizer import InputSanitizer
+from services.validation import validate_unit
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 # CSV columns → SQLite fields (only RAW IMPORT columns)
 CSV_TO_DB = {
-    "DeptDueDate":            "detailing_due_date",
-    "COMNumber":              "com_number",
-    "ManufacturingLocation":  "manufacturing_location",
-    "JobName":                "job_name",
-    "TopLevelNumber":         "top_level_number",
-    "Description":            "description",
-    "BuildDate":              "build_date",
-    "AssyCycle":              "build_cycle",
-    "DepartmentHours":        "department_hours",
-    "PercentComplete":        "percent_complete",
-    "WeekEndingFriday":       "week_ending_friday",
+    "DeptDueDate": "detailing_due_date",
+    "COMNumber": "com_number",
+    "ManufacturingLocation": "manufacturing_location",
+    "JobName": "job_name",
+    "TopLevelNumber": "top_level_number",
+    "Description": "description",
+    "BuildDate": "build_date",
+    "AssyCycle": "build_cycle",
+    "DepartmentHours": "department_hours",
+    "PercentComplete": "percent_complete",
+    "WeekEndingFriday": "week_ending_friday",
 }
 
 VALUE_COLUMNS = [v for v in CSV_TO_DB.values() if v != "com_number"]
 
 
-def parse_date(raw: str):
-    raw = raw.strip()
-    if not raw:
-        return None
-    return datetime.strptime(raw, "%m/%d/%Y").strftime("%Y-%m-%d")
-
-
-def parse_percent(raw: str):
-    raw = raw.strip()
-    if not raw:
-        return None
-    return float(raw.replace("%", "").strip()) / 100.0
-
-
-def parse_week_ending(raw: str):
+def _parse_week_ending(raw: str):
     raw = raw.strip()
     if not raw:
         return None
     if ":" in raw:
         raw = raw.split(":", 1)[1].strip()
-    return parse_date(raw)
+    return InputSanitizer.clean_date(raw)
 
 
-def parse_number(raw: str):
-    raw = raw.strip()
-    if not raw:
-        return None
-    return float(raw)
-
-
-PARSE_FUNCS = {
-    "detailing_due_date":     parse_date,
-    "manufacturing_location": lambda v: v.strip() or None,
-    "job_name":               lambda v: v.strip() or None,
-    "top_level_number":       lambda v: v.strip() or None,
-    "description":            lambda v: v.strip() or None,
-    "build_date":             parse_date,
-    "build_cycle":            lambda v: int(v.strip()) if v.strip() else None,
-    "department_hours":       parse_number,
-    "percent_complete":       parse_percent,
-    "week_ending_friday":     parse_week_ending,
+# Map DB field names to InputSanitizer methods
+SANITIZE_FUNCS = {
+    "detailing_due_date": InputSanitizer.clean_date,
+    "manufacturing_location": lambda v: InputSanitizer.clean_string(v),
+    "job_name": lambda v: InputSanitizer.clean_string(v, max_length=255),
+    "top_level_number": lambda v: InputSanitizer.clean_string(v, max_length=50),
+    "description": lambda v: InputSanitizer.clean_string(v, max_length=500),
+    "build_date": InputSanitizer.clean_date,
+    "build_cycle": lambda v: int(v.strip()) if v and v.strip() else None,
+    "department_hours": InputSanitizer.clean_number,
+    "percent_complete": lambda v: InputSanitizer.clean_percent(v) / 100.0,
+    "week_ending_friday": _parse_week_ending,
+    "com_number": InputSanitizer.clean_com_number,
 }
 
 
 def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
     """Upsert one row. Returns 'inserted', 'updated', or 'skipped'."""
     from data.db import _working_days_between
+
     com = row_data.get("com_number")
     if not com:
         return "skipped"
@@ -92,7 +80,9 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
     )
 
     # Check if row exists
-    cursor.execute("SELECT detailing_due_date, percent_complete FROM units WHERE com_number = ?", (com,))
+    cursor.execute(
+        "SELECT detailing_due_date, percent_complete FROM units WHERE com_number = ?", (com,)
+    )
     existing = cursor.fetchone()
 
     # Compute remaining_hours
@@ -106,7 +96,7 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
         if new_due_date and current_due_date and str(current_due_date) != str(new_due_date):
             cursor.execute(
                 "UPDATE units SET dept_due_date_previous = ? WHERE com_number = ?",
-                (current_due_date, com)
+                (current_due_date, com),
             )
 
         # Build UPDATE — SSRS fields only (NOT manual fields)
@@ -137,7 +127,9 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
         return "updated"
     else:
         # INSERT new row
-        insert_cols = ["com_number"] + [c for c in VALUE_COLUMNS if c in row_data and c != "percent_complete"]
+        insert_cols = ["com_number"] + [
+            c for c in VALUE_COLUMNS if c in row_data and c != "percent_complete"
+        ]
         insert_values = [row_data.get(c) for c in insert_cols]
 
         insert_cols.append("percent_complete")
@@ -182,8 +174,37 @@ def run_import(csv_path: str, db_path: str) -> dict:
                 row_data = {}
                 for csv_col, db_col in CSV_TO_DB.items():
                     raw_val = csv_row.get(csv_col, "")
-                    parser = PARSE_FUNCS.get(db_col, lambda v: v)
-                    row_data[db_col] = parser(raw_val)
+                    sanitizer = SANITIZE_FUNCS.get(db_col, lambda v: v)
+                    row_data[db_col] = sanitizer(raw_val)
+
+                # Build a minimal Unit for row-level validation
+                from data.models import Unit
+
+                unit_for_validation = Unit(
+                    com_number=row_data.get("com_number", ""),
+                    job_name=row_data.get("job_name", ""),
+                    contract_number=row_data.get("top_level_number", ""),
+                    description=row_data.get("description", ""),
+                    detailer="— Unassigned —",
+                    checking_status="",
+                    department_hours=row_data.get("department_hours", 0) or 0,
+                    target_department_hours=0,
+                    iec_internal_hours=0,
+                    percent_complete=(
+                        (row_data.get("percent_complete", 0) or 0) * 100
+                    ),
+                    actual_hours=0,
+                )
+                valid, val_errors = validate_unit(unit_for_validation)
+                if not valid:
+                    stats["errors"] += 1
+                    log.error(
+                        "Line %d: validation failed: %s",
+                        line_num,
+                        "; ".join(val_errors),
+                    )
+                    continue
+
                 result = upsert_row(cursor, row_data, line_num)
                 stats[result] += 1
             except Exception as e:
@@ -202,6 +223,7 @@ def import_csv(db_path: str, csv_path: str) -> int:
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="Import SSRS CSV into SQLite")
     parser.add_argument("--source", choices=["auto", "csv", "url"], default="csv")
     parser.add_argument("--csv-path", default=None)

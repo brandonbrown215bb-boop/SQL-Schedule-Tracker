@@ -1,6 +1,6 @@
 # ARCH-001: Service Layer Extraction
 
-**Status**: Draft  
+**Status**: Complete  
 **Priority**: Critical  
 **Effort**: XL (3-4 weeks)  
 **Depends on**: None  

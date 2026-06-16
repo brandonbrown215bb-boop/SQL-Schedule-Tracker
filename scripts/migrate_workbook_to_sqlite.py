@@ -10,6 +10,7 @@ Also seeds the detailers table and default_schedule from config.yaml data.
 Usage:
     python3 migrate_workbook_to_sqlite.py [--workbook PATH] [--db PATH]
 """
+
 import argparse
 import json
 import logging
@@ -164,6 +165,7 @@ COLUMN_MAP = {
 # Type converters
 # ---------------------------------------------------------------------------
 
+
 def convert_date(val):
     if val is None:
         return None
@@ -178,7 +180,7 @@ def convert_date(val):
                 return datetime.strptime(val, fmt).strftime("%Y-%m-%d")
             except ValueError:
                 continue
-        if len(val) >= 10 and val[4] == '-':
+        if len(val) >= 10 and val[4] == "-":
             return val[:10]
         log.warning(f"Could not parse date: {val!r}")
         return None
@@ -267,6 +269,7 @@ CONVERTERS = {
 # working_days_until_due computation
 # ---------------------------------------------------------------------------
 
+
 def working_days_between(start: date, end: date, working_weekdays: list[int]) -> int:
     count = 0
     current = start + timedelta(days=1)
@@ -315,7 +318,7 @@ def recompute_due_columns_batch(cursor):
         working_days = working_days_between(today, due_date, weekdays) if calendar_days >= 0 else 0
         cursor.execute(
             "UPDATE units SET calendar_days_until_due = ?, working_days_until_due = ? WHERE com_number = ?",
-            (calendar_days, working_days, com)
+            (calendar_days, working_days, com),
         )
 
 
@@ -323,10 +326,11 @@ def recompute_due_columns_batch(cursor):
 # Migration
 # ---------------------------------------------------------------------------
 
+
 def col_letter_to_index(letter: str) -> int:
     idx = 0
     for ch in letter.upper():
-        idx = idx * 26 + (ord(ch) - ord('A') + 1)
+        idx = idx * 26 + (ord(ch) - ord("A") + 1)
     return idx - 1
 
 
@@ -391,7 +395,9 @@ def migrate_workbook(workbook_path: str, db_path: str, sheet_name: str = "Curren
     updated = 0
     errors = 0
 
-    for row_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row, values_only=True), start=2):
+    for row_idx, row in enumerate(
+        ws.iter_rows(min_row=2, max_row=ws.max_row, values_only=True), start=2
+    ):
         total_rows += 1
 
         com_idx = header_map.get("C")
@@ -405,7 +411,7 @@ def migrate_workbook(workbook_path: str, db_path: str, sheet_name: str = "Curren
 
         values = []
         all_none = True
-        for field_name, converter, wb_col_idx in field_col_indices:
+        for _field_name, converter, wb_col_idx in field_col_indices:
             raw = row[wb_col_idx] if wb_col_idx is not None and wb_col_idx < len(row) else None
             converted = converter(raw)
             values.append(converted)
@@ -487,10 +493,8 @@ def main():
     parser.add_argument("--sheet", default="Current List", help="Sheet name to read")
     args = parser.parse_args()
 
-    workbook = args.workbook or _find_workbook(
-        Path(__file__).resolve().parent.parent)
-    db = args.db or str(Path(__file__).resolve().parent.parent /
-        "schedule.db")
+    workbook = args.workbook or _find_workbook(Path(__file__).resolve().parent.parent)
+    db = args.db or str(Path(__file__).resolve().parent.parent / "schedule.db")
     workbook = str(Path(workbook).resolve())
     db = str(Path(db).resolve())
 

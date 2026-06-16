@@ -56,14 +56,13 @@ class LoadWorker(QThread):
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
 
-    def __init__(self, unit_service: UnitService, force_reload: bool = False):
+    def __init__(self, unit_service: UnitService):
         super().__init__()
         self._unit_service = unit_service
-        self._force_reload = force_reload
 
     def run(self):
         try:
-            units = self._unit_service.load_all(force=self._force_reload)
+            units = self._unit_service.load_all()
             self.finished.emit(units)
         except Exception as e:
             self.error.emit(str(e))
@@ -96,11 +95,35 @@ class ServiceRegistry:
         self.config_path = config_path
         self.db_path = db_path
         detailer_schedules = ConfigService.get_detailer_schedules(config)
-        self.unit_service = UnitService(db_path, detailer_schedules=detailer_schedules)
+        self.hook_registry = self._build_hook_registry()
+        self.unit_service = UnitService(
+            db_path,
+            detailer_schedules=detailer_schedules,
+            hook_registry=self.hook_registry,
+        )
         self.import_service = ImportService(db_path)
         self.export_service = ExportService()
         self.sync_service = SyncService(db_path, config.get("multi_user", {}))
         self.config_service = ConfigService  # static methods only
+
+    @staticmethod
+    def _build_hook_registry():
+        from services.pre_save_hooks import (
+            PreSaveHookRegistry,
+            date_order_hook,
+            non_negative_hours_hook,
+            non_primary_identical_hook,
+            percent_complete_range_hook,
+            target_hours_hook,
+        )
+
+        registry = PreSaveHookRegistry()
+        registry.register("percent_complete_range", percent_complete_range_hook, priority=10)
+        registry.register("non_negative_hours", non_negative_hours_hook, priority=20)
+        registry.register("non_primary_identical", non_primary_identical_hook, priority=30)
+        registry.register("target_hours", target_hours_hook, priority=40)
+        registry.register("date_order", date_order_hook, priority=50)
+        return registry
 
 
 class MainWindow(QMainWindow):
@@ -160,7 +183,7 @@ class MainWindow(QMainWindow):
         self._build_help_menu()
         self._init_theme()
         self._check_onboarding()
-        self._load_data_async(force_reload=False)
+        self._load_data_async()
 
     def _init_theme(self) -> None:
         """Initialize theme from config and apply to widget tree."""
@@ -234,8 +257,13 @@ class MainWindow(QMainWindow):
         self.calendar_panel = CalendarPanel(self.units)
         self.calendar_panel.unit_selected.connect(self.on_unit_selected)
         self.view_stack.addWidget(self.calendar_panel)
-        self.list_panel = ListPanel(self.units)
+        self.list_panel = ListPanel(
+            self.units,
+            default_detailers=self._services.config.get("default_detailers", []),
+            db_path=self._services.db_path,
+        )
         self.list_panel.unit_selected.connect(self.on_unit_selected)
+        self.list_panel.unit_saved.connect(self.on_save_unit)
         self.list_panel.stale_changed.connect(self._on_stale_changed)
         self.list_panel.column_widths_changed.connect(self._on_column_widths_changed)
         self.view_stack.addWidget(self.list_panel)
@@ -540,14 +568,14 @@ class MainWindow(QMainWindow):
 
     # ── Data loading ───────────────────────────────────────────────────
 
-    def _load_data_async(self, force_reload: bool = False):
+    def _load_data_async(self):
         if getattr(self, "_io_busy", False):
             logger.info("MainWindow: Load requested but I/O already in progress — skipping")
             self.status_bar.showMessage("Please wait — operation in progress...", 2000)
             return
-        self.status_bar.showMessage("Loading..." if not force_reload else "Refreshing...")
+        self.status_bar.showMessage("Loading...")
         self._set_io_busy(True)
-        self._load_worker = LoadWorker(self._svc, force_reload=force_reload)
+        self._load_worker = LoadWorker(self._svc)
         self._load_worker.finished.connect(self._on_load_finished)
         self._load_worker.error.connect(self._on_load_error)
         self._load_worker.start()
@@ -590,7 +618,7 @@ class MainWindow(QMainWindow):
             return
         if self._active_save_worker_running():
             return
-        self._load_data_async(force_reload=False)
+        self._load_data_async()
 
     def _should_suppress_error_dialog(self) -> bool:
         now = time.monotonic()
@@ -618,14 +646,14 @@ class MainWindow(QMainWindow):
         msg_box.addButton(QMessageBox.Ok)
         msg_box.exec_()
         if msg_box.clickedButton() == retry_button:
-            self._load_data_async(force_reload=True)
+            self._load_data_async()
         self.units = []
 
     # ── Refresh / Pull ────────────────────────────────────────────────
 
     def _refresh_data(self):
         self._apply_refresh_cooldown()
-        self._load_data_async(force_reload=False)
+        self._load_data_async()
 
     # ── File watcher ───────────────────────────────────────────────────
 
@@ -675,11 +703,11 @@ class MainWindow(QMainWindow):
                 header = f.read(16)
             if header.startswith(SQLITE_HEADER):
                 self._stop_file_poll_timer()
-                self._load_data_async(force_reload=False)
+                self._load_data_async()
                 return
             if header[:4] == b"PK\x03\x04":
                 self._stop_file_poll_timer()
-                self._load_data_async(force_reload=False)
+                self._load_data_async()
                 return
             return
         except OSError:
@@ -718,7 +746,7 @@ class MainWindow(QMainWindow):
             return
         if self._active_save_worker_running():
             return
-        self._load_data_async(force_reload=False)
+        self._load_data_async()
 
     # ── Refresh cooldown ───────────────────────────────────────────────
 
@@ -779,6 +807,13 @@ class MainWindow(QMainWindow):
         export_btn.setToolTip("Export SQLite data to Excel workbook (Current List sheet)")
         export_btn.clicked.connect(self._export_excel)
         row1.addWidget(export_btn)
+
+        history_btn = QPushButton("📋 History")
+        history_btn.setObjectName("history_btn")
+        history_btn.setToolTip("View change history for the selected unit")
+        history_btn.clicked.connect(self._open_audit)
+        row1.addWidget(history_btn)
+
         outer.addLayout(row1)
 
         self._sync_status_widget = SyncStatusWidget()
@@ -959,6 +994,20 @@ class MainWindow(QMainWindow):
             logger.exception("Excel export failed")
             QMessageBox.warning(self, "Export Error", f"Failed:\n{e}")
             self.status_bar.showMessage("Export failed", 5000)
+
+    def _open_audit(self) -> None:
+        """Open the audit trail dialog for the selected unit."""
+        from gui.audit_dialog import AuditDialog
+
+        com_number = None
+        if hasattr(self, "current_unit") and self.current_unit is not None:
+            com_number = self.current_unit.com_number
+        dlg = AuditDialog(
+            self._services.db_path,
+            com_number=com_number,
+            parent=self,
+        )
+        dlg.exec_()
 
     # ── Keyboard shortcuts ─────────────────────────────────────────────
 

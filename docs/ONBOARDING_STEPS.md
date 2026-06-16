@@ -1,6 +1,6 @@
 # Onboarding Walkthrough — Step Reference
 
-> **Last updated:** 2026-06-06
+> **Last updated:** 2026-06-15
 > **File:** `gui/onboarding.py`
 
 The onboarding walkthrough is a first-launch (and replayable) step-by-step

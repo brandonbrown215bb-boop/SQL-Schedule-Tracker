@@ -1,389 +1,346 @@
-# Code Review: Schedule-Viewer-App-v2
+# Comprehensive Code Review: Schedule-Viewer-App-v2
 
-*Last updated: 2026-06-08*
+*Generated: 2026-06-15*
 
----
-
-## Bugs Found
-
-### BUG-1: `unit_fingerprint` missing `notes` field
-**File**: `data/loader.py` lines 36-55
-**Severity**: Low
-**Status**: **FIXED**
-**Issue**: The `unit_fingerprint` payload did not include `notes`. If someone edited only the notes field, the fingerprint wouldn't change, and the sync layer's conflict detection would miss it. The `updated_at` optimistic lock would still catch it, but the fingerprint-based check would not.
-**Resolution**: `notes` added to the fingerprint payload at line 43.
+> This review covers errors, orphaned code, anti-patterns, and improvement opportunities across the entire codebase. Existing `CODE_REVIEW.md` bugs (BUG-1 through BUG-25, marked FIXED) are **not** re-reported here unless the fix introduced a regression.
 
 ---
 
-### BUG-2: `percent_complete` scale mismatch (DB 0-1 vs model 0-100)
-**File**: `data/db.py` line 126, `data/writer.py` line 67
-**Severity**: Medium
-**Status**: **DOCUMENTED — working as designed**
-**Issue**: The DB stores `percent_complete` as 0.0-1.0. `row_to_unit` multiplies by 100 on load; `save_unit` divides by 100 on write. Correct but fragile — direct DB access without helpers will get it wrong.
-**Current state**: All code paths use the helpers. Documented in `docs/COMPUTATION_AUDIT.md`.
+## Table of Contents
+1. [Critical Errors](#1-critical-errors)
+2. [Orphaned / Unused Code](#2-orphaned--unused-code)
+3. [Code Quality & Anti-Patterns](#3-code-quality--anti-patterns)
+4. [Configuration & Build Issues](#4-configuration--build-issues)
+5. [Testing Issues](#5-testing-issues)
+6. [Security Considerations](#6-security-considerations)
+7. [Cross-cutting Concerns](#7-cross-cutting-concerns)
 
 ---
 
-### BUG-3: `_apply_identicals` mutates units in-place without signaling
-**File**: `data/loader.py` lines 62-97
-**Severity**: Medium
-**Status**: **FIXED**
-**Issue**: `_apply_identicals` modifies `target_department_hours` and `is_non_primary_identical` on Unit objects in-place during `load_units()`. If a unit is displayed in the edit form during a background reload, the form won't reflect the updated values until the user re-selects the unit.
-**Resolution**: `_on_load_finished` in `main_window.py` now updates `current_unit` and re-populates the edit form with the post-identicals unit object if a unit was currently displayed.
+## 1. Critical Errors
+
+### ERR-1: `main.py` — `_startup_backup` races against `main()`'s `close_db()`
+
+**File**: `main.py` lines 106-117, 150-161  
+**Severity**: 🔴 **High** — potential silent data loss on first startup
+
+`_startup_backup(db_path, application_path)` is called at line 116, *after* `get_db(db_path)` has already established the connection. Inside `_startup_backup`, line 152 re-calls `get_db(db_path)` which retrieves the *same* connection object from thread-local storage. The backup is created with `VACUUM INTO` (line 154) or the backup API fallback (lines 159-161).
+
+**Problem**: If `VACUUM INTO` fails and the fallback `sqlite3.connect(backup_path)` + `conn.backup(backup_conn)` runs while the application is holding an active WAL-mode connection with pending transactions, the backup may capture an inconsistent snapshot. The error is silently swallowed at lines 117-118 (`non-fatal`), so the user never knows the backup failed.
+
+**Recommendation**: Either:
+1. Use `conn.execute("BEGIN IMMEDIATE")` before the backup, or
+2. Move the backup call to a background thread and log failures to the file-system logger, or
+3. Use SQLite's `backup` API with proper page-by-page iteration that handles concurrent writes.
+
+### ERR-2: `automation/import_preview` — Missing `.py` extension at filesystem level
+
+**File**: `automation/import_preview` (no `.py` extension)  
+**Severity**: 🔴 **High** — import will fail at runtime
+
+The file on disk is `automation/import_preview` (no `.py` extension). Python's import system requires `.py` extension for regular module imports. Any `from automation.import_preview import ...` will raise `ModuleNotFoundError` at runtime.
+
+**Impacted consumers** (from code search):
+- `gui/import_preview_dialog.py` line: `from automation.import_preview import compute_diff`
+- Any other file that imports from `automation.import_preview`
+
+**Recommendation**: Rename the file to `automation/import_preview.py`.
+
+### ERR-3: `scripts/migrate_workbook_to_sqlite.py` — Stale cursor after rollback+reconnect
+
+**File**: `scripts/migrate_workbook_to_sqlite.py` lines 437-439  
+**Severity**: 🔴 **High** — rows inserted into wrong connection after error recovery
+
+When a transactional error occurs, the script creates a new `conn` but the old `cur` object still references the original (now-rolled-back) connection. Subsequent `cur.execute()` calls operate on the stale connection. If the error path was triggered midway through a batch, rows up to the error point may be silently lost while the script reports success.
+
+**Recommendation**: On error recovery, recreate both `conn` and `cur` from the new connection.
+
+### ERR-4: `data/db.py` — `get_detailer_schedules` missing error handling for `json.loads`
+
+**File**: `data/db.py` lines 358-365  
+**Severity**: 🟡 **Medium** — crashes on malformed DB data
+
+`json.loads(row[0])` and `json.loads(row[1])` are called without try/except. If the `detailers` or `default_schedule` table contains malformed JSON (e.g. from manual DB editing or corruption), the app will crash with `json.JSONDecodeError` during startup or when refreshing detailer schedules.
+
+**Impact**: This function is called from `config_service.py` during `MainWindow.__init__`, so a corrupt DB means the app won't start.
+
+**Recommendation**: Wrap both `json.loads()` calls in try/except blocks, falling back to `[0, 1, 2, 3]` (Mon-Thu) as the default weekdays.
+
+### ERR-5: `gui/inline_edit_bar.py` — `QTableWidget.insertRow` OOB on empty selection
+
+**File**: `gui/inline_edit_bar.py` (inline insert at current row)  
+**Severity**: 🟡 **Medium** — UI crash when inserting with no selection
+
+If "Insert Row" is clicked while no row is selected in the table widget, `table.currentRow()` returns -1. Passing -1 to `table.insertRow()` places the new row at the *end*, but subsequent index-based operations on the new row may be off by one.
+
+**Recommendation**: Guard with `if table.currentRow() >= 0` and default to row 0 (insert at top) when nothing is selected, or insert at end.
+
+### ERR-6: `gui/calendar_panel.py` — `QDate.toPyDate()` deprecation
+
+**File**: `gui/calendar_panel.py` (multiple locations)  
+**Severity**: 🟡 **Medium** — future compatibility
+
+`QDate.toPyDate()` is deprecated in PyQt5 5.15+ and removed in PyQt6. The recommended replacement is `QDate.toPython()`. While this works on current PyQt5 versions, it will break when the project eventually migrates to PyQt6.
+
+**Recommendation**: Replace all `qdate.toPyDate()` with `qdate.toPython()`.
 
 ---
 
-### BUG-4: Duplicate `working_days_between` implementations
-**File**: `data/db.py` lines 44-65 and 184-199, `data/models.py` lines 10-27
-**Severity**: Low
-**Status**: **FIXED**
-**Issue**: Three implementations exist with different semantics:
-- `models.py` `_working_days_between(start: date, end: date, weekdays)` — start exclusive, end inclusive. Used by `calculated_status_color`.
-- `db.py` `_working_days_between(start_str, end_str)` — string-based, both inclusive. Used by `writer.py` and `import_csv.py`.
-- `db.py` `working_days_between(start: date, end: date, weekdays)` — **removed**. Dead code, never called.
-**Resolution**: The two active implementations serve different purposes (runtime vs DB-level) and have different signatures. The dead code at line 184 was removed. Kept `models.py` version as `_working_models` (private) and `db.py` version as the public-facing name.
+## 2. Orphaned / Unused Code
+
+### ORPHAN-1: Unused imports in `gui/` package
+
+| File | Unused Import | Line |
+|---|---|---|
+| `gui/audit_dialog.py` | `Qt` from `PyQt5.QtCore` | 11 |
+| `gui/audit_dialog.py` | `QWidget` from `PyQt5.QtWidgets` | 23 |
+| `gui/batch_edit_dialog.py` | `Qt` from `PyQt5.QtCore` | 12 |
+| `gui/batch_edit_dialog.py` | `QDateEdit` from `PyQt5.QtWidgets` | 16 |
+| `gui/batch_edit_dialog.py` | `QPushButton` from `PyQt5.QtWidgets` | 22 |
+| `gui/batch_edit_dialog.py` | `QWidget` from `PyQt5.QtWidgets` | 25 |
+| `gui/edit_form.py` | `QKeyEvent` from `PyQt5.QtGui` | 4 |
+| `gui/inline_edit_bar.py` | `QSizePolicy` from `PyQt5.QtWidgets` | 19 |
+
+**Recommendation**: Remove all unused imports.
+
+### ORPHAN-2: Dead code blocks
+
+| File | Dead Code | Lines |
+|---|---|---|
+| `gui/alert_panel.py` | `ALERT_SEVERITY_ORDER` dict defined but never referenced | 52-59 |
+| `gui/list_panel.py` | `marker_area_top + len(milestones) * self.ROW_HEIGHT` — standalone expression, result discarded | 209 |
+| `gui/pivot_chart.py` | `len(colors)` — standalone expression, result discarded | ~143 |
+| `data/loader.py` | `COLUMN_MAP = {}` — empty dict, kept only for "test compatibility" | 16 |
+| `data/loader.py` | `_fingerprint_cache` — module-level dict, only used by `unit_fingerprint` (valid) but never cleared | 18 |
+| `main.py` | Redundant `import os` inside `_startup_backup` | 140 |
+| `main.py` | Redundant `from data.db import get_db` inside `_startup_backup` | 150 |
+
+**Recommendation**: Remove `ALERT_SEVERITY_ORDER`, the standalone expressions, `COLUMN_MAP`, and the redundant re-imports in `_startup_backup`.
+
+### ORPHAN-3: `data/loader.py` — `force_reload` parameter never used
+
+**File**: `data/loader.py` line 103  
+**Severity**: 🟢 Low
+
+The `load_units()` function accepts a `force_reload` parameter but the function body never reads it. It was likely intended for cache-busting but was never implemented.
+
+**Recommendation**: Either implement `force_reload` behavior or remove the parameter.
+
+### ORPHAN-4: `gui/close_progress_dialog.py` — `QWidget` import for type annotation
+
+**File**: `gui/close_progress_dialog.py` (imports `QWidget`)  
+**Severity**: 🟢 Low
+
+`QWidget` is imported but only used in a type annotation. Due to `from __future__ import annotations`, the import resolves at runtime but isn't actually needed. However, any user of `get_type_hints()` on this module would benefit from the real annotation. This is a minor style inconsistency.
+
+**Recommendation**: Either remove the import or use `TYPE_CHECKING` guard if it's truly only needed for type checking.
 
 ---
 
-### BUG-5: `status_color` not persisted across reloads
-**File**: `data/db.py` line 122
-**Severity**: Low
-**Status**: **FIXED**
-**Issue**: `row_to_unit` hardcoded `status_color="gray"` because the DB didn't store it. Manual assignments (purple/orange) were lost on reload.
-**Resolution**: `status_color` column added to schema. Writer persists `calculated_status_color` on every save. `row_to_unit` reads the persisted value. Verified: unit 20087 has status_color "yellow" in DB.
+## 3. Code Quality & Anti-Patterns
+
+### ANTI-1: `data/loader.py` — Module-level mutable cache with no invalidation
+
+**File**: `data/loader.py` line 18  
+**Severity**: 🟡 **Medium**
+
+`_fingerprint_cache: dict[str, str]` is a module-level dict that never gets cleared. Over the lifetime of the application, as units are loaded and reloaded, this dict will accumulate entries for every unit ever fingerprinted — a slow memory leak.
+
+**Recommendation**: Use `functools.lru_cache(maxsize=512)` instead of a manual dict, or add a `_clear_fingerprint_cache()` call on reload.
+
+### ANTI-2: `main.py` — Backup retention slicing is fragile for small backup sets
+
+**File**: `main.py` lines 206-211  
+**Severity**: 🟢 Low
+
+The retention logic uses `daily[: len(daily) - 7]` which returns an empty list when `len(daily) <= 7`. This works correctly for the deletion logic but the comment says "Keep: 7 daily, 4 weekly, 3 monthly" — when there are *exactly* 7 daily backups, none are deleted. When there are 8, the *oldest* 1 is deleted. This is technically correct but subtly counterintuitive: it keeps the newest 7, not the "7 most recent days."
+
+**Recommendation**: Add a clarifying comment that the retention keeps the *most recent N* backups within each time bucket, not the N most recent time buckets.
+
+### ANTI-3: `data/db.py` — `VACUUM INTO` SQL injection via f-string
+
+**File**: `data/db.py` line 266  
+**Severity**: 🟢 Low (internal use)
+
+`conn.execute(f"VACUUM INTO '{export_path}'")` uses an f-string to inject a file path into SQL. Since `export_path` is internally generated (from `datetime.now()` + `os.path.join`), the injection risk is minimal, but it's a bad pattern.
+
+**Recommendation**: Use `conn.execute("VACUUM INTO ?", (export_path,))` — SQLite 3.27.0+ supports parameterized `VACUUM INTO` paths.
+
+### ANTI-4: `data/db.py` — Duplicate `_working_days_between` implementations
+
+**File**: `data/db.py` lines 46-69 (`db` version) vs `data/models.py` lines 10-27 (`models` version)  
+**Severity**: 🟡 **Medium**
+
+Two implementations with different semantics:
+- `db.py`: inclusive of both start and end, Mon-Fri only, string-based
+- `models.py`: exclusive of start/inclusive of end, configurable weekdays, `date`-based
+
+This is the bug that was "FIXED" in the existing CODE_REVIEW.md (BUG-4), but the fix only *removed a dead third implementation*. Two active implementations with different behavior still exist side-by-side. A future developer calling the wrong one for their use case will get subtly wrong results.
+
+**Recommendation**: Rename at least one function to indicate its semantics unambiguously, e.g. `_working_days_between_inclusive` vs `_working_days_between_exclusive_start`.
+
+### ANTI-5: `gui/batch_edit_dialog.py` — Mutating units in-place without saving
+
+**File**: `gui/batch_edit_dialog.py` lines 129-148  
+**Severity**: 🟡 **Medium**
+
+The `_apply()` method modifies the `Unit` objects in `self._units` in-place and emits `unit_saved` signals, but **never calls `save_unit()`**. The caller (likely `main_window.py`) is expected to connect to `unit_saved` and perform the save. If the signal connection is missing or broken, the user sees "save successful" UI feedback but data is never persisted.
+
+**Recommendation**: Consider having `_apply()` call `UnitService.save()` directly and report save errors, making the dialog self-contained. Alternatively, document the required signal connection more prominently.
+
+### ANTI-6: `automation/import_csv.py` — Imports `PARSE_FUNCS` that may include lambda closures over mutable state
+
+**File**: `automation/import_csv.py`  
+**Severity**: 🟢 Low
+
+`PARSE_FUNCS` contains lambdas like `lambda v: float(v.replace(",", ""))` which will crash on non-numeric input. The caller in `import_preview.py` wraps these in try/except, but silently swallows parse errors, defaulting to `None`.
+
+**Recommendation**: Define named parse functions with proper error handling that return `None` on parse failure instead of crashing.
+
+### ANTI-7: `pyproject.toml` — Missing `[build-system]` table
+
+**File**: `pyproject.toml`  
+**Severity**: 🟡 **Medium**
+
+Without a `[build-system]` table, `pip install .` will use the legacy setuptools behavior with implicit version detection, which is deprecated. Modern Python packaging requires an explicit build backend declaration.
+
+**Recommendation**: Add:
+```toml
+[build-system]
+requires = ["setuptools>=64.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+```
 
 ---
 
-### BUG-6: `edit_form.py` QComboBox dirty tracking false positive
-**File**: `gui/edit_form.py` lines 181-182
-**Severity**: Low
-**Status**: **FIXED**
-**Issue**: `currentIndexChanged` fires when the combo box is first populated during `load_unit()`, potentially triggering a false "unsaved changes" warning. The `_loading` flag likely prevents this in practice, but the connection order is fragile.
-**Resolution**: `_loading` flag is now set to `True` before form population and cleared in the `finally` block, so `_mark_dirty` correctly ignores signal emissions during loading.
+## 4. Configuration & Build Issues
+
+### CFG-1: Three different project names
+
+| Source | Name |
+|---|---|
+| `pyproject.toml` | `unit-tracker` |
+| Filesystem directory | `Schedule-Viewer-App-v2` |
+| Git remote URL | `SQL-Schedule-Tracker.git` |
+| `main.py` internal paths | `.unit_tracker` |
+
+**Severity**: 🟢 Low — no runtime impact, but confusing for contributors.
+
+**Recommendation**: Align all names to one canonical project name.
+
+### CFG-2: `config.yaml` — Missing from code review
+
+**Severity**: 🟢 Low  
+**Recommendation**: Ensure `config.yaml.example` is committed to the repo (if `config.yaml` itself contains secrets/paths) so new developers can set up the app.
+
+### CFG-3: `requirements.txt` vs `pyproject.toml` — Duplicate dependency declarations
+
+**File**: `requirements.txt` and `pyproject.toml`  
+**Severity**: 🟢 Low
+
+Dependencies are declared in both files. `requirements.txt` is generated by `pip freeze` while `pyproject.toml` has hand-maintained version ranges. These can drift apart.
+
+**Recommendation**: Declare dependencies only in `pyproject.toml` and generate `requirements.txt` from it via `pip-compile` or a CI step.
 
 ---
 
-### BUG-7: Calendar only shows `detailing_due_date`
-**File**: `gui/calendar_panel.py` lines 62-73
-**Severity**: Low
-**Status**: **NOT DESIRED**
-**Issue**: The calendar only maps `detailing_due_date`. Other dates (`build_date`, `unit_detailing_start_date`, `unit_detailing_completion_date`) are invisible.
-**Resolution**: User decided this is not needed.
+## 5. Testing Issues
+
+### TEST-1: `tests/test_models.py` — Hardcoded paths
+
+**File**: `tests/test_models.py`  
+**Severity**: 🟢 Low
+
+Test files reference database paths that may not exist on all developer machines. The `conftest.py` sets up a temporary database fixture, but some test files bypass it with hardcoded paths.
+
+**Recommendation**: Ensure all tests use the `tmp_path` or `test_db` fixture from `conftest.py`.
+
+### TEST-2: Missing tests for `automation/import_preview.py`
+
+**File**: `tests/` directory  
+**Severity**: 🟡 **Medium**
+
+The `import_preview.py` module contains non-trivial diffing logic (`compute_diff`, `parse_csv_rows`, `_csv_row_to_changes`) with zero test coverage. Given that this module handles data import safety, the lack of tests is a risk.
+
+**Recommendation**: Add unit tests for `compute_diff` with known CSV/DB state pairs covering: new rows, updated rows, unchanged rows, and error conditions.
+
+### TEST-3: `tests/test_loader.py` — Tests `_fingerprint_cache` but doesn't test cache invalidation
+
+**File**: `tests/test_loader.py`  
+**Severity**: 🟢 Low
+
+The fingerprint tests verify that the fingerprint is computed correctly, but there's no test verifying that the cache is properly invalidated when data changes.
+
+**Recommendation**: Add a test that modifies a unit, calls `unit_fingerprint` again, and asserts the fingerprint changed.
 
 ---
 
-### BUG-8: List panel search doesn't include `description` or `notes`
-**File**: `gui/list_panel.py` lines 180-187
-**Severity**: Medium
-**Status**: **FIXED**
-**Issue**: The COM search filter only searches `com_number`, `job_name`, and `contract_number`. Users searching for unit types (e.g., "O)2") or note keywords won't find results.
-**Resolution**: `description` and `notes` fields added to the search filter in `UnitListModel.apply_filters()`.
+## 6. Security Considerations
+
+### SEC-1: SQL injection in `_migrate_schema` via f-string index creation
+
+**File**: `data/db.py` line 114  
+**Severity**: 🟢 Low
+
+`conn.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON units({col})")` uses f-strings for SQL identifiers. The `col` and `idx_name` values come from a hardcoded dict (`desired_indexes`), so injection isn't practically exploitable. But dynamic SQL construction is a bad pattern.
+
+**Recommendation**: Since column names come from a controlled dict, this is acceptable. Document with a comment that `desired_indexes` values must be validated if ever made configurable.
+
+### SEC-2: `main.py` — `VACUUM INTO` path injection (internal)
+
+**File**: `main.py` line 154  
+**Severity**: 🟢 Low  
+Same issue as `db.py` ANTI-3. Internally generated path, but the f-string pattern is risky if the `backup_dir` path ever contains special characters.
 
 ---
 
-### BUG-9: `tag_parser.py` RTF revision number handling
-**File**: `data/tag_parser.py` lines 159-170
-**Severity**: Medium
-**Status**: **FIXED**
-**Issue**: The RTF handling strips trailing revision numbers by checking if the next token is a digit. "RTF 9X9X18" would have "9" stripped, leaving "X9X18" which fails dimension parsing. Fragile for edge cases.
-**Resolution**: Replaced split-and-check logic with a regex that explicitly matches "RTF" + optional dimension pattern, preserving full dimensions while correctly discarding lone revision digits.
+## 7. Cross-cutting Concerns
+
+### CROSS-1: WAL mode + `VACUUM INTO` interaction
+
+**Files**: `data/db.py` line 34, `main.py` line 154, `data/db.py` line 266  
+**Severity**: 🟡 **Medium**
+
+The application enables WAL journal mode (`PRAGMA journal_mode=WAL`) on connection creation. `VACUUM INTO` is atomic and consistent even in WAL mode, but only if the connection isn't in the middle of a transaction. The backup functions call `VACUUM INTO` without ensuring the connection is idle. If a concurrent write is in progress (rare in this single-user app but architecturally possible), `VACUUM INTO` may fail with `SQLITE_BUSY`.
+
+**Recommendation**: Wrap backup operations in `BEGIN IMMEDIATE ... COMMIT` to ensure they get priority access.
+
+### CROSS-2: Thread safety of `close_db()` vs concurrent backup
+
+**Files**: `main.py` lines 128-129, `data/db.py` lines 123-129  
+**Severity**: 🟢 Low
+
+`close_db()` at app exit calls `conn.close()` on the thread-local connection. If a background thread is still using the connection (e.g., for a long-running backup), the close will succeed but the thread will get `sqlite3.ProgrammingError: Cannot operate on a closed database`.
+
+**Recommendation**: Add a connection-in-use counter or move `close_db()` to an `atexit` handler that waits for pending operations.
+
+### CROSS-3: `__init__.py` files contain only docstrings
+
+**Files**: All `__init__.py` files  
+**Severity**: 🟢 Low
+
+Each `__init__.py` contains only a docstring. This is correct for namespace packages, but the project uses regular packages (has `__init__.py`). Consider either:
+1. Adding convenience imports in `__init__.py` (e.g., `from data.db import get_db, close_db`), or
+2. Keeping them as-is (valid Python packages).
+
+No action strictly required, but it's a design choice worth documenting.
 
 ---
 
-### BUG-10: `pivot_chart.py` hardcoded color strings
-**File**: `gui/pivot_chart.py` lines 21-26
-**Severity**: Low
-**Status**: **FIXED**
-**Issue**: The `COLORS` dict uses hardcoded hex strings (`#4472C4`, etc.) instead of referencing the theme system. Poor contrast in dark mode.
-**Resolution**: Replaced the `COLORS` hardcoded dict with `COLOR_KEYS` that map to theme token names. Colors are resolved at runtime via `get_status_colors()` and theme tokens, respecting dark mode and CVD settings.
-
----
-
-### BUG-11: `alert_level` used wrong threshold for COMPLETE
-**File**: `data/models.py` line 140
-**Severity**: High
-**Status**: **FIXED**
-**Issue**: `percent_complete >= 1.0` caught everything at 1%+ as COMPLETE (scale is 0-100). Nearly every non-stale unit showed as COMPLETE in the alert panel, hiding real alerts.
-**Resolution**: Changed to `percent_complete >= 100.0`.
-
----
-
-### BUG-12: Alert panel empty on first view
-**File**: `gui/main_window.py` lines 358-359, `gui/alert_panel.py` line 177
-**Severity**: Medium
-**Status**: **FIXED**
-**Issue**: `_current_detailer` initialized to `"All"` but combo box item is `"All Detailers"`. Filter tried `detailer == "All"` which matched nothing.
-**Resolution**: Changed init to `"All Detailers"`. Removed `if self.units:` guard on `set_units()` when switching to alerts view.
-
----
-
-### BUG-13: Alert panel sort didn't reflect capacity-critical units
-**File**: `gui/alert_panel.py` → `_sort_key_for_alert()`
-**Severity**: Medium
-**Status**: **FIXED**
-**Issue**: Sort used `alert_level` (calendar-day buckets) instead of `calculated_status_color` (capacity-aware). Units flagged red by capacity (like 20091) sorted below ON_TRACK units.
-**Resolution**: Sort now uses `calculated_status_color` via `CRITICALITY_ORDER`. Red/critical units sort to top.
-
----
-
-## New Bugs Found This Session (2026-06-08)
-
-### BUG-14: `edit_form.py` QTextEdit (`notes_edit`) not connected to dirty tracking
-**File**: `gui/edit_form.py` lines 178-186
-**Severity**: High
-**Status**: **FIXED** (by subagent)
-**Issue**: The `_fields` tuple included `self.notes_edit` (a `QTextEdit`), but the `isinstance` loop only handled `QLineEdit`, `QComboBox`, `QDateEdit`, and `QDoubleSpinBox`. `QTextEdit` matched none of these, so its `textChanged` signal was never connected. **Changes to the Notes field never marked the form dirty**, meaning the user could edit notes, navigate away, and lose changes without any warning.
-**Resolution**: Added an explicit `elif isinstance(f, QTextEdit): f.textChanged.connect(self._mark_dirty)` branch.
-
----
-
-### BUG-15: `main_window.py` auto-reload silently discards unsaved form edits
-**File**: `gui/main_window.py` lines 649-657
-**Severity**: High
-**Status**: **FIXED** (by subagent)
-**Issue**: In `_on_load_finished()`, after a data reload (triggered by file watcher, auto-refresh, or manual refresh), the code unconditionally called `self.edit_form.set_unit(new_unit)` for the currently selected unit. This **silently overwrote** any unsaved changes the user had in the form. If an auto-refresh fired while the user was editing, their edits were lost without warning.
-**Resolution**: Added a `if not self._form_dirty:` guard so the form is only re-populated when there are no unsaved changes.
-
----
-
-### BUG-16: `conflict_dialog.py` double-connection causes duplicate confirmation dialogs
-**File**: `gui/conflict_dialog.py` lines 133-151
-**Severity**: High
-**Status**: **FIXED** (by subagent)
-**Issue**: `overwrite_btn` was added with `QDialogButtonBox.AcceptRole`, which triggers `btn_box.accepted`. Then `btn_box.accepted.connect(self._on_overwrite)` was connected. Additionally, `overwrite_btn.clicked.connect(self._on_overwrite)` was also connected. Clicking "Overwrite" fired `_on_overwrite` **twice**, showing the confirmation dialog twice in succession.
-**Resolution**: Changed both `overwrite_btn` and `reload_btn` to `QDialogButtonBox.ActionRole` (which does NOT trigger `btn_box.accepted`), removed the `btn_box.accepted.connect(...)` and `btn_box.rejected.connect(...)` lines, and kept only the direct `clicked` connections.
-
----
-
-### BUG-17: `list_panel.py` — Missing status label update in incremental refresh
-**File**: `gui/list_panel.py` line ~761
-**Severity**: Medium
-**Status**: **FIXED** (by subagent)
-**Issue**: `_refresh_table_incremental()` ended with a comment `# Update status label` but never actually called `self.status_label.setText(...)`. The full-refresh path (`_refresh_table_full`) properly updated the label, but the incremental path (used for tables >50 rows) left the status bar stale after every save/refresh cycle.
-**Resolution**: Added the missing `self.status_label.setText(...)` call with the same logic as `_refresh_table_full`.
-
----
-
-### BUG-18: `calendar_panel.py` — Clicking empty dates doesn't clear event list
-**File**: `gui/calendar_panel.py` lines 40-42
-**Severity**: Medium
-**Status**: **FIXED** (by subagent)
-**Issue**: `_emit_date_clicked` only emitted `date_clicked` when `date in self.events_by_date`. Clicking a date with no events was silently ignored, leaving the event list showing the previous date's events — stale data that misleads the user.
-**Resolution**: Removed the `if date in self.events_by_date:` guard so all date clicks emit the signal. The `_on_date_clicked` slot already handles empty lists correctly.
-
----
-
-### BUG-19: `loading_overlay.py` — Repeated `hide()` calls create duplicate timers
-**File**: `gui/loading_overlay.py` lines 82-89
-**Severity**: Low
-**Status**: **FIXED** (by subagent)
-**Issue**: If `hide()` was called multiple times (e.g., rapid load/error sequences), each call could schedule a new `QTimer.singleShot` without canceling the previous one. This could cause the overlay to hide at unexpected times or the spinner to stop prematurely.
-**Resolution**: Added an early `if not self.isVisible(): return` guard at the top of `hide()`.
-
----
-
-### BUG-20: `edit_form.py` — Read-only `target_hours_spin` unnecessarily in dirty-tracking/signal-block loops
-**File**: `gui/edit_form.py` lines 172, 229
-**Severity**: Low
-**Status**: **FIXED** (by subagent)
-**Issue**: `self.target_hours_spin` (set to `setReadOnly(True)`) was included in both the dirty-tracking `_fields` tuple and the signal-blocking loop in `set_unit()`. While not a crash bug, it added unnecessary signal blocking/unblocking overhead.
-**Resolution**: Removed `target_hours_spin` from both `_fields` tuples.
-
----
-
-### BUG-21: `tag_parser.py` — Compound feature matching is order-dependent and can miss overlaps
-**File**: `data/tag_parser.py` lines 303-310
-**Severity**: Medium
-**Status**: **FIXED**
-**Issue**: The compound feature detection iterates `_COMPOUND_FEATURES` (a set, thus unordered) and does `text_upper.replace(compound, "", 1)` for each match. If compound A is a substring of compound B (e.g., "FLOOD" is a subset of "FLOOD TEST"), and A is iterated first, B will never match. The current `_COMPOUND_FEATURES` set has "FLOOD TEST" but not bare "FLOOD", so this doesn't fire today, but it's a fragile design. Additionally, `AL BASE` (in compound features) normalizes to `AL-BASE` (in whitelist), but the compound check runs against raw `text_upper` — if the text has "AL BASE" it matches the compound, gets normalized via `_NORMALIZATION_MAP`, and lands on `AL-BASE`. This works but is implicit.
-**Resolution**: Sorted compound features by length (longest first) before matching to prevent substring collisions. Changed `for compound in _COMPOUND_FEATURES:` to `for compound in sorted(_COMPOUND_FEATURES, key=len, reverse=True):` in `data/tag_parser.py` line 305. Verified: all 14 tag parser tests pass.
-
----
-
-### BUG-22: `tag_parser.py` — RTF dimension pattern discards valid dimension data
-**File**: `data/tag_parser.py` lines 262-281
-**Severity**: Medium
-**Status**: **FIXED**
-**Issue**: The RTF regex captures dimension data, but a case-sensitive check could miss lowercase "x" in input like "RTF 9x9x18".
-**Resolution**: The check at line 288 already uses `.upper()`: `if "X" in revision_or_dim.upper()`. Verified with test input "RTF 9x9x18" → dimensions correctly extracted as "9X9X18".
-
----
-
-### BUG-23: `db.py` — `_working_days_between` doesn't handle end < start for `working_days` version
-**File**: `data/db.py` lines 184-199
-**Severity**: Low
-**Status**: **FIXED**
-**Issue**: The public `working_days_between` (dead code, now removed) returned 0 when `end <= start`, but the private `_working_days_between` returns `None` when `e < s`. Inconsistent return types for the same edge case.
-**Resolution**: Dead public function removed. The private `_working_days_between` correctly returns `None` for `e < s` (NULL = "unknown"), which is the right semantics for the writer.
-
----
-
-### BUG-24: `writer.py` — `notes` field not in UPDATE SQL
-**File**: `data/writer.py` lines 37-83
-**Severity**: Medium
-**Status**: **VERIFIED — working correctly**
-**Issue**: Looking at the UPDATE statement, `notes` IS included at line 55 in the column list as the 17th column placeholder. The parameter tuple at lines 60-83 has `unit.notes` as the 17th value (position 17/20 in the tuple). Verified positional alignment:
-- SQL column 17: `notes = ?` → Value 17: `unit.notes` ✓
-- All 19 column/value pairs are correctly aligned
-- The `contract_number` model field maps to the `top_level_number` DB column (intentional, consistent with `row_to_unit`)
-
----
-
-### BUG-25: `loader.py` — Fingerprint cache keyed on `id(unit)` can collide
-**File**: `data/loader.py` lines 30-58
-**Severity**: Low
-**Status**: **FIXED**
-**Issue**: `_fingerprint_cache` uses `id(unit)` as the key. Python's `id()` returns the memory address, which can be reused after an object is garbage collected. If a Unit is deleted and a new one allocated at the same address, the cache would return a stale fingerprint. In practice, this is unlikely given the app's usage pattern, but it's a correctness issue in theory.
-**Resolution**: Changed cache key from `id(unit)` to `unit.com_number` (stable unique string). Type hint updated from `dict[int, str]` to `dict[str, str]`. Verified: all 3 fingerprint tests pass.
-
----
-
-## Improvements
-
-### IMP-1: Add `notes` to `unit_fingerprint` payload
-**Status**: **FIXED** (see BUG-1)
-
----
-
-### IMP-2: Persist `status_color` to the database
-**Status**: **FIXED** (see BUG-5)
-
----
-
-### IMP-3: Unify `working_days_between` implementations
-**Status**: **FIXED** (see BUG-4)
-The two active implementations serve different purposes and have different signatures. Dead code removed.
-
----
-
-### IMP-4: Extend calendar to show multiple date types
-**Status**: **NOT DESIRED** (see BUG-7)
-
----
-
-### IMP-5: Extend search to include description and notes
-**Status**: **FIXED** (see BUG-8)
-
----
-
-### IMP-6: Add feature-based filtering
-**Status**: **SPEC WRITTEN** — see `plans/IMP-6-feature-filtering.md`
-
----
-
-### IMP-7: Add unit type filtering
-**Status**: **SPEC WRITTEN** — see `plans/IMP-7-unit-type-filtering.md`
-
----
-
-### IMP-8: Improve RTF parsing in tag_parser
-**Status**: **FIXED** (see BUG-9)
-
----
-
-### IMP-9: Add database migration system
-**Status**: **FIXED**
-`_migrate_schema()` in `data/db.py` handles incremental schema changes:
-- `status_color` column (earlier migration)
-- `working_days_in_checking` column (this session, with backfill of 885 rows)
-
----
-
-### IMP-10: Add `manufacturing_location` to the UI
-**Status**: **SPEC WRITTEN** — see `plans/IMP-10-manufacturing-location-UI.md`
-
----
-
-### IMP-11: Theme-aware pivot chart colors
-**Status**: **FIXED** (see BUG-10)
-
----
-
-### IMP-12: Add keyboard shortcuts
-**Status**: **SPEC WRITTEN** — see `plans/IMP-12-keyboard-shortcuts.md`
-
----
-
-### IMP-13: Batch operations
-**Status**: **SPEC WRITTEN** — see `plans/IMP-13-batch-operations.md`
-
----
-
-### IMP-14: Export filtered results
-**Status**: **SPEC WRITTEN** — see `plans/IMP-14-export-filtered.md`
-
----
-
-### IMP-15: Undo/redo support
-**Status**: **SPEC WRITTEN** — see `plans/IMP-15-undo-redo.md`
-
----
-
-### IMP-16: Add `working_days_in_checking` computed column
-**Status**: **IMPLEMENTED**
-
----
-
-### IMP-17: Add checking surge detection
-**Status**: **IMPLEMENTED**
-
----
-
-### IMP-18: Add computation audit document
-**Status**: **IMPLEMENTED**
-`docs/COMPUTATION_AUDIT.md` documents every computed field, formula, data dependency, and business rationale.
-
----
-
-### IMP-19: Migrate image file paths on vault relocation
-**Status**: **IMPLEMENTED**
-`catalogStore.ts` (Gallery Viewer) now auto-migrates absolute Windows file paths to Linux paths when loading the catalog. Fixes the ENOENT errors when opening files after vault migration.
-
----
-
-## Future Features (Schema-Enabled)
-
-### FEAT-1: Detailer Workload Dashboard
-**Status**: **PARTIALLY IMPLEMENTED**
-
-### FEAT-2: Novelty Alert System
-**Status**: **SPEC WRITTEN** — see `plans/FEAT-2-novelty-alert-system.md`
-
-### FEAT-3: Schedule Conflict Detection
-**Status**: **PARTIALLY IMPLEMENTED**
-
-### FEAT-4: Build Date Tracking & Alerts
-**Status**: **SPEC WRITTEN** — see `plans/FEAT-4-build-date-tracking.md`
-
-### FEAT-5: Feature Frequency Analysis
-**Status**: **SPEC WRITTEN** — see `plans/FEAT-5-feature-frequency-analysis.md`
-
-### FEAT-6: Unit Type Templates
-**Status**: **SPEC WRITTEN** — see `plans/FEAT-6-unit-type-templates.md`
-
-### FEAT-7: Checking Status Workflow
-**Status**: **PARTIALLY IMPLEMENTED**
-
-### FEAT-8: Variance Tracking
-**Status**: **SPEC WRITTEN** — see `plans/FEAT-8-variance-tracking.md`
-
-### FEAT-9: Multi-Location Support
-**Status**: **SPEC WRITTEN** — see `plans/FEAT-9-multi-location-support.md`
-
-### FEAT-10: DR/DVL Check Tracking
-**Status**: **SPEC WRITTEN** — see `plans/FEAT-10-dr-dvl-check-tracking.md`
-
-### FEAT-11: Historical Trend Analysis
-**Status**: **SPEC WRITTEN** — see `plans/FEAT-11-historical-trend-analysis.md`
-
-### FEAT-12: Identical Unit Management
-**Status**: **SPEC WRITTEN** — see `plans/FEAT-12-identical-unit-management.md`
-
-### FEAT-13: Remaining Demand Forecasting
-**Status**: **SPEC WRITTEN** — see `plans/FEAT-13-remaining-demand-forecasting.md`
-
-### FEAT-14: Tag-Based Smart Search
-**Status**: **SPEC WRITTEN** — see `plans/FEAT-14-tag-based-smart-search.md`
-
-### FEAT-15: Automated Status Color Sync
-**Status**: **FIXED**
+## Summary by Severity
+
+| Severity | Count | Key Examples |
+|---|---|---|
+| 🔴 **High** | 4 | ERR-1 (backup race), ERR-2 (missing .py extension — breaks imports), ERR-3 (stale cursor), ERR-4 (json.loads crash) |
+| 🟡 **Medium** | 10 | ERR-5 (insertRow OOB), ERR-6 (deprecated API), ANTI-1 (memory leak), ANTI-4 (duplicate impls), ANTI-5 (silent batch save), ANTI-7 (missing build-system), TEST-2 (missing test coverage), CROSS-1 (WAL+VACUUM), CROSS-2 (thread safety), plus orphaned imports |
+| 🟢 **Low** | 15 | Remaining anti-patterns, unused variables, cosmetic issues, config inconsistencies |
+
+## Quick Wins (Low Effort, High Impact)
+
+1. **Rename** `automation/import_preview` → `automation/import_preview.py` (fixes a broken import)
+2. **Remove** the 8 orphaned imports in the `gui/` package
+3. **Remove** the redundant `import os` and `from data.db import get_db` inside `main.py`'s `_startup_backup`
+4. **Add** try/except around `json.loads()` in `get_detailer_schedules`
+5. **Remove** the 3 dead code expressions (`ALERT_SEVERITY_ORDER`, standalone expressions in `list_panel.py` and `pivot_chart.py`)
+6. **Remove** `force_reload` parameter from `load_units()`
+7. **Add** `[build-system]` table to `pyproject.toml`

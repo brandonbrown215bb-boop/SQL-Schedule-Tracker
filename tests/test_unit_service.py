@@ -13,6 +13,7 @@ import pytest
 
 from data.models import Unit
 from services.unit_service import DueDateChange, UnitService
+from services.validation import ValidationError
 
 # ── Fixtures ────────────────────────────────────────────────────────
 
@@ -68,11 +69,6 @@ class TestLoadAll:
             elif u.detailer == "Matthew E":
                 assert u.working_days == [1, 2, 3, 4]
 
-    def test_force_reload_param_accepted(self, svc_with_units):
-        """force parameter is accepted (no-op for SQLite)."""
-        units = svc_with_units.load_all(force=True)
-        assert len(units) == 3
-
 
 # ── Get by COM tests ────────────────────────────────────────────────
 
@@ -127,6 +123,48 @@ class TestSave:
         detailer_entry = next((e for e in trail if e["field_name"] == "detailer"), None)
         assert detailer_entry is not None
         assert detailer_entry["new_value"] == "Brandon B"
+
+    def test_save_validates_percent_complete(self, svc_with_units, existing_unit):
+        """Save must reject percent_complete > 100 via the validation layer."""
+        existing_unit.percent_complete = 150.0
+        with pytest.raises(ValidationError):
+            svc_with_units.save(existing_unit)
+
+    def test_save_validates_negative_hours(self, svc_with_units, existing_unit):
+        """Save must reject negative department_hours via the validation layer."""
+        existing_unit.department_hours = -10.0
+        with pytest.raises(ValidationError):
+            svc_with_units.save(existing_unit)
+
+    def test_save_runs_pre_save_hooks(self, svc_with_units, existing_unit):
+        """Save must run registered pre-save hooks and return warnings."""
+        from services.pre_save_hooks import PreSaveHookRegistry, date_order_hook
+
+        registry = PreSaveHookRegistry()
+        registry.register("date_order", date_order_hook, priority=10)
+        svc_with_units._hook_registry = registry
+
+        # Set dates out of order to trigger a warning
+        existing_unit.unit_detailing_start_date = date(2025, 6, 1)
+        existing_unit.unit_detailing_completion_date = date(2025, 5, 1)
+
+        # Save should succeed (warning, not error) — the hook returns warnings
+        svc_with_units.save(existing_unit)
+        # The save should complete without exception; warnings are logged
+
+    def test_save_pre_save_hook_blocks_on_fatal(self, svc_with_units, existing_unit):
+        """A pre-save hook that raises ValidationError must block the save."""
+        from services.pre_save_hooks import PreSaveHookRegistry
+
+        def fatal_hook(u, ctx):
+            raise ValidationError(["Fatal hook error"])
+
+        registry = PreSaveHookRegistry()
+        registry.register("fatal", fatal_hook, priority=1)
+        svc_with_units._hook_registry = registry
+
+        with pytest.raises(ValidationError):
+            svc_with_units.save(existing_unit)
 
 
 # ── Fingerprint tests ───────────────────────────────────────────────

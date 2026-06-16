@@ -32,8 +32,7 @@ class RevisionConflictError(Exception):
         self.latest = latest
         self.remote_values = remote_values or {}
         super().__init__(
-            f"COM {latest.com_number} was modified by {latest.modified_by} "
-            f"at {latest.modified_at}"
+            f"COM {latest.com_number} was modified by {latest.modified_by} at {latest.modified_at}"
         )
 
 

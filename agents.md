@@ -13,6 +13,7 @@ This document is for future AI agents (or humans) joining this project. It descr
 | Import      | CSV ingestion from SSRS reports     |
 | Sync        | File-based lock manager + SQLite    |
 | Build       | PyInstaller (frozen executable)     |
+| Services    | Pure Python (zero Qt dependencies)  |
 
 No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything is synchronous with `QThread` workers for I/O.
 
@@ -22,26 +23,28 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 
 ```
 .
-├── main.py                       # Entry point, QApplication init, config loading
+├── main.py                       # Entry point: config loading, ServiceRegistry, QApplication
 ├── config.yaml                   # All configuration: db path, detailers, schedules, UI prefs
 ├── agents.md                     # ← You are here
 ├── docs/
-│   └── COMPUTATION_AUDIT.md      # Canonical reference for all computed fields
+│   ├── COMPUTATION_AUDIT.md      # Canonical reference for all computed fields
+│   └── ONBOARDING_STEPS.md       # First-launch walkthrough step reference
 ├── automation/
 │   ├── create_db.py              # Schema creation + detailer seeding
 │   ├── import_csv.py             # CSV-to-SQLite import pipeline
 │   ├── analyze_detailers.py      # Detailer load analysis
 │   ├── cleanup_detailers.py      # Detailer cleanup operations
 │   ├── export_to_workbook.py     # Export to Excel workbook
-│   ├── import_atomsvc.py         # Alternate import format
+│   ├── import_preview.py         # Import diff/staging preview (FEAT-019)
+│   └── import_atomsvc.py         # Alternate import format
 ├── data/
 │   ├── models.py                 # Unit dataclass + all computed properties
-│   ├── db.py                     # SQLite connection (per-thread), schema migration, row→Unit
-│   ├── loader.py                 # load_units() from SQLite, identicals rule
-│   ├── writer.py                 # save_unit() with optimistic locking
-│   └── tag_parser.py             # Description parsing → unit type, features, flags
-├── gui/
-│   ├── main_window.py            # Main window, panel orchestration, menu actions
+│   ├── db.py                     # SQLite connection (per-thread), schema migration, row→Unit, audit log
+│   ├── loader.py                 # load_units() from SQLite, identicals rule, fingerprinting
+│   ├── writer.py                 # save_unit() with optimistic locking + audit trail
+│   └── tag_parser.py             # Description parsing → unit type, features, flags, novelty
+├──gui/
+│   ├── main_window.py            # Thin orchestration layer (ServiceRegistry → widgets)
 │   ├── list_panel.py             # Sortable/filterable table view
 │   ├── calendar_panel.py         # Calendar view
 │   ├── alert_panel.py            # Alert dashboard with capacity warnings, surge detection
@@ -49,45 +52,105 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── edit_form.py              # Unit editing form
 │   ├── conflict_dialog.py        # Optimistic locking conflict UI
 │   ├── due_date_changed_dialog.py# Due date change notification
-│   ├── close_progress_dialog.py  # Progress close dialog
-│   ├── pivot_chart.py            # Pivot chart
+│   ├── import_preview_dialog.py  # Import diff/staging preview UI
+│   ├── close_progress_dialog.py  # Close-with-sync progress dialog
+│   ├── pivot_chart.py            # Scheduling dashboard charts
 │   ├── sync_status.py            # Multi-user sync status indicator
 │   ├── loading_overlay.py        # Loading spinner overlay
 │   ├── onboarding.py             # First-run wizard
-│   ├── theme.py                  # Dark/light theme
+│   ├── theme.py                  # Dark/light theme + CVD modes
 │   └── a11y_dialog.py            # Accessibility settings
+├── services/                     # ★ Business logic layer (zero Qt dependencies)
+│   ├── __init__.py               # Exports: UnitService, ImportService, ExportService, SyncService, ConfigService
+│   ├── unit_service.py           # Unit CRUD: load, save, fingerprint, identicals, due date changes, audit
+│   ├── import_service.py         # CSV/SSRS import with ImportResult stats + diff preview
+│   ├── export_service.py         # Excel/CSV export
+│   ├── sync_service.py           # Multi-user sync: locks, revisions, sessions, shared cache
+│   ├── config_service.py         # Config load/validate/save with deep merge + defaults
+│   ├── validation.py             # ★ FieldRule, validate_unit, ValidationError, decorators
+│   ├── sanitizer.py              # ★ InputSanitizer: clean_date, clean_percent, clean_com, clean_string
+│   ├── pre_save_hooks.py         # ★ PreSaveHookRegistry: date order, target hours, non-negative, percent range
+│   └── migration_registry.py     # ★ Schema migration registry (versioned, ordered)
 ├── sync/
 │   ├── lock_manager.py           # File-based locking per unit (multi-user)
-│   ├── revision_store.py         # Revision history
-│   ├── session_registry.py       # Active session tracking
-│   └── shared_cache.py           # Cross-instance cache
-└── tests/
-│   ├── conftest.py               # Shared fixtures
+│   ├── revision_store.py         # Revision history with conflict detection
+│   ├── session_registry.py       # Active session heartbeat tracking
+│   └── shared_cache.py           # Cross-instance unit cache for conflict diffs
+├── tests/
+│   ├── conftest.py               # Shared fixtures (db_path, db_with_units, sample_unit, etc.)
 │   ├── test_models.py            # Unit model computation tests
-│   ├── test_loader.py            # Loader tests
-│   ├── test_writer.py            # Writer + optimistic locking tests
-│   ├── test_tag_parser.py        # Tag parsing tests
-│   ├── test_list_panel.py        # List panel tests
+│   ├── test_loader.py            # Loader + identicals tests
+│   ├── test_writer.py            # Writer + optimistic locking + audit trail tests
+│   ├── test_audit.py             # Audit log system tests
+│   ├── test_tag_parser.py        # Tag parsing + novelty detection tests
+│   ├── test_list_panel.py        # List panel filtering, sorting, column tests
 │   ├── test_calendar_panel.py    # Calendar panel tests
 │   ├── test_edit_form.py         # Edit form tests
-│   └── ...                       # Other test files
+│   ├── test_unit_service.py      # ★ UnitService tests (37 tests: load, save, fingerprint, identicals, due date, audit)
+│   ├── test_validation.py        # ★ Validation layer tests (field rules, validate_unit, decorators)
+│   ├── test_pre_save_hooks.py    # ★ Pre-save hook tests (date order, target hours, non-negative)
+│   ├── test_migration_registry.py # ★ Schema migration registry tests
+│   ├── test_sanitizer.py         # ★ InputSanitizer tests (clean_date, clean_percent, clean_com)
+│   ├── test_batch_edit_dialog.py # ★ Batch edit dialog tests (8 tests)
+│   ├── test_inline_edit_bar.py   # ★ Inline edit bar tests
+│   ├── test_sync.py              # Lock manager + revision store tests
+│   ├── test_multi_user_integration.py  # Cross-instance conflict scenarios
+│   ├── test_property.py          # Hypothesis property-based tests
+│   ├── test_reload_performance.py # Load timing benchmarks
+│   ├── test_contrast_audit.py    # Accessibility contrast ratio tests
+│   ├── test_theme.py             # Theme + CVD tests
+│   ├── test_sync_status.py       # Sync status widget tests
+│   └── test_close_progress_dialog.py  # Close progress dialog tests
 ├── scripts/
-│   ├── doc_check.py             # Documentation drift checker
+│   ├── doc_check.py              # Documentation drift checker
+│   ├── benchmark.py              # Performance benchmarks
 │   ├── migrate_workbook_to_sqlite.py  # Excel → SQLite migration
-│   ├── ensure_detailers.py      # Seed detailers table if missing
-│   └── pre-commit               # Git pre-commit hook template
-├── README-Windows.md            # Windows quick-start guide
-├── setup.bat                    # Windows: create venv + install deps
-├── migrate.bat                  # Windows: run workbook migration
-├── run.bat                      # Windows: launch app
-├── test.bat                     # Windows: run pytest suite
-├── ensure_detailers.bat         # Windows: seed detailers table
-└── cleanup_detailers.bat        # Windows: cleanup detailer names
+│   └── ensure_detailers.py       # Seed detailers table if missing
+└── plans/
+    ├── BUSINESS-ROADMAP-2026.md    # Synthesized execution plan (27 weeks)
+    └── *.md                       # 27 individual improvement plans (reference)
 ```
 
 ---
 
-## 3. Core Data Model: `Unit` Dataclass
+## 3. Architecture: Service Layer
+
+The business logic has been extracted from `MainWindow` into a **service layer** (`services/` package). Each service is a pure Python class with zero Qt dependencies, making it independently testable.
+
+### Service Registry
+
+`main.py` creates a `ServiceRegistry` that holds all service instances and injects them into `MainWindow`:
+
+```python
+from gui.main_window import MainWindow, ServiceRegistry
+services = ServiceRegistry(config, config_path, db_path)
+window = MainWindow(services)
+```
+
+### Service Responsibilities
+
+| Service | File | Key Methods | Wraps |
+|---------|------|-------------|-------|
+| `UnitService` | `services/unit_service.py` | `load_all()`, `save()`, `get_by_com()`, `compute_fingerprint()`, `apply_identicals()`, `detect_changed_due_dates()`, `get_audit_trail()` | `data/loader.py`, `data/writer.py`, `data/db.py` |
+| `ImportService` | `services/import_service.py` | `from_csv()`, `from_ssrs()`, `diff_before_import()` | `automation/import_csv.py`, `automation/import_atomsvc.py`, `automation/import_preview.py` |
+| `ExportService` | `services/export_service.py` | `to_excel()`, `to_csv()` | `automation/export_to_workbook.py` |
+| `SyncService` | `services/sync_service.py` | `is_enabled()`, `acquire_lock()`, `release_lock()`, `get_revision()`, `commit_revision()`, `get_active_sessions()`, `start_heartbeat()`, `stop_heartbeat()` | `sync/lock_manager.py`, `sync/revision_store.py`, `sync/session_registry.py`, `sync/shared_cache.py` |
+| `ConfigService` | `services/config_service.py` | `load()`, `validate()`, `save()`, `merge_ui_defaults()`, `get_detailer_schedules()` | (static methods) |
+
+### Data Flow with Services
+
+```
+MainWindow → services.unit_service.load_all() → data/loader.py → [Unit]
+MainWindow → services.unit_service.save(unit)  → data/writer.py → SQLite
+MainWindow → services.import_service.from_csv() → automation/import_csv.py → SQLite
+MainWindow → services.export_service.to_excel() → automation/export_to_workbook.py
+MainWindow → services.sync_service.get_active_sessions() → sync/session_registry.py
+MainWindow → services.config_service.save() → config.yaml
+```
+
+---
+
+## 4. Core Data Model: `Unit` Dataclass
 
 Location: `data/models.py`
 
@@ -100,30 +163,31 @@ Location: `data/models.py`
 - `percent_complete` — 0-100 scale (stored 0-1.0 in SQLite)
 - `actual_hours` — Actual hours logged
 - Dates: `unit_detailing_start_date`, `unit_moved_to_checking_date`, `unit_detailing_completion_date`, `detailing_due_date`, `dept_due_date_previous`, `build_date`
-- `status_color` — Persisted computed color (see §4.1)
+- `status_color` — Persisted computed color (see §5.1)
 - `working_days_in_checking` — Computed working days in checking pipeline
 - `updated_at` — SQLite timestamp for optimistic locking
 
 ### Transient Fields (not persisted)
 - `working_days` — Detailer's schedule (loaded from config per detailer)
 - `due_date_changed` — Flag for UI indicator (cleared on selection)
+- `previous_detailing_due_date` — Previous due date when changed (for "due date changed" dialog)
 - `is_non_primary_identical` — Set by identicals rule
 - `excel_row`, `fingerprint`, `base_revision` — Legacy Excel sync metadata
 - `_milestones_cache` — Cached milestone list
 
 ### Key Properties (runtime-computed)
-- `calculated_status_color` — Capacity-aware status (see §4.1)
-- `alert_level` — Calendar-only urgency (see §4.2)
+- `calculated_status_color` — Capacity-aware status (see §5.1)
+- `alert_level` — Calendar-only urgency (see §5.2)
 - `is_stale` — Due date > 30 days past
 - `milestones` — Ordered list of `(label, date)` tuples
 
 ---
 
-## 4. Computation Architecture
+## 5. Computation Architecture
 
 **CRITICAL**: The canonical reference for ALL computed fields is `docs/COMPUTATION_AUDIT.md`. It documents the business rationale, formulas, constants, and data flow. Read it before modifying any computation.
 
-### 4.1 `status_color` (Database-Persisted)
+### 5.1 `status_color` (Database-Persisted)
 
 The primary visual indicator. Evaluated top-to-bottom, first match wins:
 
@@ -137,78 +201,93 @@ The primary visual indicator. Evaluated top-to-bottom, first match wins:
 
 **Constants**: `HOURS_PER_DAY = 10.0`, `CHECKING_OVERHEAD_WD = 4`
 
-The capacity check (step 3) is what makes this smarter than percentage-based status. It answers "can this unit still make its due date?" by comparing remaining hours against available working days (minus 4 days checking pipeline overhead for units not yet in checking).
-
-### 4.2 `alert_level` (Runtime-Only)
+### 5.2 `alert_level` (Runtime-Only)
 
 Calendar-date-based urgency: `COMPLETE` → `UNSET` → `OVERDUE` → `URGENT` (≤7 days) → `APPROACHING` (≤14 days) → `ON_TRACK`. Does NOT account for capacity.
 
-### 4.3 `working_days_in_checking` (Database-Persisted)
+### 5.3 `working_days_in_checking` (Database-Persisted)
 
 Mon-Fri count between `unit_moved_to_checking_date` and `unit_detailing_completion_date`. Set on import and save. NULL if either date missing.
 
-### 4.4 `target_dept_hours` (Database-Persisted)
+### 5.4 `target_dept_hours` (Database-Persisted)
 
 `MAX(0, department_hours - iec_internal_hours)`. Forced to 0 for non-primary identicals.
 
-### 4.5 `remaining_hours` (Database-Persisted, Import-Only)
+### 5.5 `remaining_hours` (Database-Persisted, Import-Only)
 
 `department_hours * (1 - effective_percent_complete)`. Only computed during CSV import, NOT recalculated on save.
 
-### 4.6 Identicals Rule
+### 5.6 Identicals Rule
 
-Units sharing the same `contract_number` form a group. The unit with the earliest `detailing_due_date` is the **primary** (keeps normal target hours). All others get `target_department_hours = 0` and `is_non_primary_identical = True`. Applied in `data/loader.py` → `_apply_identicals()`.
+Units sharing the same `contract_number` form a group. The unit with the earliest `detailing_due_date` is the **primary** (keeps normal target hours). All others get `target_department_hours = 0` and `is_non_primary_identical = True`. Applied in `data/loader.py` → `_apply_identicals()`, wrapped by `UnitService.apply_identicals()`.
+
+### 5.7 Audit Trail (`_audit_log` table)
+
+Every save records field-level changes to `_audit_log` (SQLite table). Each row: `com_number`, `field_name`, `old_value`, `new_value`, `saved_by`, `saved_at`. Written by `data/db.py` → `log_field_changes()`, called from `data/writer.py` → `save_unit()`. Retrieved via `UnitService.get_audit_trail()`.
 
 ---
 
-## 5. Data Flow
+## 6. Data Flow
 
-### 5.1 Import Pipeline (`automation/import_csv.py`)
+### 6.1 Import Pipeline
 ```
-SSRS CSV → parse dates/percents/numbers → upsert_row() → SQLite
+SSRS CSV → ImportService.from_csv() → automation/import_csv.py → SQLite
+                              ↓
+                        ImportResult(inserted, updated, skipped, errors)
 ```
+- Backs up database before import
 - Insert new rows, update existing by `com_number`
 - `percent_complete` only set from CSV if currently NULL in DB (preserves manual edits)
 - `dept_due_date_previous` set when due date changes between imports
-- `working_days_in_checking` computed from date fields
-- `remaining_hours` computed from department hours × (1 - percent_complete)
 
-### 5.2 Load Pipeline (`data/loader.py`)
+### 6.2 Load Pipeline
 ```
-SQLite → row_to_unit() → Unit objects → _apply_identicals() → [Unit]
+SQLite → UnitService.load_all() → data/loader.py → row_to_unit() → [Unit]
+                                          ↓
+                                    _apply_identicals() (in-memory)
+                                    set working_days from config
 ```
-- Applies identicals rule (post-load, in-memory)
-- Sets `working_days` per detailer from config schedules
+- `UnitService` wraps `load_units()` and adds due date change detection
 
-### 5.3 Save Pipeline (`data/writer.py`)
+### 6.3 Save Pipeline
 ```
-Unit → UPDATE SQL → optimistic lock check → commit
+Unit → UnitService.save() → data/writer.py → _validate_unit()
+                                          → UPDATE SQL (optimistic lock)
+                                          → log_field_changes() → _audit_log
+                                          → COMMIT
 ```
 - Writes `calculated_status_color` on every save
 - Recomputes `working_days_in_checking` from dates
 - Raises `ConcurrentEditError` if `updated_at` mismatched
 
+### 6.4 Config Pipeline
+```
+ConfigService.load(path) → yaml.safe_load() → deep merge with DEFAULTS → dict
+ConfigService.validate(config) → list[warnings]
+ConfigService.save(path, config) → yaml.safe_dump()
+```
+
 ---
 
-## 6. Alert Panel Logic
+## 7. Alert Panel Logic
 
 Location: `gui/alert_panel.py`
 
-### 6.1 Sorting
+### 7.1 Sorting
 Primary sort by `CRITICALITY_ORDER`: red(0) → orange(1) → purple(2) → yellow(3) → gray(4) → green(5). Secondary sort by due date (earliest first).
 
-### 6.2 Checking Surge Detection
-Groups incomplete, non-checked units by due date. If 3+ share a due date, all are flagged as "CHECK SURGE". Threshold: `CHECKING_SURGE_THRESHOLD = 3`.
+### 7.2 Checking Surge Detection
+Groups incomplete, non-checked units by due date. If 3+ share a due date, all are flagged as \"CHECK SURGE\". Threshold: `CHECKING_SURGE_THRESHOLD = 3`.
 
-### 6.3 Capacity Warning
-Only shown when a specific detailer is selected (not "All Detailers"). Sums remaining hours for all non-stale units assigned to that detailer. If > `CAPACITY_HOURS_THRESHOLD` (160.0), shows "⚠️ OVERLOADED" warning.
+### 7.3 Capacity Warning
+Only shown when a specific detailer is selected (not \"All Detailers\"). Sums remaining hours for all non-stale units assigned to that detailer. If > `CAPACITY_HOURS_THRESHOLD` (160.0), shows "⚠️ OVERLOADED" warning.
 
-### 6.4 Stale Exclusion
+### 7.4 Stale Exclusion
 Units with `detailing_due_date > 30 days past` are hidden from the alert panel. Controlled by `STALE_THRESHOLD_DAYS = 30` in `data/models.py`.
 
 ---
 
-## 7. Tag Parsing System
+## 8. Tag Parsing System
 
 Location: `data/tag_parser.py`
 
@@ -218,32 +297,29 @@ Parses unit descriptions into structured tags:
 - **Features**: Whitelisted tokens (46 kept after team review of 800 unique features)
 - **Flags**: Asterisk-enclosed markers (*PRE-PAINT*)
 
-The `UnitTagRepository` tracks what each detailer has done before, enabling novelty detection (new unit type or feature combo for a detailer). Built from all units, used for filtering and alerting.
-
-### Feature Whitelist
-Only 46 tokens survive as features. Everything else is dropped. Normalization maps variants to canonical forms (e.g., "ABASE" → "AL-BASE", "SEIS" → "SEIS-CERT"). See `_WHITELIST` and `_NORMALIZATION_MAP` in `tag_parser.py`.
+The `UnitTagRepository` tracks what each detailer has done before, enabling novelty detection (new unit type or feature combo for a detailer).
 
 ---
 
-## 8. Multi-User Sync System
+## 9. Multi-User Sync System
 
-Location: `sync/` directory
+Location: `sync/` directory, wrapped by `services/sync_service.py`
 
 | Component | Purpose |
 |-----------|---------|
 | `lock_manager.py` | File-based per-unit lock with 60s timeout |
-| `revision_store.py` | Revision history tracking |
-| `session_registry.py` | Active session tracking |
-| `shared_cache.py` | Cross-instance cache |
+| `revision_store.py` | Revision history with conflict detection |
+| `session_registry.py` | Active session heartbeat tracking |
+| `shared_cache.py` | Cross-instance unit cache for conflict diffs |
 
-The sync system is disabled by default (`multi_user.enabled: false` in config.yaml). When enabled, it provides file-based locking per unit to prevent concurrent edits, with a fallback mode configurable to "block" or "warn".
+The sync system is disabled by default (`multi_user.enabled: false` in config.yaml). When enabled, it provides file-based locking per unit to prevent concurrent edits.
 
 ### Optimistic Locking (Always Active)
 Even without multi-user sync, the writer implements optimistic locking via the `updated_at` column. If `updated_at` doesn't match when loaded, save raises `ConcurrentEditError`.
 
 ---
 
-## 9. Key Constants Reference
+## 10. Key Constants Reference
 
 | Constant | Value | File | Purpose |
 |----------|-------|------|---------|
@@ -257,7 +333,7 @@ Even without multi-user sync, the writer implements optimistic locking via the `
 
 ---
 
-## 10. Configuration (`config.yaml`)
+## 11. Configuration (`config.yaml`)
 
 | Key | Purpose |
 |-----|---------|
@@ -268,70 +344,77 @@ Even without multi-user sync, the writer implements optimistic locking via the `
 | `ssrs_url` | SSRS report URL |
 | `ui.theme` | "dark" or "light" |
 | `ui.high_contrast` | Boolean for high contrast mode |
-| `ui.colorblind_mode` | "none" or "deuteranopia" |
-| `ui.last_view` | "calendar" or "list" |
+| `ui.colorblind_mode` | "none", "deuteranopia", "protanopia", or "tritanopia" |
+| `ui.last_view` | "calendar", "list", or "alerts" |
 | `multi_user.enabled` | Boolean for multi-user sync |
 | `ssrs_lookahead_days` | Days to look ahead (default: 365) |
 | `ssrs_lookback_days` | Days to look back (default: 30) |
 
 ---
 
-## 11. Testing
+## 12. Testing
 
-Tests use pytest with a SQLite in-memory database. Summary:
+Tests use pytest with a SQLite database fixture (`db_path`, `db_with_units`). The `services/` package is independently testable without Qt.
 
 | Test file | What it tests |
 |-----------|---------------|
 | `test_models.py` | `calculated_status_color`, `alert_level`, `is_stale`, `milestones`, `status_label` |
 | `test_writer.py` | `save_unit`, `ConcurrentEditError`, field persistence |
 | `test_loader.py` | `load_units`, `_apply_identicals`, schedule application |
+| `test_audit.py` | Audit log: `log_field_changes`, `get_audit_trail`, save integration |
+| `test_unit_service.py` | ★ `UnitService` (37 tests): load, save, fingerprint, identicals, due date changes, audit |
+| `test_validation.py` | ★ Validation layer (29 tests): field rules, validate_unit, ValidationError, decorators |
+| `test_pre_save_hooks.py` | ★ Pre-save hooks (12 tests): date order, target hours, non-negative, percent range |
+| `test_migration_registry.py` | ★ Schema migration registry (5 tests) |
+| `test_sanitizer.py` | ★ InputSanitizer (14 tests): clean_date, clean_percent, clean_com, clean_string |
+| `test_batch_edit_dialog.py` | ★ Batch edit dialog (8 tests): apply, emit, get_updated_units |
+| `test_inline_edit_bar.py` | ★ Inline edit bar (10 tests): load, save, dirty, clear |
 | `test_tag_parser.py` | `parse_description`, `UnitTagRepository`, novelty detection |
 | `test_list_panel.py` | List panel filtering, sorting, column visibility |
 | `test_calendar_panel.py` | Calendar rendering, date selection |
 | `test_edit_form.py` | Form population, dirty state, clearable dates |
 | `test_sync.py` | Lock manager, session registry |
 | `test_multi_user_integration.py` | Cross-instance conflict scenarios |
+| `test_property.py` | Hypothesis property-based tests (status color, alert level, fingerprint) |
 | `test_reload_performance.py` | Load timing benchmarks |
 | `test_contrast_audit.py` | Accessibility contrast ratios |
-| `test_theme.py` | Theme application |
+| `test_theme.py` | Theme application + CVD overrides |
+| `test_sync_status.py` | Sync status widget |
+| `test_close_progress_dialog.py` | Close-with-sync progress dialog |
 
-Run tests: `python -m pytest tests/ -v`
+Run tests: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ -v`
 
 ---
 
-## 12. Common Pitfalls & Gotchas
+## 13. Common Pitfalls & Gotchas
 
 1. **percent_complete scaling**: Stored 0-1.0 in SQLite, 0-100 in Unit dataclass (multiplied by 100 in `row_to_unit()`). Division by 100 in `save_unit()`. Always check which scale you're working with.
 
-2. **Two working day functions**: `data/models.py` has a private `_working_days_between` (configurable schedule, start exclusive), and `data/db.py` has a public `_working_days_between` (Mon-Fri only, both inclusive). The `writer.py` imports from `db.py` for checking computation. A third `working_days_between` in `db.py` (line 184) is dead code.
+2. **Two working day functions**: `data/models.py` has a private `_working_days_between` (configurable schedule, start exclusive), and `data/db.py` has a public `_working_days_between` (Mon-Fri only, both inclusive). The `writer.py` imports from `db.py` for checking computation.
 
-3. **Import preserves manual edits**: `percent_complete` is only set from CSV if currently NULL in DB. To force a CSV override, you'd need to NULL the column first.
+3. **Import preserves manual edits**: `percent_complete` is only set from CSV if currently NULL in DB.
 
-4. **status_color is writable**: The `status_color` column is persisted but recalculated on every save via `calculated_status_color`. However, the model allows manual assignment too (see `status_color` docstring). The UI always shows `calculated_status_color`.
+4. **status_color is writable but recalculated**: The UI always shows `calculated_status_color`.
 
-5. **Alert panel sorts by status_color, not alert_level**: The alert panel uses `CRITICALITY_ORDER` (based on `calculated_status_color`) not `ALERT_SEVERITY_ORDER` (based on `alert_level`). This is intentional — capacity-aware > calendar-aware.
+5. **Alert panel sorts by status_color, not alert_level**: Capacity-aware > calendar-aware.
 
-6. **Check data before trusting checking surge**: The surge detection uses `CHECKING_OVERHEAD_WD = 4` (median from 885 units). This is a statistical heuristic, not exact.
+6. **Detailer schedules are per-name**: If a detailer name doesn't match a config key, the "default" schedule is used.
 
-7. **Detailer schedules are per-name**: The config maps detailer names to weekday arrays (0=Mon, 4=Fri). If a detailer name in the data doesn't match a config key, the "default" schedule is used.
+7. **Non-primary identicals have zero target hours**: `department_hours` is NOT zeroed — tracked for capacity planning, just not as the detailer's target.
 
-8. **Non-primary identicals have zero target hours**: This prevents double-counting, but the `department_hours` field is NOT zeroed — those hours are tracked for capacity planning, just not assigned as the detailer's target.
+8. **QTextEdit dirty tracking**: The `notes_edit` field must be explicitly connected to `_mark_dirty`.
 
-9. **QTextEdit dirty tracking**: The `notes_edit` field (QTextEdit) must be explicitly connected to `_mark_dirty` — it's not handled by the generic `QLineEdit`/`QComboBox`/`QDateEdit`/`QDoubleSpinBox` loop in `edit_form.py`.
+9. **Auto-reload vs unsaved edits**: `_on_load_finished()` must check `_form_dirty` before re-populating the edit form.
 
-10. **Auto-reload vs unsaved edits**: `_on_load_finished()` in `main_window.py` must check `_form_dirty` before re-populating the edit form, or unsaved user edits are silently lost.
+10. **Fingerprint cache**: `unit_fingerprint()` in `data/loader.py` uses a module-level cache keyed by `com_number`. Cache is never invalidated within a session.
 
-11. **Conflict dialog button roles**: Use `QDialogButtonBox.ActionRole` (not `AcceptRole`) for custom buttons in `conflict_dialog.py` to avoid double-firing signals.
+11. **Service layer is Qt-free**: Services import from `data.*` and `sync.*` only — never from `gui.*`. This ensures testability without `QApplication`.
 
-12. **Fingerprint cache uses `id(unit)`**: The fingerprint cache in `loader.py` keys on Python's `id()`, which can collide if objects are garbage collected and new ones reuse the same address. Low risk in practice but theoretically incorrect.
-
-13. **Tag parser compound feature ordering**: Compound features in `tag_parser.py` are matched via simple iteration — if compound A is a substring of compound B, A matching first prevents B from matching. Sort by length (longest first) to avoid this.
-
-14. **RTF dimension case sensitivity**: The RTF parser checks `"X" in revision_or_dim.upper()` to distinguish dimensions from revision numbers. This works but the check should be consistently case-insensitive throughout.
+12. **MainWindow constructor changed**: Takes `ServiceRegistry`, not raw `config`/`db_path`. All service access via `self._services.<service>`.
 
 ---
 
-## 13. Quick Start for Development
+## 14. Quick Start for Development
 
 ```bash
 # Set up
@@ -354,7 +437,7 @@ python -m pytest tests/ -v
 
 ---
 
-## 14. Database Schema (SQLite)
+## 15. Database Schema (SQLite)
 
 The `units` table has ~50 columns. Key ones:
 
@@ -367,11 +450,12 @@ target_dept_hours | iec_internal_hours | checking_status | notes
 status_color | working_days_in_checking | updated_at | created_at
 ```
 
-Supporting tables: `detailers` (name, working_weekdays JSON, display_order), `default_schedule` (single row, working_weekdays JSON).
+Supporting tables: `detailers` (name, working_weekdays JSON, display_order), `default_schedule` (single row, working_weekdays JSON), `_audit_log` (com_number, field_name, old_value, new_value, saved_by, saved_at).
 
 Full schema in `automation/create_db.py` → `SCHEMA_SQL`.
 
 ---
 
-*Generated: 2026-06-06*
-*Based on code analysis of 2765 unit capacity model with 15 detailers*
+*Last updated: 2026-06-16*
+*Architecture: Sprints 1-8 complete. Service layer + validation layer + bulk ops + audit UI. 376 tests passing. Lint clean.*
+*Fixes applied 2026-06-16: PARSE_FUNCS→SANITIZE_FUNCS import in import_preview.py (broke 7 test files), batch_edit_dialog test fixture missing "Brandon B" detailer, inline_edit_bar nested-if SIM102, import_service E402 mid-file import.*
