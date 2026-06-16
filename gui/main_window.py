@@ -565,6 +565,9 @@ class MainWindow(QMainWindow):
         else:
             self.units.append(unit)
         self.current_unit = unit
+        # Invalidate fingerprint cache so list refresh detects the change
+        from data.loader import _fingerprint_cache
+        _fingerprint_cache.pop(unit.com_number, None)
 
     # ── Data loading ───────────────────────────────────────────────────
 
