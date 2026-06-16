@@ -107,15 +107,7 @@ class ImportService:
             NotImplementedError: The diff preview module is not yet implemented
                 (FEAT-019 is still in the roadmap). The UI handles this gracefully.
         """
-        # TODO(FEAT-019): Implement import diff/staging preview.
-        # The automation/import_preview module does not yet exist.
-        # Returning an empty diff to keep the UI functional.
-        logger.warning(
-            "diff_before_import called but automation.import_preview "
-            "is not implemented (FEAT-019). Returning empty diff."
-        )
-        return ImportDiff()
-        # When FEAT-019 is implemented, replace with:
-        # from automation.import_preview import compute_diff
-        # diff = compute_diff(csv_path, self._db_path)
-        # return diff
+        from automation.import_preview import compute_diff
+
+        diff = compute_diff(csv_path, self._db_path)
+        return diff
