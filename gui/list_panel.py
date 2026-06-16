@@ -655,6 +655,15 @@ class ListPanel(QWidget):
         else:
             self._apply_filters_and_refresh()
 
+        # Update inline edit bar's unit reference after save
+        # (prevents stale updated_at causing false conflict on next save)
+        if self._inline_edit_bar.isVisible() and self._inline_edit_bar._unit is not None:
+            com = self._inline_edit_bar._unit.com_number
+            for u in units:
+                if u.com_number == com:
+                    self._inline_edit_bar._unit = u
+                    break
+
         # Restore selection and scroll position
         if selected_com:
             self._select_com(selected_com)
