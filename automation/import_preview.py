@@ -125,6 +125,7 @@ def _csv_row_to_changes(old_row, new_data: dict) -> list[dict]:
     changes = []
 
     # Fields imported from CSV (non-com_number)
+    # Note: percent_complete is only written to existing units when current value is NULL
     import_fields = [
         "detailing_due_date", "job_name", "top_level_number", "description",
         "build_date", "department_hours", "percent_complete",
@@ -142,6 +143,21 @@ def _csv_row_to_changes(old_row, new_data: dict) -> list[dict]:
                 "old": None,
                 "new": new_val,
             })
+        elif field_name == "percent_complete":
+            # Existing row — skip percent_complete if current value is not NULL
+            # (import only sets percent_complete for new units or when currently NULL)
+            old_pct = old_row["percent_complete"] if "percent_complete" in old_row.keys() else None
+            if old_pct is not None:
+                continue
+            # percent_complete is NULL in DB — compare as normal
+            old_str = "0.0"
+            new_str = str(new_val) if new_val is not None else None
+            if old_str != new_str:
+                changes.append({
+                    "field": field_name,
+                    "old": None,
+                    "new": new_val,
+                })
         else:
             # Compare against old value
             try:
