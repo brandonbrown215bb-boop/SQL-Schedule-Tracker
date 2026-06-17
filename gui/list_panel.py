@@ -41,7 +41,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from data.loader import unit_fingerprint
 from data.models import Unit
 from data.tag_parser import UnitTagRepository, parse_description
 from gui.inline_edit_bar import InlineEditBar
@@ -625,15 +624,12 @@ class ListPanel(QWidget):
         scroll_pos = self.table.verticalScrollBar().value()
         old_visible = self._model.visible_columns
 
-        # Save old unit list for diffing
-        old_units = list(self._model.filtered_units) if self._model else []
-
         self._model = UnitListModel(units)
         self._model.set_visible_columns(old_visible)
         self._tag_strings_cache.clear()
         self._populate_detailer_combo()
 
-        # Apply current filters and sort before diffing
+        # Apply current filters and sort
         status = self.status_combo.currentData() or "All"
         detailer = self.detailer_combo.currentData() or "All"
         date_preset = self.date_combo.currentData()
@@ -654,11 +650,10 @@ class ListPanel(QWidget):
 
         new_units = self._model.filtered_units
 
-        # US-020b: Use incremental diff for large tables
-        if len(old_units) > 50 and len(new_units) > 50:
-            self._refresh_table_incremental(old_units, new_units)
-        else:
-            self._apply_filters_and_refresh()
+        # Always do a full refresh after save to ensure changes are visible.
+        # The incremental diff path had edge cases where changed rows were
+        # not re-rendered (fingerprint cache, sort order changes, etc.).
+        self._apply_filters_and_refresh()
 
         # Update inline edit bar's unit reference after save
         # (prevents stale updated_at causing false conflict on next save)
@@ -674,190 +669,6 @@ class ListPanel(QWidget):
         if selected_com:
             self._select_com(selected_com)
         self.table.verticalScrollBar().setValue(scroll_pos)
-
-    def _diff_units(self, old_units: list[Unit], new_units: list[Unit]) -> dict:
-        """Compute minimal diff between old and new unit lists.
-
-        Returns a dict with:
-          - 'unchanged': set of com_numbers that didn't change
-          - 'added': list of new Units not in old
-          - 'removed': set of com_numbers no longer present
-          - 'changed': dict of com_number -> new_unit for units that changed
-        Uses unit_fingerprint() for change detection.
-        """
-        old_by_com = {u.com_number: u for u in old_units}
-        new_by_com = {u.com_number: u for u in new_units}
-
-        old_set = set(old_by_com.keys())
-        new_set = set(new_by_com.keys())
-
-        removed = old_set - new_set
-        added_coms = new_set - old_set
-        common = old_set & new_set
-
-        # Check for changes in common units using fingerprint
-        changed = {}
-        unchanged = set()
-        for com in common:
-            old_fp = unit_fingerprint(old_by_com[com])
-            new_fp = unit_fingerprint(new_by_com[com])
-            if old_fp != new_fp:
-                changed[com] = new_by_com[com]
-            else:
-                unchanged.add(com)
-
-        return {
-            "unchanged": unchanged,
-            "added": [new_by_com[c] for c in added_coms],
-            "removed": removed,
-            "changed": changed,
-            "old_by_com": old_by_com,
-            "new_by_com": new_by_com,
-            "old_order": [u.com_number for u in old_units],
-            "new_order": [u.com_number for u in new_units],
-        }
-
-    def _refresh_table_incremental(self, old_units: list[Unit], new_units: list[Unit]) -> None:
-        """Incrementally update the table using diff (US-020b).
-
-        Matches units by com_number and only updates changed rows,
-        inserts new rows, and removes deleted rows.
-        Falls back to full rebuild if the diff is too large (>50% changed).
-        """
-        diff = self._diff_units(old_units, new_units)
-        total_old = len(old_units)
-
-        # If too many changes, fall back to full rebuild
-        change_count = len(diff["added"]) + len(diff["removed"]) + len(diff["changed"])
-        if total_old > 0 and change_count > total_old * 0.5:
-            self._apply_filters_and_refresh()
-            return
-
-        visible = self._model.visible_columns
-        col_keys = [key for key, _, _, _ in COLUMN_DEFS if key in visible]
-        width_map = {d[0]: d[2] for d in COLUMN_DEFS}
-
-        # Ensure column headers are set
-        col_headers = []
-        for key in col_keys:
-            header = next((h for k, h, _, _ in COLUMN_DEFS if k == key), key)
-            if key == self._sort_column:
-                arrow = " \u25b2" if self._sort_ascending else " \u25bc"
-                col_headers.append(header + arrow)
-            else:
-                col_headers.append(header)
-
-        self.table.setColumnCount(len(col_headers))
-        self.table.setHorizontalHeaderLabels(col_headers)
-        self._emitting_widths = True
-        for col_idx, key in enumerate(col_keys):
-            w = self._saved_widths.get(key, width_map.get(key, 80))
-            self.table.setColumnWidth(col_idx, w)
-        self._emitting_widths = False
-
-        self.table.setRowCount(len(new_units))
-
-        # Rebuild all rows (QTableWidget doesn't have model signals for granular updates)
-        # The key optimization: we skip re-rendering unchanged rows by reusing QTableWidgetItems
-        # Build a map of existing items by com_number
-        existing_items = {}  # com_number -> {col_key: QTableWidgetItem}
-        for row_idx in range(min(total_old, self.table.rowCount())):
-            com_item = self.table.item(row_idx, 0)  # First column has com_number
-            if com_item:
-                unit = com_item.data(Qt.UserRole)
-                if unit:
-                    existing_items[unit.com_number] = row_idx
-
-        bold_font = QFont()
-        bold_font.setBold(True)
-
-        for row_idx, unit in enumerate(new_units):
-            com = unit.com_number
-            is_changed = com in diff["changed"] or com in {u.com_number for u in diff["added"]}
-
-            for col_idx, key in enumerate(col_keys):
-                # Try to reuse existing item if unchanged
-                if not is_changed and com in existing_items and row_idx == existing_items.get(com):
-                    # Row hasn't moved and unit hasn't changed — skip
-                    continue
-
-                value = getattr(unit, key, None)
-                display = self._format_cell(key, value)
-                item = QTableWidgetItem(display)
-
-                # Alignment
-                if key in (
-                    "percent_complete",
-                    "department_hours",
-                    "actual_hours",
-                    "target_department_hours",
-                    "working_days_in_checking",
-                ):
-                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                elif key == "status_color":
-                    item.setTextAlignment(Qt.AlignCenter)
-                else:
-                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-                # Status color
-                if key == "status_color":
-                    from gui.theme import status_style as _theme_status_style
-
-                    computed_status = unit.calculated_status_color
-                    hex_color, icon, label = _theme_status_style(
-                        self._theme_name, computed_status, self._cvd_mode
-                    )
-                    color = QColor(hex_color)
-                    item.setBackground(QBrush(color))
-                    brightness = (
-                        color.red() * 299 + color.green() * 587 + color.blue() * 114
-                    ) / 1000
-                    text_color = QColor("white") if brightness < 160 else QColor("#1e293b")
-                    item.setForeground(QBrush(text_color))
-                    item.setFont(bold_font)
-                    item.setText(icon)
-                    item.setToolTip(f"{icon} {label}")
-
-                # Overdue date highlight
-                if (
-                    key == "detailing_due_date"
-                    and value
-                    and isinstance(value, date)
-                    and value < date.today()
-                ):
-                    item.setForeground(QBrush(QColor("#dc2626")))
-                    item.setFont(bold_font)
-
-                # Due date changed indicator
-                if key == "detailing_due_date" and unit.due_date_changed:
-                    item.setText("⚠ " + item.text())
-                    item.setBackground(QBrush(QColor(255, 200, 50, 80)))
-                    prev = unit.previous_detailing_due_date
-                    prev_str = prev.strftime("%m/%d/%Y") if prev else "—"
-                    item.setToolTip(f"Due date changed from {prev_str}")
-
-                # Previous due date — always bold when present
-                if key == "dept_due_date_previous" and value:
-                    item.setFont(bold_font)
-
-                item.setData(Qt.UserRole, unit)
-                self.table.setItem(row_idx, col_idx, item)
-
-        # Update status label (final line of _refresh_table_incremental)
-        total = len(self._model.all_units)
-        showing = len(new_units)
-        stale_count = sum(1 for u in self._model.all_units if u.is_stale)
-        if self._model._show_stale:
-            stale_note = ""
-        elif stale_count > 0:
-            stale_note = f" ({stale_count} stale hidden)"
-        else:
-            stale_note = ""
-        self.status_label.setText(
-            f"Showing {showing} of {total} units{stale_note}"
-            f" | sorted by {self._sort_column}"
-            f" {'asc' if self._sort_ascending else 'desc'}"
-        )
 
     def _format_cell(self, key: str, value) -> str:
         """Format a Unit attribute for display."""
