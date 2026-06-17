@@ -11,8 +11,9 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,  # Added QComboBox
+    QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -64,8 +65,12 @@ class EditForm(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         form_container = QWidget()
+        form_container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self.form = QFormLayout(form_container)
+        self.form.setSpacing(6)
+        self.form.setContentsMargins(4, 4, 4, 4)
         scroll.setWidget(form_container)
         layout.addWidget(scroll)
 
@@ -223,6 +228,11 @@ class EditForm(QWidget):
         self.status_label = QLabel("")
         self.status_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.status_label)
+
+        # Compute proper minimum size for the scroll area's inner widget
+        # so QFormLayout fields don't compress/overlap when scrolling.
+        form_container.adjustSize()
+        form_container.setMinimumSize(form_container.sizeHint())
 
     def _create_h_line(self) -> QFrame:
         line = QFrame()
