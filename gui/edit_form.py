@@ -103,6 +103,7 @@ class EditForm(QWidget):
         self.notes_edit.setPlaceholderText("Notes...")
         self.notes_edit.setMinimumHeight(60)
         self.notes_edit.setMaximumHeight(120)
+        self.notes_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.form.addRow(QLabel("Notes:"), self.notes_edit)
 
         # --- Numeric fields ---

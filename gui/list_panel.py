@@ -600,7 +600,10 @@ class ListPanel(QWidget):
 
     def set_units(self, units: list[Unit]) -> None:
         """Load units into the model (initial load)."""
+        old_visible = self._model.visible_columns if self._model else None
         self._model = UnitListModel(units)
+        if old_visible:
+            self._model.set_visible_columns(old_visible)
         self._tag_strings_cache.clear()
         self._populate_detailer_combo()
         self._sort_column = "detailing_due_date"
@@ -610,24 +613,23 @@ class ListPanel(QWidget):
     def refresh(self, units: list[Unit]) -> None:
         """Reload data (called after save/external change).
 
-        Preserves filter state, sort selection, scroll position.
+        Preserves filter state, sort selection, scroll position, and visible columns.
         US-020b: Uses incremental diffing to avoid full table rebuild.
         """
         if self._model is None:
             self.set_units(units)
             return
 
-        # Save current selection and scroll position
+        # Save current selection, scroll position, and visible columns
         selected_com = self._get_selected_com()
         scroll_pos = self.table.verticalScrollBar().value()
+        old_visible = self._model.visible_columns
 
         # Save old unit list for diffing
         old_units = list(self._model.filtered_units) if self._model else []
-        old_visible = self._model.visible_columns if self._model else None
 
         self._model = UnitListModel(units)
-        if old_visible is not None:
-            self._model.set_visible_columns(old_visible)
+        self._model.set_visible_columns(old_visible)
         self._tag_strings_cache.clear()
         self._populate_detailer_combo()
 

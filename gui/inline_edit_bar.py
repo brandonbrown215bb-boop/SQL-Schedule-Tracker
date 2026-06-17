@@ -2,7 +2,7 @@
 """InlineEditBar — compact editing bar for quick edits in the list panel.
 
 Appears between the filter group and the table when a row is selected.
-Shows the most commonly edited fields: detailer, due date, % complete, status, notes.
+Shows the most commonly edited fields: detailer, due date, % complete, notes.
 Emits unit_saved(Unit) on save, which routes through the existing SaveWorker pipeline.
 """
 
@@ -26,7 +26,7 @@ from gui.edit_form import ClearableDateEdit
 class InlineEditBar(QWidget):
     """Compact horizontal editing bar for quick unit edits.
 
-    Fields: COM (read-only), Detailer, Due Date, % Complete, Status, Notes.
+    Fields: COM (read-only), Detailer, Due Date, % Complete, Notes.
     Save/Revert buttons. Enter in any field triggers save.
     Escape reverts if dirty.
 
@@ -80,14 +80,6 @@ class InlineEditBar(QWidget):
         self.pct_spin.setMinimumWidth(60)
         self.pct_spin.valueChanged.connect(self._on_field_changed)
         layout.addWidget(self.pct_spin)
-
-        # Status
-        layout.addWidget(QLabel("Status:"))
-        self.status_combo = QComboBox()
-        self.status_combo.addItems(["", "gray", "yellow", "purple", "orange", "green", "red"])
-        self.status_combo.setMinimumWidth(80)
-        self.status_combo.currentIndexChanged.connect(self._on_field_changed)
-        layout.addWidget(self.status_combo)
 
         # Notes
         layout.addWidget(QLabel("Notes:"))
@@ -147,7 +139,6 @@ class InlineEditBar(QWidget):
             else:
                 self.due_date_edit.setDate(QDate())
             self.pct_spin.setValue(unit.percent_complete)
-            self._set_combo_text(self.status_combo, unit.status_color or "")
             self.notes_edit.setText(unit.notes or "")
             self.setVisible(True)
         finally:
@@ -182,7 +173,7 @@ class InlineEditBar(QWidget):
             percent_complete=self.pct_spin.value(),
             actual_hours=self._unit.actual_hours,
             notes=self.notes_edit.text(),
-            status_color=self.status_combo.currentText() or self._unit.status_color,
+            status_color=self._unit.status_color,
         )
         # Preserve date fields from original unit
         unit.detailing_due_date = (
@@ -217,7 +208,6 @@ class InlineEditBar(QWidget):
         self.com_label.setText("")
         self.detailer_combo.setCurrentIndex(0)
         self.pct_spin.setValue(0.0)
-        self.status_combo.setCurrentIndex(0)
         self.notes_edit.setText("")
         self._dirty = False
 
