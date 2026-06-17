@@ -667,6 +667,7 @@ class ListPanel(QWidget):
             for u in units:
                 if u.com_number == com:
                     self._inline_edit_bar._unit = u
+                    self._inline_edit_bar.set_unit(u)
                     break
 
         # Restore selection and scroll position
