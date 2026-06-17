@@ -43,8 +43,7 @@ def main():
     if sys.stderr is None:
         _log_dir = os.path.join(os.path.expanduser("~"), ".unit_tracker")
         os.makedirs(_log_dir, exist_ok=True)
-        with open(os.path.join(_log_dir, "error.log"), "a", encoding="utf-8") as _err_f:
-            sys.stderr = _err_f
+        sys.stderr = open(os.path.join(_log_dir, "error.log"), "a", encoding="utf-8")
 
     faulthandler.enable()
 
