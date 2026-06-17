@@ -214,7 +214,7 @@ def check_architecture(project_root: str, changed_files: set[str]) -> CheckResul
             dir_stack.pop()
 
         # Track directory entries (lines ending with /)
-        dir_match = re.search(r"[\│├└─]\s+([\w_]+)/", line)
+        dir_match = re.search(r"[│├└─]\s*([\w_]+)/", line)
         if dir_match and "." not in dir_match.group(1):
             current_dir = dir_match.group(1)
             dir_stack.append((depth, current_dir))

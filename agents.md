@@ -59,6 +59,9 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── loading_overlay.py        # Loading spinner overlay
 │   ├── onboarding.py             # First-run wizard
 │   ├── theme.py                  # Dark/light theme + CVD modes
+│   ├── batch_edit_dialog.py      # Bulk edit dialog
+│   ├── inline_edit_bar.py        # Inline editing bar
+│   ├── audit_dialog.py           # Audit trail viewer
 │   └── a11y_dialog.py            # Accessibility settings
 ├── services/                     # ★ Business logic layer (zero Qt dependencies)
 │   ├── __init__.py               # Exports: UnitService, ImportService, ExportService, SyncService, ConfigService
