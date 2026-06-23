@@ -362,6 +362,7 @@ class ListPanel(QWidget):
     stale_changed = pyqtSignal(bool)  # show_stale
     column_widths_changed = pyqtSignal(dict)  # {key: width}
     column_visibility_changed = pyqtSignal(list)  # list of visible column keys
+    batch_mode_changed = pyqtSignal(int)  # count of selected units (0 = no batch)
 
     def __init__(
         self,
@@ -383,6 +384,7 @@ class ListPanel(QWidget):
         self._emitting_widths: bool = False
         self._default_detailers: list[str] = default_detailers or []
         self._db_path: str = db_path
+        self._inline_bar_above: bool = False  # P13:track bar position
         # Cache of pre-computed tag display strings, keyed by com_number.
         # Invalidated when the model (unit set) changes, preserved across
         # sort-only refreshes so we don't re-parse on every column click.
@@ -969,6 +971,7 @@ class ListPanel(QWidget):
         """Emit unit_selected when the user clicks a row."""
         unit = self._get_selected_unit()
         if unit is not None:
+            self._reposition_inline_bar(True)   # P13: move above table
             # If inline bar is dirty and user selected a different unit, warn
             if (
                 self._inline_edit_bar.is_dirty
@@ -996,6 +999,7 @@ class ListPanel(QWidget):
         else:
             self._inline_edit_bar.set_unit(None)
             self.blame_label.setText("")
+            self._reposition_inline_bar(False)  # P13: move back below table
         self._update_batch_bar()
 
     def _update_blame(self, unit: Unit) -> None:
@@ -1079,6 +1083,7 @@ class ListPanel(QWidget):
         else:
             self._batch_bar.setVisible(False)
             # Inline edit bar visibility is handled by _on_selection_changed
+        self.batch_mode_changed.emit(count)
 
     def _get_selected_units(self) -> list[Unit]:
         """Return list of currently selected Unit objects (deduped, row-based)."""
@@ -1168,3 +1173,19 @@ class ListPanel(QWidget):
                 self._model.set_visible_columns(new_visible)
                 self._refresh_table_full()
                 self.column_visibility_changed.emit(list(new_visible))
+
+    # ── Inline Edit Bar Repositioning (P13) ─────────────────────────────
+
+    def _reposition_inline_bar(self, above: bool) -> None:
+        """Move InlineEditBar above or below the table (P13, Option B)."""
+        if self._inline_bar_above == above:
+            return
+        layout = self.layout()
+        # Remove from current position (index 2 = below table, index 1 = above)
+        layout.removeWidget(self._inline_edit_bar)
+        # Insert at new position: 1 = after filter group (above table), 2 = after table (below)
+        target = 1 if above else 2
+        # Clamp to valid range
+        target = max(0, min(target, layout.count()))
+        layout.insertWidget(target, self._inline_edit_bar)
+        self._inline_bar_above = above

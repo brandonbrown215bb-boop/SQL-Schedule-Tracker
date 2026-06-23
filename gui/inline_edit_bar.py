@@ -1,7 +1,8 @@
 # gui/inline_edit_bar.py
 """InlineEditBar — compact editing bar for quick edits in the list panel.
 
-Appears between the filter group and the table when a row is selected.
+Appears between the filter group and the table when a row is selected
+(repositioned from below the table on selection).
 Shows the most commonly edited fields: detailer, due date, % complete, notes.
 Emits unit_saved(Unit) on save, which routes through the existing SaveWorker pipeline.
 """

@@ -1,9 +1,9 @@
 # gui/timeline_panel.py
 from datetime import date, timedelta
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QFont, QPainter, QPen
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
 
 from data.models import Unit
 
@@ -344,6 +344,8 @@ class TimelineWidget(QWidget):
 class TimelinePanel(QWidget):
     """Wrapper panel that holds the header + timeline widget."""
 
+    collapse_changed = pyqtSignal(bool)  # collapsed state
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("timeline_panel")
@@ -351,13 +353,35 @@ class TimelinePanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         self._theme_name = "light"
         self._cvd_mode = "none"
+        self._collapsed = False
+
+        # ── Header with collapse toggle ──
+        header = QHBoxLayout()
+        self._toggle_btn = QToolButton()
+        self._toggle_btn.setArrowType(Qt.DownArrow)
+        self._toggle_btn.setAutoRaise(True)
+        self._toggle_btn.setFixedSize(20, 20)
+        self._toggle_btn.clicked.connect(self._on_toggle_collapse)
+        header.addWidget(self._toggle_btn)
 
         self.header_label = QLabel("<b>Unit Timeline</b>")
         self.header_label.setFont(QFont("Segoe UI", 11))
-        layout.addWidget(self.header_label)
+        header.addWidget(self.header_label)
+        header.addStretch()
+        layout.addLayout(header)
 
         self.timeline = TimelineWidget()
         layout.addWidget(self.timeline)
+
+    def _on_toggle_collapse(self) -> None:
+        self._collapsed = not self._collapsed
+        self.timeline.setVisible(not self._collapsed)
+        self._toggle_btn.setArrowType(Qt.RightArrow if self._collapsed else Qt.DownArrow)
+        self.collapse_changed.emit(self._collapsed)
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        if self._collapsed != collapsed:
+            self._on_toggle_collapse()
 
     def set_theme(self, theme_name: str, cvd_mode: str = "none") -> None:
         self._theme_name = theme_name

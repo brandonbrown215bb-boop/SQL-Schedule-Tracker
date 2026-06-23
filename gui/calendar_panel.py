@@ -34,6 +34,7 @@ class EventCalendarWidget(QCalendarWidget):
         self._theme_name = "light"
         self._cvd_mode = "none"
         self._show_stale = False
+        self._highlighted_com: str | None = None  # P18
         # Fix: install event filter to reposition month/year QMenu popups
         self.installEventFilter(self)
 
@@ -59,6 +60,11 @@ class EventCalendarWidget(QCalendarWidget):
 
     def set_show_stale(self, show: bool) -> None:
         self._show_stale = show
+
+    def set_highlighted_com(self, com_number: str | None) -> None:
+        """Set the COM number whose due date cell should be highlighted (P18)."""
+        self._highlighted_com = com_number
+        self.updateCells()
 
     def set_events(self, units: list[Unit]):
         """Build the date→units map — only the detailing due date."""
@@ -166,6 +172,17 @@ class EventCalendarWidget(QCalendarWidget):
                     # Draw count text
                     painter.setPen(text_color)
                     painter.drawText(badge_x, badge_y, badge_w, badge_h, Qt.AlignCenter, badge_text)
+
+                # P18: Highlight border for selected unit's due date
+                if self._highlighted_com:
+                    for unit in units:
+                        if unit.com_number == self._highlighted_com:
+                            from PyQt5.QtGui import QPen as _QPen
+                            highlight = self.palette().color(self.palette().Highlight)
+                            painter.setPen(_QPen(highlight, 2))
+                            painter.setBrush(Qt.NoBrush)
+                            painter.drawRect(rect.adjusted(1, 1, -1, -1))
+                            break
             finally:
                 painter.restore()
         except Exception:
@@ -184,6 +201,7 @@ class CalendarPanel(QWidget):
         self.selected_date: QDate | None = None
         self._theme_name = "light"
         self._cvd_mode = "none"
+        self._highlighted_com: str | None = None  # P18: selected unit highlight
 
         layout = QVBoxLayout(self)
 
@@ -249,9 +267,16 @@ class CalendarPanel(QWidget):
         for unit in self.calendar.events_by_date.get(date, []):
             self._add_event_item(unit)
 
+    def set_highlighted_unit(self, com_number: str | None) -> None:
+        """Set the COM number to highlight on the calendar (P18)."""
+        self._highlighted_com = com_number
+        self.calendar.set_highlighted_com(com_number)
+        self.calendar.updateCells()
+
     def _on_event_clicked(self, item: QListWidgetItem):
         unit = item.data(Qt.UserRole)  # type: ignore[reportAttributeAccessIssue]
         if unit:
+            self.set_highlighted_unit(unit.com_number)
             self.unit_selected.emit(unit)
 
     def _go_today(self):

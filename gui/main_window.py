@@ -339,10 +339,11 @@ class MainWindow(QMainWindow):
         toggle_layout.addWidget(self.alerts_view_btn)
         toggle_layout.addStretch()
 
-        self.theme_btn = QPushButton("☀" if self._current_theme_name == "dark" else "🌙")
+        self.theme_btn = QPushButton()
         self.theme_btn.setObjectName("theme_btn")
         self.theme_btn.setToolTip("Toggle dark/light theme (Ctrl+T)")
         self.theme_btn.clicked.connect(self._toggle_theme)
+        self._update_theme_button()
         toggle_layout.addWidget(self.theme_btn)
 
         self.a11y_btn = QPushButton("♿")
@@ -373,6 +374,7 @@ class MainWindow(QMainWindow):
         self.list_panel.stale_changed.connect(self._on_stale_changed)
         self.list_panel.column_widths_changed.connect(self._on_column_widths_changed)
         self.list_panel.column_visibility_changed.connect(self._on_column_visibility_changed)
+        self.list_panel.batch_mode_changed.connect(self._on_batch_mode_changed)
         self.view_stack.addWidget(self.list_panel)
         self.alert_panel = AlertPanel(self.units)
         self.alert_panel.unit_selected.connect(self.on_unit_selected)
@@ -401,6 +403,16 @@ class MainWindow(QMainWindow):
         self.timeline_panel = TimelinePanel()
         right_panel.addWidget(self.timeline_panel)
 
+        # ── Batch mode banner (P8) ──
+        self._batch_banner = QLabel()
+        self._batch_banner.setObjectName("batch_banner")
+        self._batch_banner.setStyleSheet(
+            "background: #fbbf24; color: #1e293b; font-weight: bold; "
+            "padding: 6px 10px; border-radius: 4px;"
+        )
+        self._batch_banner.setVisible(False)
+        right_panel.addWidget(self._batch_banner)
+
         self.edit_form = EditForm(
             default_detailers=self._services.config.get("default_detailers", [])
         )
@@ -410,6 +422,30 @@ class MainWindow(QMainWindow):
         right_panel.addWidget(self.edit_form, 1)
 
         self.main_splitter.addWidget(right_widget)
+
+        # ── Right panel collapse toggle (P19) ──
+        self._right_collapsed = False
+        self._right_panel_sizes = None
+        self._collapse_btn = QPushButton("▶")
+        self._collapse_btn.setObjectName("right_collapse_btn")
+        self._collapse_btn.setFixedSize(24, 24)
+        self._collapse_btn.setToolTip("Collapse right panel")
+        self._collapse_btn.clicked.connect(self._on_toggle_right_panel)
+        collapse_header = QHBoxLayout()
+        collapse_header.addStretch()
+        collapse_header.addWidget(self._collapse_btn)
+        right_panel.insertLayout(0, collapse_header)
+
+        # ── Timeline collapse persistence (P2) ──
+        self.timeline_panel.collapse_changed.connect(self._on_timeline_collapse_changed)
+        saved_timeline_collapsed = self._services.config.get("ui", {}).get("timeline_collapsed", False)
+        if saved_timeline_collapsed:
+            self.timeline_panel.set_collapsed(True)
+
+        # ── Right panel collapse persistence (P19) ──
+        saved_right_collapsed = self._services.config.get("ui", {}).get("right_panel_collapsed", False)
+        if saved_right_collapsed:
+            QTimer.singleShot(0, self._on_toggle_right_panel)
 
     def _init_splitter_sizes(self) -> None:
         saved_sizes = self._services.config.get("ui", {}).get("splitter_sizes")
@@ -518,6 +554,18 @@ class MainWindow(QMainWindow):
         else:
             self.alerts_view_btn.setText("🔔 Alerts (Ctrl+3)")
             self.alerts_view_btn.setStyleSheet("")
+
+    def _on_batch_mode_changed(self, count: int) -> None:
+        """Show/hide batch banner in right panel and dim edit form (P8)."""
+        if count >= 2:
+            self._batch_banner.setText(f"📦 Batch Mode — {count} units selected")
+            self._batch_banner.setVisible(True)
+            self.edit_form.setEnabled(False)
+            self.timeline_panel.setEnabled(False)
+        else:
+            self._batch_banner.setVisible(False)
+            self.edit_form.setEnabled(True)
+            self.timeline_panel.setEnabled(True)
 
     def _on_stale_changed(self, show_stale: bool) -> None:
         self.calendar_panel.calendar.set_show_stale(show_stale)
@@ -1162,12 +1210,23 @@ class MainWindow(QMainWindow):
         new_theme = "dark" if self._current_theme_name == "light" else "light"
         self._apply_theme_by_name(new_theme)
 
+    def _update_theme_button(self) -> None:
+        """Update theme button icon based on current theme (P14)."""
+        if self._current_theme_name == "dark":
+            self.theme_btn.setText("\u2600")  # ☀ sun (Unicode, no emoji)
+        else:
+            self.theme_btn.setText("\u263E")  # ☾ moon (Unicode, no emoji)
+        self.theme_btn.setToolTip(
+            "Switch to light theme (Ctrl+T)" if self._current_theme_name == "dark"
+            else "Switch to dark theme (Ctrl+T)"
+        )
+
     def _apply_theme_by_name(self, theme_name: str) -> None:
         from gui.theme import apply_theme
 
         apply_theme(self, theme_name, cvd_mode=self._current_cvd, high_contrast=self._current_hc)
         self._current_theme_name = theme_name
-        self.theme_btn.setText("☀" if theme_name == "dark" else "🌙")
+        self._update_theme_button()
         for panel in (self.calendar_panel, self.list_panel, self.timeline_panel, self.edit_form):
             if hasattr(panel, "set_theme"):
                 panel.set_theme(theme_name, self._current_cvd)
@@ -1189,6 +1248,33 @@ class MainWindow(QMainWindow):
             self._config_debounce_timer.setInterval(2000)
             self._config_debounce_timer.timeout.connect(self._flush_config_save)
         self._config_debounce_timer.start()
+
+    def _on_timeline_collapse_changed(self, collapsed: bool) -> None:
+        """Persist timeline collapse state to config (P2)."""
+        self._services.config.setdefault("ui", {})["timeline_collapsed"] = collapsed
+        self._save_ui_config()
+
+    def _on_toggle_right_panel(self) -> None:
+        """Toggle right panel collapse/expand (P19)."""
+        if self._right_collapsed:
+            # Restore
+            if self._right_panel_sizes:
+                self.main_splitter.setSizes(self._right_panel_sizes)
+            else:
+                self.main_splitter.setSizes([self.width() // 2, self.width() // 2])
+            self._right_collapsed = False
+            self._collapse_btn.setText("▶")
+            self._collapse_btn.setToolTip("Collapse right panel")
+        else:
+            # Collapse — save current sizes first
+            self._right_panel_sizes = self.main_splitter.sizes()
+            self.main_splitter.setSizes([self._right_panel_sizes[0] + self._right_panel_sizes[1], 0])
+            self._right_collapsed = True
+            self._collapse_btn.setText("◀")
+            self._collapse_btn.setToolTip("Expand right panel")
+        # Persist
+        self._services.config.setdefault("ui", {})["right_panel_collapsed"] = self._right_collapsed
+        self._save_ui_config()
 
     def _stop_debounce_flush(self) -> None:
         if self._config_debounce_timer is not None:
