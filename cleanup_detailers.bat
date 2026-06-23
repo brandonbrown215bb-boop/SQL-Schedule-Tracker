@@ -25,7 +25,7 @@ echo Running cleanup_detailers.py...
 echo Database: %DB_PATH%
 echo.
 
-%PY% "%SCRIPT_DIR%\cleanup_detailers.py" --db "%DB_PATH%" %*
+%PY% "%SCRIPT_DIR%\cleanup_detailers.py" --db "%DB_PATH%" %* --apply
 
 pause
 endlocal
