@@ -306,6 +306,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_search_single_match") and self._search_single_match is not None:
             self.on_unit_selected(self._search_single_match)
             self._search_single_match = None
+
+    def _init_central_layout(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
