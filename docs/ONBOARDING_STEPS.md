@@ -9,7 +9,7 @@ short paragraph. It is skippable and replayable via *Help → Show Walkthrough*.
 
 ---
 
-## Step overview (15 steps)
+## Step overview (12 steps)
 
 | # | Widget target | Title | What it captures |
 |---|---|---|---|
@@ -21,13 +21,10 @@ short paragraph. It is skippable and replayable via *Help → Show Walkthrough*.
 | 6 | `timeline_panel` | Unit Timeline | Horizontal milestone bar chart. Shows Detailing Start, Moved to Checking, Detailing Complete, Dept Due (prev), Detailing Due. Bar fill reflects computed status: green=100%, orange=95-99%, purple=90-94%, yellow=1-89%, gray=0%, red=overdue/behind. Capacity-based logic (remaining hours vs. available working days). |
 | 7 | `edit_form` | Edit Form | All 18 fields: COM (read-only), job name, contract, description, detailer, checking status, notes, dept/target/IEC hours, % complete, actual hours, 6 dates. Ctrl+S to save. Background saves, dirty tracking, auto-computed target hours, non-primary identical read-only. |
 | 8 | `theme_btn` | Theme & Accessibility | Light/dark theme toggle (Ctrl+T). ♿ button for CVD modes (protanopia/deuteranopia/tritanopia) and high-contrast mode. Preference saved automatically. |
-| 9 | `pull_csv_btn` | Import CSV | Import CSV from SSRS into SQLite. File picker, upsert by COM number, auto-refresh after import. |
-| 10 | `pull_ssrs_btn` | Pull SSRS (Online Import) | Fetch from SSRS ReportServer endpoint (config.yaml). Configurable lookback/lookahead date ranges. Upsert into SQLite, auto-refresh. |
-| 11 | `refresh_btn` | Refresh from SQLite | Reload all unit data from SQLite. 3-second cooldown. F5 shortcut. Auto-refresh on external file changes (file watcher). |
-| 12 | `export_btn` | Export to Excel | Export SQLite contents to 'Current List' sheet of Excel workbook (.xlsm/.xlsx). Reconciles with shared team workbook. |
-| 13 | `status_bar` | Status Bar | Loading progress, save confirmations, unit count, sync status. Auto-reloads on external DB changes. Multi-user presence indicator (click for session details). |
-| 14 | `menuBar` | Reports & Help Menus | Reports menu → Scheduling Dashboard (segmented bar charts, PNG export, date-range filter). Help menu → replay walkthrough, About dialog. |
-| 15 | `left_panel` | Keyboard Shortcuts | Ctrl+S = Save, Ctrl+T = Theme, F5 = Refresh, Ctrl+F = COM search, Escape = Clear selection. Arrow-key navigation and context menus in list view. |
+| 9 | `global_toolbar` | Global Operations Toolbar | Top toolbar with Import CSV, Pull SSRS, Refresh, and Export Excel actions. Includes a global search bar (Ctrl+F) for finding units by COM number, job name, or contract. |
+| 10 | `status_bar` | Status Bar | Loading progress, save confirmations, unit count, sync status. Auto-reloads on external DB changes. Multi-user presence indicator (click for session details). |
+| 11 | `menuBar` | Reports & Help Menus | Reports menu → Scheduling Dashboard (segmented bar charts, PNG export, date-range filter). Help menu → replay walkthrough, About dialog. |
+| 12 | `left_panel` | Keyboard Shortcuts | Ctrl+S = Save, Ctrl+T = Theme, F5 = Refresh, Ctrl+F = Global search, Escape = Clear selection/search. Arrow-key navigation and context menus in list view. |
 
 ---
 
@@ -116,11 +113,8 @@ to find and highlight them:
 | `alerts_view_btn` | QPushButton | `gui/main_window.py` |
 | `timeline_panel` | TimelinePanel | `gui/timeline_panel.py` |
 | `edit_form` | EditForm | `gui/edit_form.py` |
-| `theme_btn` | QPushButton | `gui/main_window.py` |
-| `pull_csv_btn` | QPushButton | `gui/main_window.py` |
-| `pull_ssrs_btn` | QPushButton | `gui/main_window.py` |
-| `refresh_btn` | QPushButton | `gui/main_window.py` |
-| `export_btn` | QPushButton | `gui/main_window.py` |
+|| `theme_btn` | QPushButton | `gui/main_window.py` |
+| `global_toolbar` | QToolBar | `gui/main_window.py` |
 | `status_bar` | QStatusBar | `gui/main_window.py` |
 | `menuBar` | QMenuBar | `gui/main_window.py` |
 | `left_panel` | QWidget | `gui/main_window.py` |

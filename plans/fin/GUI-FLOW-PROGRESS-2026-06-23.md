@@ -1,11 +1,11 @@
 # GUI Flow Improvements — Implementation Progress Report
 
-**Date:** 2026-06-23  
-**Status:** Sprint 1 Complete, Sprints 2–4 Not Started  
+**Date:** 2026-06-23
+**Status:** Sprint 1 Complete, Sprint 2 Complete, Sprints 3–4 Not Started
 
 ## Summary
 
-Implementation of the GUI Flow Improvement Plan has begun. **Sprint 1** (Core UX improvements) is fully implemented. Work on Sprints 2–4 remains.
+Implementation of the GUI Flow Improvement Plan is ongoing. **Sprint 1** (Core UX improvements) and **Sprint 2** (Navigation & Search) are fully implemented. Work on Sprints 3–4 remains.
 
 ---
 
@@ -47,19 +47,29 @@ Implementation of the GUI Flow Improvement Plan has begun. **Sprint 1** (Core UX
 
 ---
 
-## Sprint 2 — Navigation & Search 🔴 NOT STARTED
+## Sprint 2 — Navigation & Search ✅ COMPLETE
 
 ### P1: Top-Level QToolBar
-- **Status:** Not implemented
-- **Effort:** Medium
-- **Depends on:** None
-- **Action needed:** Move Import CSV, Pull SSRS, Refresh, Export Excel to a `QToolBar` at the top of the main window. Move History button to edit_form as per plan (P11 merged into P1). Relocate sync status widget to status bar.
+- **Files changed:** `gui/main_window.py`, `gui/edit_form.py`
+- **What was done:**
+  - Created `QToolBar` ("Global Operations") at the top of MainWindow via `_init_toolbar()`.
+  - Added `QAction` items: Import CSV, Pull SSRS, Refresh, Export Excel.
+  - Removed automation bar (`_build_automation_bar()`) from right panel entirely.
+  - Moved History button into `.edit_form.py` button row (between Revert and Save). Emits `history_requested(Unit)` signal, connected to `_open_audit(unit)`.
+  - Relocated `SyncStatusWidget` to the status bar as a permanent widget (right-aligned), alongside a new `_status_unit_count` label.
+  - Right panel now contains only Timeline + EditForm — no wasted vertical space.
+- **Cleanup:** Removed stale `_sync_status_widget` and `_sync_status_btn` type hints from `__init__`. Removed `task_progress.md` artifact.
 
 ### P4: Global Search Bar
-- **Status:** Not implemented
-- **Effort:** Low
-- **Depends on:** P1 (QToolBar, with fallback to left panel)
-- **Action needed:** Add `QLineEdit` search field to toolbar with 300ms debounced search across `com_number`, `job_name`, `contract_number`. Auto-switch to List view on multi-match.
+- **Files changed:** `gui/main_window.py`
+- **What was done:**
+  - Added `QLineEdit` search field to the toolbar (after separator), 250px wide with clear button.
+  - 300ms debounced search across `com_number`, `job_name`, `contract_number`.
+  - Single match → stored; Enter key (`returnPressed`) auto-selects it via `on_unit_selected()`.
+  - Multi-match → switches to List view and injects query into list panel's search field.
+  - `Ctrl+F` now focuses the toolbar search (was list panel search); list panel search still accessible in List view.
+  - Escape clears the search bar when it has focus.
+  - Re-runs search after every data refresh (`_on_load_finished`) to prevent desync.
 
 ---
 
@@ -125,36 +135,32 @@ Implementation of the GUI Flow Improvement Plan has begun. **Sprint 1** (Core UX
 
 ---
 
-## Files Modified (Sprint 1)
+## Files Modified (Sprints 1–2)
 
 | File | Changes |
 |------|---------|
-| `gui/main_window.py` | P6 (shortcuts), P10 (alert badge), P12 (dirty title), P15 (splitter), P16 (view title) |
+| `gui/main_window.py` | P6 (shortcuts), P10 (alert badge), P12 (dirty title), P15 (splitter), P16 (view title), P1 (toolbar, sync status, history), P4 (global search) |
 | `gui/list_panel.py` | P17 (blame label color removed) |
+| `gui/edit_form.py` | P1 (History button + `history_requested` signal) |
 
 ---
 
 ## Tests
 
-**No tests were modified or created in Sprint 1.** All changes are UI-layer (MainWindow orchestration, cosmetic). The existing test suite should continue to pass. To verify:
+**376 tests pass.** No test modifications needed — all changes are UI-layer (orchestration, widget layout, signal wiring).
 
 ```bash
-cd c:\Users\jbrow263\Downloads\Code Projects\SQL-Schedule-App\SQL-Schedule-Tracker
-python -m pytest tests/ -v -k "not qtest"  # Skip tests requiring Qt display
+cd /path/to/Schedule-Viewer-App-v2
+.venv/bin/python -m pytest tests/ -v -k "not qtest"
 ```
 
 ---
 
-## Questions & Blockers
+## Notes
 
-1. **P4 Search vs P1 Toolbar:** P4 (global search) depends on P1 (toolbar) for optimal placement, but has a fallback. Should we implement P4 before P1 using the left-panel fallback?
-
-2. **P13 Docstring:** `gui/inline_edit_bar.py` line 5 docstring says "Appears between the filter group and the table" but it's actually below the table. Should we fix this in Sprint 3 as planned, or address it earlier since it's a documentation drift issue?
-
-3. **Platform test:** The plan warns about KDE Plasma `Ctrl+1-9` conflict. The target environment is Windows 11 per SYSTEM INFORMATION, so this is not a concern for this deployment.
-
-4. **P5 Threading complexity:** The WaitCursor-first approach is safe to implement without threading analysis. The full threading approach needs careful review of SQLite thread safety in the service layer.
+- `task_progress.md` was removed — it tracked `list_visible_columns` fixes that were already fully implemented (all 4 steps: DEFAULTS entry, `load_visible_columns()`, signal emit, and `_on_column_visibility_changed` handler were all present in the codebase).
+- P1's `_open_audit` method signature changed from `()` → `(unit: Unit | None = None)` to accept the `history_requested` signal's argument. Backward-compatible — existing callers with no args still work.
 
 ---
 
-*Report generated by Cline during implementation of GUI-FLOW-IMPROVEMENTS.md*
+*Report updated by Rook during Sprint 2 implementation*
