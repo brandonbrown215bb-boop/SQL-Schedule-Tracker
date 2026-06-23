@@ -266,6 +266,7 @@ class MainWindow(QMainWindow):
         self.list_panel.unit_saved.connect(self.on_save_unit)
         self.list_panel.stale_changed.connect(self._on_stale_changed)
         self.list_panel.column_widths_changed.connect(self._on_column_widths_changed)
+        self.list_panel.column_visibility_changed.connect(self._on_column_visibility_changed)
         self.view_stack.addWidget(self.list_panel)
         self.alert_panel = AlertPanel(self.units)
         self.alert_panel.unit_selected.connect(self.on_unit_selected)
@@ -279,6 +280,12 @@ class MainWindow(QMainWindow):
         saved_widths = self._services.config.get("ui", {}).get("list_column_widths", {})
         if saved_widths:
             self.list_panel.load_column_widths(saved_widths)
+        saved_visible = self._services.config.get("ui", {}).get("list_visible_columns", [])
+        if saved_visible:
+            self.list_panel.load_visible_columns(saved_visible)
+        saved_sort_col = self._services.config.get("ui", {}).get("list_sort_column", "detailing_due_date")
+        saved_sort_asc = self._services.config.get("ui", {}).get("list_sort_ascending", True)
+        self.list_panel.load_sort_config(saved_sort_col, saved_sort_asc)
 
     def _init_right_panel(self) -> None:
         right_widget = QWidget()
@@ -1060,6 +1067,10 @@ class MainWindow(QMainWindow):
         self._services.config.setdefault("ui", {})["list_column_widths"] = widths
         self._save_ui_config()
 
+    def _on_column_visibility_changed(self, keys: list) -> None:
+        self._services.config.setdefault("ui", {})["list_visible_columns"] = keys
+        self._save_ui_config()
+
     def _save_ui_config(self) -> None:
         if self._config_debounce_timer is None:
             self._config_debounce_timer = QTimer(self)
@@ -1082,6 +1093,11 @@ class MainWindow(QMainWindow):
                 "splitter_sizes": self.main_splitter.sizes(),
             }
         )
+        # Persist current list sort state
+        ui = self._services.config.setdefault("ui", {})
+        if hasattr(self, "list_panel") and self.list_panel._model is not None:
+            ui["list_sort_column"] = self.list_panel._sort_column
+            ui["list_sort_ascending"] = self.list_panel._sort_ascending
         config_path = self._services.config_path
         if config_path and os.path.exists(os.path.dirname(config_path)):
             try:

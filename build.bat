@@ -1,0 +1,1 @@
+py -3 -m PyInstaller --onefile --windowed --name "Detailing Schedule" --icon="icon.ico" main.py

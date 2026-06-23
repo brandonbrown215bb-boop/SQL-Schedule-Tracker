@@ -361,6 +361,7 @@ class ListPanel(QWidget):
     unit_saved = pyqtSignal(object)  # Unit (from inline edit bar)
     stale_changed = pyqtSignal(bool)  # show_stale
     column_widths_changed = pyqtSignal(dict)  # {key: width}
+    column_visibility_changed = pyqtSignal(list)  # list of visible column keys
 
     def __init__(
         self,
@@ -378,6 +379,7 @@ class ListPanel(QWidget):
         self._cvd_mode: str = "none"
         self._tag_repo: UnitTagRepository | None = None
         self._saved_widths: dict[str, int] = {}
+        self._saved_visible_columns: list[str] = []
         self._emitting_widths: bool = False
         self._default_detailers: list[str] = default_detailers or []
         self._db_path: str = db_path
@@ -597,12 +599,30 @@ class ListPanel(QWidget):
         """Load saved column widths from config (key → pixel width)."""
         self._saved_widths = dict(widths)
 
+    def load_sort_config(self, column: str, ascending: bool) -> None:
+        """Load saved sort column and direction from config."""
+        self._sort_column = column
+        self._sort_ascending = ascending
+
+    def load_visible_columns(self, keys: list[str]) -> None:
+        """Load saved visible columns from config (list of column keys).
+        
+        Stores the keys and applies them if the model already exists.
+        """
+        if not keys:
+            return
+        self._saved_visible_columns = list(keys)
+        if self._model is not None:
+            self._model.set_visible_columns(keys)
+
     def set_units(self, units: list[Unit]) -> None:
         """Load units into the model (initial load)."""
         old_visible = self._model.visible_columns if self._model else None
         self._model = UnitListModel(units)
         if old_visible:
             self._model.set_visible_columns(old_visible)
+        elif self._saved_visible_columns:
+            self._model.set_visible_columns(self._saved_visible_columns)
         self._tag_strings_cache.clear()
         self._populate_detailer_combo()
         self._sort_column = "detailing_due_date"
@@ -1147,3 +1167,4 @@ class ListPanel(QWidget):
             if new_visible:
                 self._model.set_visible_columns(new_visible)
                 self._refresh_table_full()
+                self.column_visibility_changed.emit(list(new_visible))

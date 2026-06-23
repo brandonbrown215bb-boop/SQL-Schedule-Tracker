@@ -35,6 +35,9 @@ DEFAULTS: dict = {
         "last_view": "calendar",
         "splitter_sizes": None,
         "list_column_widths": {},
+        "list_visible_columns": [],
+        "list_sort_column": "detailing_due_date",
+        "list_sort_ascending": True,
         "onboarding_completed": False,
     },
 }

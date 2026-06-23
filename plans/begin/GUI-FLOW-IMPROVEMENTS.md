@@ -1,6 +1,7 @@
 # GUI Flow Improvement Plan
 
-*Generated: 2026-06-16*
+*Generated: 2026-06-16*  
+*Last reviewed: 2026-06-23 (codebase audit) — corrections applied per review*
 
 > This document catalogs interface-flow issues discovered during a comprehensive review of the application's GUI layer (`gui/` package + `main.py` orchestration). Each item includes a description of the problem, the affected files, and a concrete implementation guide for when the work is picked up.
 
@@ -150,15 +151,10 @@ CalendarPanel has no filtering capability — it displays dots for all non-stale
    - On filter change, call `self.calendar.set_events(filtered_units)` where `filtered_units` applies the selected filter(s) to `self.units`.
    - Re-populate the event list for the currently selected date.
 
-3. **Wire filters to calendar dots**:
-   - Store filter state as `self._filter_detailer: str = "All"` and `self._filter_status: str = "All"`.
-   - On filter change, call `self.calendar.set_events(filtered_units)` where `filtered_units` applies the selected filter(s) to `self.units`.
-   - Re-populate the event list for the currently selected date.
-
-4. **Preserve filter state**:
+3. **Preserve filter state**:
    - Save calendar filter state to config similar to list panel filters.
 
-5. **Layout note**: The calendar already has a header row with "Today" button. Adding a filter bar above the calendar widget means the left panel gets taller. On 1366×768, this could push the calendar grid below the fold. Integrate filters into the existing header row (same row as "Today" button) rather than adding a new row, or make the filter bar collapsible.
+4. **Layout note**: The calendar already has a header row with "Today" button. Adding a filter bar above the calendar widget means the left panel gets taller. On 1366×768, this could push the calendar grid below the fold. Integrate filters into the existing header row (same row as "Today" button) rather than adding a new row, or make the filter bar collapsible.
 
 ### Files to Modify
 
@@ -306,22 +302,30 @@ When filtering by a specific detailer in Alerts view, switching to Calendar or L
    - Connect all panels to propagate: when the user changes detailer in any view, update `self._active_detailer` and push to all panels that support detailer filtering.
    - **Opt-in per view:** Not every view should automatically receive the filter. The user might want to see all units in the Calendar while filtering the List to one detailer. Add a "link filters" toggle (small chain-link icon button near the view toggle) that enables/disables cross-view propagation. Default: disabled.
 
-3. **Apply on view switch**:
+3. **⚠️ AlertPanel needs a `detailer_changed` signal (currently missing):**
+   - **Codebase finding:** The current `AlertPanel` (line 168 of `gui/alert_panel.py`) defines only `unit_selected = pyqtSignal(object)` — **no `detailer_changed` signal exists**.
+   - **Fix:** Add `detailer_changed = pyqtSignal(str)` to `AlertPanel`.
+   - **Wire:** Emit `self.detailer_changed.emit(new_detailer)` from both:
+     - `AlertPanel._on_detailer_changed()` — when user picks a new detailer from the combo.
+     - `AlertPanel.set_detailer(name)` — when the detailer is set programmatically via cross-view propagation.
+     - Guard `set_detailer()` against re-entrancy: only emit if the value actually changed.
+
+4. **Apply on view switch**:
    - In `_switch_view(view_name)`, after setting the view stack index, call:
      - Calendar: `self.calendar_panel.set_detailer(self._active_detailer)` (only if P3 is implemented and "link filters" is enabled)
      - List: if detailer combo exists, set its value to `self._active_detailer`
-     - Alerts: already has `set_detailer()`
+     - Alerts: `self.alert_panel.set_detailer(self._active_detailer)`
 
-4. **Partial filter carry-over**:
+5. **Partial filter carry-over**:
    - Status filter is List-specific (paint dot colors). Don't force status across views.
    - Date range filter is List-specific. Don't carry over to Calendar/Alerts.
 
 ### Files to Modify
 
+- `gui/alert_panel.py` — **add `detailer_changed = pyqtSignal(str)`**, emit from `_on_detailer_changed()` and `set_detailer()`
 - `gui/main_window.py` — `_active_detailer`, `_on_global_detailer_changed()`, `_switch_view()` apply logic
 - `gui/calendar_panel.py` — add `set_detailer()` and `detailer_changed` signal (if P3 implemented)
 - `gui/list_panel.py` — emit `detailer_changed` when its combo changes
-- `gui/alert_panel.py` — already has `detailer_changed` signal, ensure propagation
 
 ---
 
@@ -389,7 +393,7 @@ All messages compete for the single-line QStatusBar: loading messages, save conf
    - Show these as permanent widgets on the status bar.
 
 4. **Migration**:
-   - Replace all `self.status_bar.showMessage("...", ...)` calls (search for ~25 occurrences) with `self._notify()` calls.
+   - Replace all `self.status_bar.showMessage("...", ...)` calls (search for ~27 occurrences) with `self._notify()` calls.
    - Each replacement maps the message duration to the appropriate notification type:
      - "✓ Saved..." → SUCCESS, 3s
      - "Save failed..." → ERROR, 8s
@@ -478,7 +482,10 @@ Dirty state is tracked internally (`_form_dirty`, `_inline_edit_bar.is_dirty`) b
 4. **Set base title on app load**:
    - In `__init__()`, call `self.setWindowTitle("Unit Tracker")` — already done.
 
-5. **Inline + edit form interaction caveat**: The inline edit bar has its own save path that bypasses the edit form's dirty tracking. If the user makes changes in *both* the inline bar and the edit form before saving, the window title shows `*` but only one save path fires. This is a known limitation — document it as a follow-up item (see P19: Unified Edit State Model).
+5. **⚠️ Known Limitation (Sprint 1 → Sprint 4 gap):**
+   - P12 is implemented in Sprint 1, **but** the inline edit bar and edit form have separate save paths and separate dirty flags. With this Sprint 1 implementation, the window title will correctly show `*` when inline bar changes exist, **but the correct save path may be ambiguous** — only `UnitService.save()` via whichever surface triggered the save will fire.
+   - If the user makes changes in *both* the inline bar and the edit form before saving, only the save path of the last-triggered surface fires. The other side's changes are silently lost.
+   - **This gap is resolved by P20 (Unified Edit State Model, Sprint 4).** Do not attempt to fix it here — just ship the visual indicator. Document that the inline+form interaction caveat is a known limitation until P20 lands.
 
 ### Files to Modify
 
@@ -495,16 +502,18 @@ The InlineEditBar appears *below* the QTableWidget when a row is selected. If th
 
 ### Implementation Guide
 
-1. **Current layout**:
+1. **Current layout** (codebase verified):
    ```
    VBoxLayout:
      [Filter Group]
      [QTableWidget]  (stretch=1)
-     [InlineEditBar]  (fixed height)
+     [InlineEditBar]  (fixed height)      ← line 577 of gui/list_panel.py
      [Batch Bar]      (hidden until multi-select)
      [Status Label]
      [Blame Label]
    ```
+
+   > **Note:** The InlineEditBar's own docstring says "Appears between the filter group and the table" but this is inaccurate — it's below the table. The layout diagram above is the correct one. When implementing this P13, also fix the docstring in `gui/inline_edit_bar.py` line 5.
 
 2. **Option A: Pin to reference row**:
    - Instead of adding InlineEditBar to the main layout, add it as a **sticky widget** inside the table's viewport.
@@ -525,10 +534,12 @@ The InlineEditBar appears *below* the QTableWidget when a row is selected. If th
 5. **Recommendation**: Implement Option B (reorder layout on selection) — it's clean and keeps the bar always visible at the top of the data area.
    - **Relayout flash warning:** Removing and re-inserting a widget from a `QVBoxLayout` at runtime causes a visible relayout flash. Test on the target hardware to ensure it's acceptable.
    - **Deselect behavior:** When the selection is cleared, move the bar back to its original position (below the table). This means the layout reorders twice per selection cycle (bottom → top on select, top → bottom on deselect). If this proves jarring, keep the bar at the top permanently once the first selection is made.
+   - **Also update the docstring** of `gui/inline_edit_bar.py` to say "Appears below the table" instead of "between filter group and table".
 
 ### Files to Modify
 
 - `gui/list_panel.py` — `_build_ui()` layout reordering, `_on_selection_changed()` to ensure bar is visible
+- `gui/inline_edit_bar.py` — fix docstring line 5 to match actual layout
 
 ---
 
@@ -670,29 +681,38 @@ The "Last edited by..." label in `gui/list_panel.py` uses a hardcoded `#64748b` 
 
 ### Implementation Guide
 
-1. **Use palette colors instead of hardcoded**:
-   - Replace the inline stylesheet with palette-aware styling:
-     ```python
-     self.blame_label.setStyleSheet("")  # Clear hardcoded color
-     # Let the theme stylesheet handle it, or use:
-     # palette().color(QPalette.Mid)
-     ```
+1. **⚠️ Theme system uses type-based dispatch, not name-based CSS rules:**
+   - **Codebase finding:** `gui/theme.py` applies stylesheet rules via a **type-based handler registry** (`_THEME_HANDLERS` dict, line 474). `QLabel` is **not in the handler registry**, so a name-based CSS rule like `#blame_label { color: palette(mid); }` in `apply_theme()` would **never be applied**.
+   - The recommended approach below uses `findChild()` in `apply_theme()` to set the label's color explicitly, following the same pattern already used for `"left_panel"` and `"right_panel"` (lines 528-531 of `gui/theme.py`).
 
-2. **Add a theme-aware style**:
-   - In `gui/theme.py`, add a style rule for `#blame_label`:
+2. **Option A (Preferred): Explicit color via `findChild` in `apply_theme()`**:
+   - In `gui/theme.py`, inside `apply_theme()`, add a block after the existing panel-color blocks:
      ```python
-     "#blame_label { color: palette(mid); font-size: 11px; }"
+     blame_label = widget.findChild(QWidget, "blame_label")
+     if blame_label is not None:
+         blame_label.setStyleSheet(f"color: {tokens['text_secondary']}; font-size: 11px; padding-left: 4px;")
      ```
-   - This way the color automatically adapts to dark/light/high-contrast themes.
+   - Then in `gui/list_panel.py` line 591, replace the hardcoded stylesheet with:
+     ```python
+     self.blame_label.setStyleSheet("font-size: 11px; padding-left: 4px;")  # color set by theme
+     ```
+   - This keeps the color theme-aware while letting the theme system handle it centrally.
 
-3. **Set the object name**:
+3. **Option B (Simpler, if theme.py changes feel risky)**:
+   - Simply remove the `color:` from the inline stylesheet in `gui/list_panel.py`:
+     ```python
+     self.blame_label.setStyleSheet("font-size: 11px; padding-left: 4px;")
+     ```
+   - The label inherits `QPalette.WindowText` from its parent, which changes with the theme.
+   - **Trade-off:** This loses the muted/secondary text distinction — the blame label will be the same color as normal text instead of slightly grayed.
+
+4. **Set the object name**:
    - The blame label already has `setObjectName("blame_label")` which is good.
-   - Ensure `apply_theme()` in `gui/theme.py` includes a rule for it.
 
 ### Files to Modify
 
-- `gui/list_panel.py` — remove hardcoded inline stylesheet from blame_label
-- `gui/theme.py` — add `#blame_label` style rule to both light and dark theme stylesheets
+- `gui/list_panel.py` — remove hardcoded `color: #64748b` from blame_label stylesheet
+- `gui/theme.py` — add `findChild(QWidget, "blame_label")` block in `apply_theme()` (Option A) or do nothing (Option B)
 
 ---
 
@@ -854,8 +874,8 @@ Both `LoadingOverlay` and `NotificationPanel` are overlay widgets in the main wi
 **Sprint 1 — Core UX improvements (High Impact, Low-Med Effort)**:
 - P6: Keyboard shortcuts (Ctrl+1/2/3)
 - P10: Alert badge on view buttons
-- P17: Blame label theme compliance (one-liner, quick win)
-- P12: Dirty title indicator
+- P17: Blame label theme compliance (one-liner, quick win — use Option A or B)
+- P12: Dirty title indicator (see Known Limitation note in P12 step 5)
 - P15: Splitter default size tuning
 - P16: View title labels
 
@@ -863,18 +883,18 @@ Both `LoadingOverlay` and `NotificationPanel` are overlay widgets in the main wi
 - P1: Top-level toolbar (decouples global operations from right panel)
 - P4: Global search bar
 - P3: Calendar with filters (must complete before P7)
-- P7: Cross-view detailer persistence (depends on P3)
+- P7: Cross-view detailer persistence (depends on P3; **requires adding `detailer_changed` signal to AlertPanel** — see P7 step 3)
 
 **Sprint 3 — Visual polish & space optimization**:
 - P2: Collapsible timeline
 - P8: Batch mode awareness
-- P13: Inline edit bar repositioning
+- P13: Inline edit bar repositioning **+ fix docstring**
 - P14: Theme button icons
 - P18: Calendar selection feedback
 - P19: Right panel collapse toggle
 
 **Sprint 4 — UX depth**:
 - P5: Progress dialogs (WaitCursor MVP first, threading follow-up)
-- P9: Notification area (replaces status bar overload — high effort but high polish)
+- P9: Notification area ⚠️ **Stretch goal** — highest effort item in the plan, may need descoping if time is tight
 - P21: LoadingOverlay + NotificationPanel coexistence (small, pairs with P9)
-- P20: Unified Edit State Model (resolves inline edit bar + edit form interaction)
+- P20: Unified Edit State Model ⚠️ **Depends on P8 and P12** being done. If P8 slips, P20's dependency chain breaks. Consider swapping P20 into Sprint 3 if P8 is delayed.
