@@ -9,7 +9,7 @@
 
 ## Pre-Implementation: Signal Ownership Model
 
-> **Read this before implementing P3, P7, P8, P9, P12, or P13.**
+> **Read this before implementing P8, P9, P12, or P13.**
 
 This plan adds up to 6 new signals across 5 widgets, all converging on MainWindow. Without a clear ownership model, this becomes a debugging nightmare — signal cycles, double-fires, and ordering dependencies.
 
@@ -31,25 +31,23 @@ This plan adds up to 6 new signals across 5 widgets, all converging on MainWindo
 
 1. [Top-Level QToolBar for Global Operations](#p1-top-level-qtoolbar-for-global-operations)
 2. [Collapsible Timeline Panel](#p2-collapsible-timeline-panel)
-3. [Calendar View with Filters](#p3-calendar-view-with-filters)
-4. [Persistent Global Search Bar](#p4-persistent-global-search-bar)
-5. [Progress Dialogs for Long Operations](#p5-progress-dialogs-for-long-operations)
-6. [Keyboard Shortcuts for View Switching](#p6-keyboard-shortcuts-for-view-switching)
-7. [Cross-View Detailer Filter Persistence](#p7-cross-view-detailer-filter-persistence)
-8. [Batch Mode Awareness in Right Panel](#p8-batch-mode-awareness-in-right-panel)
-9. [Dedicated Notification Area](#p9-dedicated-notification-area)
-10. [Alert Badge on View Toggle Buttons](#p10-alert-badge-on-view-toggle-buttons)
-11. [Move History Button to Right Panel](#p11-move-history-button-to-right-panel)
-12. [Unsaved Changes Indicator in Window Title](#p12-unsaved-changes-indicator-in-window-title)
-13. [Inline Edit Bar Repositioning](#p13-inline-edit-bar-repositioning)
-14. [Theme Button Icon Rendering](#p14-theme-button-icon-rendering)
-15. [Splitter Default Size Tuning](#p15-splitter-default-size-tuning)
-16. [View Title Labels](#p16-view-title-labels)
-17. [Blame Label Theme Compliance](#p17-blame-label-theme-compliance)
-18. [Calendar Event Selection Feedback](#p18-calendar-event-selection-feedback)
-19. [Right Panel Collapse Toggle](#p19-right-panel-collapse-toggle)
-20. [Unified Edit State Model](#p20-unified-edit-state-model)
-21. [LoadingOverlay + NotificationPanel Coexistence](#p21-loadingoverlay--notificationpanel-coexistence)
+3. [Persistent Global Search Bar](#p4-persistent-global-search-bar)
+4. [Progress Dialogs for Long Operations](#p5-progress-dialogs-for-long-operations)
+5. [Keyboard Shortcuts for View Switching](#p6-keyboard-shortcuts-for-view-switching)
+6. [Batch Mode Awareness in Right Panel](#p8-batch-mode-awareness-in-right-panel)
+7. [Dedicated Notification Area](#p9-dedicated-notification-area)
+8. [Alert Badge on View Toggle Buttons](#p10-alert-badge-on-view-toggle-buttons)
+9. [Move History Button to Right Panel](#p11-move-history-button-to-right-panel)
+10. [Unsaved Changes Indicator in Window Title](#p12-unsaved-changes-indicator-in-window-title)
+11. [Inline Edit Bar Repositioning](#p13-inline-edit-bar-repositioning)
+12. [Theme Button Icon Rendering](#p14-theme-button-icon-rendering)
+13. [Splitter Default Size Tuning](#p15-splitter-default-size-tuning)
+14. [View Title Labels](#p16-view-title-labels)
+15. [Blame Label Theme Compliance](#p17-blame-label-theme-compliance)
+16. [Calendar Event Selection Feedback](#p18-calendar-event-selection-feedback)
+17. [Right Panel Collapse Toggle](#p19-right-panel-collapse-toggle)
+18. [Unified Edit State Model](#p20-unified-edit-state-model)
+19. [LoadingOverlay + NotificationPanel Coexistence](#p21-loadingoverlay--notificationpanel-coexistence)
 
 ---
 
@@ -129,37 +127,6 @@ The TimelinePanel has a fixed minimum height of 220px (dynamically grows to fit 
 
 - `gui/timeline_panel.py` — header, collapse toggle, `set_unit()` conditional height
 - `gui/main_window.py` — save/restore collapse state, connect signal
-
----
-
-## P3: Calendar View with Filters
-
-### Problem
-
-CalendarPanel has no filtering capability — it displays dots for all non-stale units. With 500+ units, every date cell is a dense cluster of 5+ dots with a "99+" badge. The user cannot narrow the calendar to a specific detailer, status, or date range without switching to List view.
-
-### Implementation Guide
-
-1. **Add compact filter bar above the calendar**:
-   - Insert a `QHBoxLayout` between the header ("Calendar" + "Today" button) and the `EventCalendarWidget`.
-   - Add a `QComboBox` for "Detailer:" (populated from unit list).
-   - Add a `QComboBox` for "Status:" using the same `STATUS_LABELS` keys.
-   - Keep them compact with `setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)`.
-
-2. **Wire filters to calendar dots**:
-   - Store filter state as `self._filter_detailer: str = "All"` and `self._filter_status: str = "All"`.
-   - On filter change, call `self.calendar.set_events(filtered_units)` where `filtered_units` applies the selected filter(s) to `self.units`.
-   - Re-populate the event list for the currently selected date.
-
-3. **Preserve filter state**:
-   - Save calendar filter state to config similar to list panel filters.
-
-4. **Layout note**: The calendar already has a header row with "Today" button. Adding a filter bar above the calendar widget means the left panel gets taller. On 1366×768, this could push the calendar grid below the fold. Integrate filters into the existing header row (same row as "Today" button) rather than adding a new row, or make the filter bar collapsible.
-
-### Files to Modify
-
-- `gui/calendar_panel.py` — filter bar UI, filter application
-- `gui/main_window.py` — state preservation across view switches
 
 ---
 
@@ -279,53 +246,6 @@ Switching between Calendar, List, and Alerts views requires a mouse click on the
 
 - `gui/main_window.py` — `keyPressEvent()`, `_init_left_panel()` button tooltips, help menu
 - `gui/list_panel.py` — verify no shortcut conflicts
-
----
-
-## P7: Cross-View Detailer Filter Persistence
-
-> **Depends on P3.** P3 must be implemented first so CalendarPanel has a `set_detailer()` method to receive propagated filters.
-
-### Problem
-
-When filtering by a specific detailer in Alerts view, switching to Calendar or List view loses that detailer filter. The user must re-select the detailer each time they switch views, breaking workflow continuity.
-
-### Implementation Guide
-
-1. **Store active detailer in MainWindow**:
-   - Add `self._active_detailer: str = "All"` to `MainWindow.__init__()`.
-   - Add `self._active_status: str = "All"` for status filter persistence.
-
-2. **Unified filter change propagation**:
-   - Create a method `_on_global_detailer_changed(detailer: str)` in MainWindow.
-   - Have each panel emit a `detailer_changed` signal when its local detailer filter changes.
-   - Connect all panels to propagate: when the user changes detailer in any view, update `self._active_detailer` and push to all panels that support detailer filtering.
-   - **Opt-in per view:** Not every view should automatically receive the filter. The user might want to see all units in the Calendar while filtering the List to one detailer. Add a "link filters" toggle (small chain-link icon button near the view toggle) that enables/disables cross-view propagation. Default: disabled.
-
-3. **⚠️ AlertPanel needs a `detailer_changed` signal (currently missing):**
-   - **Codebase finding:** The current `AlertPanel` (line 168 of `gui/alert_panel.py`) defines only `unit_selected = pyqtSignal(object)` — **no `detailer_changed` signal exists**.
-   - **Fix:** Add `detailer_changed = pyqtSignal(str)` to `AlertPanel`.
-   - **Wire:** Emit `self.detailer_changed.emit(new_detailer)` from both:
-     - `AlertPanel._on_detailer_changed()` — when user picks a new detailer from the combo.
-     - `AlertPanel.set_detailer(name)` — when the detailer is set programmatically via cross-view propagation.
-     - Guard `set_detailer()` against re-entrancy: only emit if the value actually changed.
-
-4. **Apply on view switch**:
-   - In `_switch_view(view_name)`, after setting the view stack index, call:
-     - Calendar: `self.calendar_panel.set_detailer(self._active_detailer)` (only if P3 is implemented and "link filters" is enabled)
-     - List: if detailer combo exists, set its value to `self._active_detailer`
-     - Alerts: `self.alert_panel.set_detailer(self._active_detailer)`
-
-5. **Partial filter carry-over**:
-   - Status filter is List-specific (paint dot colors). Don't force status across views.
-   - Date range filter is List-specific. Don't carry over to Calendar/Alerts.
-
-### Files to Modify
-
-- `gui/alert_panel.py` — **add `detailer_changed = pyqtSignal(str)`**, emit from `_on_detailer_changed()` and `set_detailer()`
-- `gui/main_window.py` — `_active_detailer`, `_on_global_detailer_changed()`, `_switch_view()` apply logic
-- `gui/calendar_panel.py` — add `set_detailer()` and `detailer_changed` signal (if P3 implemented)
-- `gui/list_panel.py` — emit `detailer_changed` when its combo changes
 
 ---
 
@@ -849,11 +769,9 @@ Both `LoadingOverlay` and `NotificationPanel` are overlay widgets in the main wi
 |----------|------|--------|--------|-------------|
 | P1 | Top-Level QToolBar (+ History button) | Medium | High | None |
 | P2 | Collapsible Timeline | Low | Medium | None |
-| P3 | Calendar Filters | Medium | High | None |
 | P4 | Global Search Bar | Low | Medium | P1 (toolbar, with fallback) |
 | P5 | Progress Dialogs | Medium | Medium | None |
 | P6 | Keyboard Shortcuts | Low | Medium | None |
-| P7 | Cross-View Filters | Medium | High | P3 (calendar filters) |
 | P8 | Batch Mode Awareness | Low | Medium | None |
 | P9 | Notification Area | High | Medium | None |
 | P10 | Alert Badge | Low | Medium | None |
@@ -882,8 +800,6 @@ Both `LoadingOverlay` and `NotificationPanel` are overlay widgets in the main wi
 **Sprint 2 — Navigation & search (High Impact, Medium Effort)**:
 - P1: Top-level toolbar (decouples global operations from right panel)
 - P4: Global search bar
-- P3: Calendar with filters (must complete before P7)
-- P7: Cross-view detailer persistence (depends on P3; **requires adding `detailer_changed` signal to AlertPanel** — see P7 step 3)
 
 **Sprint 3 — Visual polish & space optimization**:
 - P2: Collapsible timeline

@@ -590,7 +590,7 @@ class ListPanel(QWidget):
         # ── Blame label ──
         self.blame_label = QLabel("")
         self.blame_label.setObjectName("blame_label")
-        self.blame_label.setStyleSheet("color: #64748b; font-size: 11px; padding-left: 4px;")
+        self.blame_label.setStyleSheet("font-size: 11px; padding-left: 4px;")
         layout.addWidget(self.blame_label)
 
     # ── Public API ───────────────────────────────────────────────────

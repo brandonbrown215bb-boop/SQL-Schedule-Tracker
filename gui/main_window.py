@@ -133,6 +133,7 @@ class MainWindow(QMainWindow):
         self._svc = services.unit_service
         self.units: list[Unit] = []
         self.current_unit: Unit | None = None
+        self._alert_critical_count: int = 0
         self._load_worker: LoadWorker | None = None
         self._save_worker: SaveWorker | None = None
         self._pending_save_unit: Unit | None = None
@@ -221,9 +222,9 @@ class MainWindow(QMainWindow):
 
         # View toggle buttons
         toggle_layout = QHBoxLayout()
-        self.calendar_view_btn = QPushButton("📅 Calendar")
-        self.list_view_btn = QPushButton("📋 List")
-        self.alerts_view_btn = QPushButton("🔔 Alerts")
+        self.calendar_view_btn = QPushButton("📅 Calendar (Ctrl+1)")
+        self.list_view_btn = QPushButton("📋 List (Ctrl+2)")
+        self.alerts_view_btn = QPushButton("🔔 Alerts (Ctrl+3)")
         self.list_view_btn.setObjectName("list_view_btn")
         self.calendar_view_btn.setObjectName("calendar_view_btn")
         self.alerts_view_btn.setObjectName("alerts_view_btn")
@@ -251,6 +252,12 @@ class MainWindow(QMainWindow):
         self.a11y_btn.clicked.connect(self._open_a11y_dialog)
         toggle_layout.addWidget(self.a11y_btn)
         left_container.addLayout(toggle_layout)
+
+        # View title label (P16)
+        self.view_title = QLabel()
+        self.view_title.setObjectName("view_title")
+        self.view_title.setStyleSheet("font-size: 11px; padding: 2px 0 4px 0; color: palette(mid);")
+        left_container.addWidget(self.view_title)
 
         self.view_stack = QStackedWidget()
         self.view_stack.setObjectName("view_stack")
@@ -311,7 +318,14 @@ class MainWindow(QMainWindow):
         if saved_sizes:
             self.main_splitter.setSizes(saved_sizes)
         else:
-            self.main_splitter.setSizes([self.width() // 3, 2 * self.width() // 3])
+            self.main_splitter.setSizes([self.width() // 2, self.width() // 2])
+        # Set minimum panel widths
+        left_widget = self.findChild(QWidget, "left_panel")
+        right_widget = self.findChild(QWidget, "right_panel")
+        if left_widget:
+            left_widget.setMinimumWidth(300)
+        if right_widget:
+            right_widget.setMinimumWidth(350)
 
     def _init_loading_overlay(self) -> None:
         self.loading_overlay = LoadingOverlay(self.centralWidget())
@@ -364,6 +378,13 @@ class MainWindow(QMainWindow):
     # ── View switching ─────────────────────────────────────────────────
 
     def _switch_view(self, view_name: str) -> None:
+        titles = {
+            "calendar": "📅 Calendar View — Upcoming due dates at a glance",
+            "list": "📋 List View — Filtered sortable table of all units",
+            "alerts": "🔔 Alerts View — Per-detailer alert dashboard",
+        }
+        self.view_title.setText(titles.get(view_name, ""))
+
         if view_name == "calendar":
             self.view_stack.setCurrentIndex(0)
             self.calendar_view_btn.setChecked(True)
@@ -386,12 +407,28 @@ class MainWindow(QMainWindow):
 
         self._services.config.setdefault("ui", {})["last_view"] = view_name
 
+    def _update_alert_badge(self) -> None:
+        """Update alert badge count on the Alerts view button (P10)."""
+        self._alert_critical_count = sum(
+            1 for u in self.units if u.calculated_status_color == "red" and not u.is_stale
+        )
+        if self._alert_critical_count > 0:
+            self.alerts_view_btn.setText(
+                f"🔔 Alerts ({self._alert_critical_count}) (Ctrl+3)"
+            )
+            self.alerts_view_btn.setStyleSheet("font-weight: bold; color: #dc2626;")
+        else:
+            self.alerts_view_btn.setText("🔔 Alerts (Ctrl+3)")
+            self.alerts_view_btn.setStyleSheet("")
+
     def _on_stale_changed(self, show_stale: bool) -> None:
         self.calendar_panel.calendar.set_show_stale(show_stale)
         self.calendar_panel.refresh(self.units)
 
     def _on_dirty_changed(self, dirty: bool) -> None:
         self._form_dirty = dirty
+        base_title = "Unit Tracker"
+        self.setWindowTitle(f"* {base_title}" if dirty else base_title)
 
     def _confirm_discard(self) -> bool:
         if not getattr(self, "_form_dirty", False):
@@ -609,6 +646,7 @@ class MainWindow(QMainWindow):
         self.calendar_panel.refresh(self.units)
         self.list_panel.set_units(self.units)
         self.alert_panel.set_units(self.units)
+        self._update_alert_badge()
         self.status_bar.showMessage(f"Loaded {len(self.units)} units from SQLite")
         logger.info("MainWindow: Loaded %d units.", len(self.units))
 
@@ -1039,6 +1077,15 @@ class MainWindow(QMainWindow):
             if hasattr(self.list_panel, "com_search"):
                 self.list_panel.com_search.setFocus()
                 self.list_panel.com_search.selectAll()
+            return
+        if a0.key() == Qt.Key_1 and a0.modifiers() & Qt.ControlModifier:
+            self._switch_view("calendar")
+            return
+        if a0.key() == Qt.Key_2 and a0.modifiers() & Qt.ControlModifier:
+            self._switch_view("list")
+            return
+        if a0.key() == Qt.Key_3 and a0.modifiers() & Qt.ControlModifier:
+            self._switch_view("alerts")
             return
         if a0.key() == Qt.Key_Escape:
             self.on_unit_selected(None)
