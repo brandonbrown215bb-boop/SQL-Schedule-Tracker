@@ -1,6 +1,0 @@
-- [x] Analyze root cause: list_visible_columns config key is never read or saved
-- [ ] Fix 1: Add `list_visible_columns` to ConfigService DEFAULTS
-- [ ] Fix 2: Add `load_visible_columns()` method to ListPanel
-- [ ] Fix 3: Add `column_visibility_changed` signal to ListPanel and emit from column chooser
-- [ ] Fix 4: Connect signal in MainWindow and load/save visible columns from config
-- [ ] Verify with tests

@@ -52,6 +52,7 @@ class EditForm(QWidget):
 
     saved = pyqtSignal(Unit)  # Re-added
     dirty_changed = pyqtSignal(bool)
+    history_requested = pyqtSignal(object)  # Unit
 
     def __init__(self, default_detailers: list[str], parent=None):
         super().__init__(parent)
@@ -222,6 +223,12 @@ class EditForm(QWidget):
         revert_btn.setObjectName("revert_btn")
         revert_btn.clicked.connect(lambda: self.set_unit(self.current_unit))
         button_row.addWidget(revert_btn)
+
+        history_btn = QPushButton("📋 History")
+        history_btn.setObjectName("history_btn")
+        history_btn.setToolTip("View change history for this unit")
+        history_btn.clicked.connect(self._on_history_clicked)
+        button_row.addWidget(history_btn)
 
         layout.addLayout(button_row)
 
@@ -474,3 +481,8 @@ class EditForm(QWidget):
         if d.year == 2000 and d.month == 1 and d.day == 1:
             return None
         return d
+
+    def _on_history_clicked(self) -> None:
+        """Emit history_requested for the current unit so MainWindow can open the audit dialog."""
+        if self.current_unit is not None:
+            self.history_requested.emit(self.current_unit)

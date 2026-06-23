@@ -143,52 +143,20 @@ ONBOARDING_STEPS: list[WalkthroughStep] = [
         ),
         position="bottom",
     ),
-    # ── 9. Automation bar: Import CSV ─────────────────────────────────
+    # ── 9. Global Operations Toolbar ───────────────────────────────────
     WalkthroughStep(
-        widget_name="pull_csv_btn",
-        title="Import CSV",
+        widget_name="global_toolbar",
+        title="Global Operations Toolbar",
         description=(
-            "Import a CSV report from SSRS into the SQLite database. "
-            "Opens a file picker; new rows are upserted by COM number. "
-            "After import the view automatically refreshes to show the latest data."
+            "The top toolbar provides global data operations: Import CSV "
+            "(file picker → upsert by COM), Pull SSRS (fetch from ReportServer), "
+            "Refresh (reload from SQLite, F5), and Export Excel (write to workbook). "
+            "The search bar finds units by COM number, job name, or contract — "
+            "press Ctrl+F to focus it."
         ),
-        position="top",
+        position="bottom",
     ),
-    # ── 10. Automation bar: Pull SSRS ─────────────────────────────────
-    WalkthroughStep(
-        widget_name="pull_ssrs_btn",
-        title="Pull SSRS (Online Import)",
-        description=(
-            "Fetch fresh data directly from an SSRS ReportServer endpoint "
-            "configured in config.yaml. Supports configurable lookback/lookahead "
-            "date ranges. Inserts and updates rows in SQLite, then auto-refreshes."
-        ),
-        position="top",
-    ),
-    # ── 11. Automation bar: Refresh ───────────────────────────────────
-    WalkthroughStep(
-        widget_name="refresh_btn",
-        title="Refresh from SQLite",
-        description=(
-            "Reload all unit data from the SQLite database. "
-            "Has a 3-second cooldown to prevent rapid re-triggers. "
-            "Press F5 as a keyboard shortcut. Also refreshes automatically "
-            "when the database file changes externally (file watcher)."
-        ),
-        position="top",
-    ),
-    # ── 12. Automation bar: Export Excel ──────────────────────────────
-    WalkthroughStep(
-        widget_name="export_btn",
-        title="Export to Excel",
-        description=(
-            "Export the SQLite database contents to the 'Current List' sheet "
-            "of an Excel workbook (.xlsm/.xlsx). Reconciles with the shared "
-            "workbook used by the detailing team."
-        ),
-        position="top",
-    ),
-    # ── 13. Status bar ────────────────────────────────────────────────
+    # ── 10. Status bar ─────────────────────────────────────────────────
     WalkthroughStep(
         widget_name="status_bar",
         title="Status Bar",
@@ -201,7 +169,7 @@ ONBOARDING_STEPS: list[WalkthroughStep] = [
         ),
         position="top",
     ),
-    # ── 14. Help & Reports menus ──────────────────────────────────────
+    # ── 11. Help & Reports menus ──────────────────────────────────────
     WalkthroughStep(
         widget_name="menuBar",
         title="Reports & Help Menus",
@@ -213,14 +181,14 @@ ONBOARDING_STEPS: list[WalkthroughStep] = [
         ),
         position="bottom",
     ),
-    # ── 15. Keyboard shortcuts ────────────────────────────────────────
+    # ── 12. Keyboard shortcuts ────────────────────────────────────────
     WalkthroughStep(
         widget_name="left_panel",
         title="Keyboard Shortcuts",
         description=(
             "Ctrl+S = Save current unit, Ctrl+T = Toggle theme, "
-            "F5 = Refresh data, Ctrl+F = Focus COM search, "
-            "Escape = Clear selection. The list view also supports "
+            "F5 = Refresh data, Ctrl+F = Focus global search, "
+            "Escape = Clear selection or search. The list view also supports "
             "arrow-key navigation and context menus."
         ),
         position="bottom",

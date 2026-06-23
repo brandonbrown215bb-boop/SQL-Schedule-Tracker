@@ -12,15 +12,18 @@ import time
 
 from PyQt5.QtCore import QFileSystemWatcher, Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
+    QAction,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QSplitter,
     QStackedWidget,
     QStatusBar,
+    QToolBar,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -151,8 +154,6 @@ class MainWindow(QMainWindow):
         self._io_busy: bool = False
 
         # ── Sync-queue UI state ───────────────────────────────────────
-        self._sync_status_widget: SyncStatusWidget | None = None
-        self._sync_status_btn: QToolButton | None = None
         self._sync_status_session_total: int = 0
         self._sync_status_session_initial: int = 0
         self._sync_unit_durations: list[float] = []
@@ -173,6 +174,7 @@ class MainWindow(QMainWindow):
         self._current_hc: bool = False
 
         self._init_status_bar()
+        self._init_toolbar()
         self._init_central_layout()
         self._init_left_panel()
         self._init_right_panel()
@@ -206,9 +208,104 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.status_bar.setObjectName("status_bar")
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Loading...")
 
-    def _init_central_layout(self) -> None:
+        # Permanent status bar widgets (right-aligned)
+        self._status_unit_count = QLabel("")
+        self.status_bar.addPermanentWidget(self._status_unit_count)
+
+        self._sync_status_widget = SyncStatusWidget()
+        self._sync_status_widget.setObjectName("sync_status_widget")
+        self.status_bar.addPermanentWidget(self._sync_status_widget)
+
+    def _init_toolbar(self) -> None:
+        """Create the top-level QToolBar with global operations (P1)."""
+        from PyQt5.QtCore import QSize
+
+        toolbar = QToolBar("Global Operations")
+        toolbar.setObjectName("global_toolbar")
+        toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(24, 24))
+        self.addToolBar(toolbar)
+
+        # ── Import CSV ──
+        action_import = QAction("📥 Import CSV", self)
+        action_import.setToolTip("Import SSRS CSV into SQLite database")
+        action_import.triggered.connect(self._pull_csv)
+        toolbar.addAction(action_import)
+
+        # ── Pull SSRS ──
+        action_ssrs = QAction("🌐 Pull SSRS", self)
+        action_ssrs.setToolTip("Fetch latest data from SSRS ReportServer and import into SQLite")
+        action_ssrs.triggered.connect(self._pull_ssrs)
+        toolbar.addAction(action_ssrs)
+
+        # ── Refresh ──
+        action_refresh = QAction("🔄 Refresh", self)
+        action_refresh.setToolTip("Reload data from SQLite database")
+        action_refresh.triggered.connect(self._refresh_data)
+        toolbar.addAction(action_refresh)
+
+        # ── Export Excel ──
+        action_export = QAction("💾 Export Excel", self)
+        action_export.setToolTip("Export SQLite data to Excel workbook (Current List sheet)")
+        action_export.triggered.connect(self._export_excel)
+        toolbar.addAction(action_export)
+
+        toolbar.addSeparator()
+
+        # ── Global Search Bar (P4) ──
+        self._search_edit = QLineEdit()
+        self._search_edit.setPlaceholderText("Search COM #, job, or contract…")
+        self._search_edit.setFixedWidth(250)
+        self._search_edit.setClearButtonEnabled(True)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(300)
+        self._search_timer.timeout.connect(self._on_global_search)
+        self._search_edit.textChanged.connect(self._on_search_text_changed)
+        self._search_edit.returnPressed.connect(self._on_search_entered)
+        toolbar.addWidget(self._search_edit)
+
+        self._toolbar = toolbar
+
+    # ── Global Search (P4) ──────────────────────────────────────────────
+
+    def _on_search_text_changed(self, text: str) -> None:
+        """Restart the debounce timer on each keystroke."""
+        self._search_timer.start()
+
+    def _on_global_search(self) -> None:
+        """Execute the global search after debounce fires."""
+        query = self._search_edit.text().strip().lower()
+        if not query:
+            return
+        if not self.units:
+            return
+
+        matches = [
+            u for u in self.units
+            if query in u.com_number.lower()
+            or query in u.job_name.lower()
+            or query in u.contract_number.lower()
+        ]
+
+        if len(matches) == 1:
+            # Single match — select it (but don't auto-navigate; wait for Enter)
+            self._search_single_match = matches[0]
+        elif len(matches) > 1:
+            # Multi-match — switch to List view and apply filter
+            self._switch_view("list")
+            self.list_panel.com_search.setText(self._search_edit.text().strip())
+            self.list_panel.com_search.setFocus()
+            self._search_single_match = None
+        else:
+            self._search_single_match = None
+
+    def _on_search_entered(self) -> None:
+        """Handle Enter key in the search bar — auto-select single match."""
+        if hasattr(self, "_search_single_match") and self._search_single_match is not None:
+            self.on_unit_selected(self._search_single_match)
+            self._search_single_match = None
         central = QWidget()
         self.setCentralWidget(central)
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -307,10 +404,9 @@ class MainWindow(QMainWindow):
         )
         self.edit_form.saved.connect(self.on_save_unit)
         self.edit_form.dirty_changed.connect(self._on_dirty_changed)
+        self.edit_form.history_requested.connect(self._open_audit)
         right_panel.addWidget(self.edit_form, 1)
 
-        auto_bar = self._build_automation_bar()
-        right_panel.addLayout(auto_bar)
         self.main_splitter.addWidget(right_widget)
 
     def _init_splitter_sizes(self) -> None:
@@ -647,8 +743,13 @@ class MainWindow(QMainWindow):
         self.list_panel.set_units(self.units)
         self.alert_panel.set_units(self.units)
         self._update_alert_badge()
+        self._status_unit_count.setText(f"{len(self.units)} units loaded")
         self.status_bar.showMessage(f"Loaded {len(self.units)} units from SQLite")
         logger.info("MainWindow: Loaded %d units.", len(self.units))
+
+        # Re-run global search after data refresh to prevent desync (P4)
+        if self._search_edit.text().strip():
+            QTimer.singleShot(0, self._on_global_search)
 
         if changed_units:
             dlg = DueDateChangedDialog(
@@ -826,49 +927,6 @@ class MainWindow(QMainWindow):
         timer.start()
         tick()
 
-    # ── Automation bar ─────────────────────────────────────────────────
-
-    def _build_automation_bar(self):
-        outer = QVBoxLayout()
-        outer.setSpacing(4)
-        row1 = QHBoxLayout()
-        pull_csv_btn = QPushButton("📥 Import CSV")
-        pull_csv_btn.setObjectName("pull_csv_btn")
-        pull_csv_btn.setToolTip("Import SSRS CSV into SQLite database")
-        pull_csv_btn.clicked.connect(self._pull_csv)
-        row1.addWidget(pull_csv_btn)
-
-        pull_ssrs_btn = QPushButton("🌐 Pull SSRS")
-        pull_ssrs_btn.setObjectName("pull_ssrs_btn")
-        pull_ssrs_btn.setToolTip("Fetch latest data from SSRS ReportServer and import into SQLite")
-        pull_ssrs_btn.clicked.connect(self._pull_ssrs)
-        row1.addWidget(pull_ssrs_btn)
-
-        refresh_btn = QPushButton("🔄 Refresh")
-        refresh_btn.setObjectName("refresh_btn")
-        refresh_btn.setToolTip("Reload data from SQLite database")
-        refresh_btn.clicked.connect(self._refresh_data)
-        row1.addWidget(refresh_btn)
-
-        export_btn = QPushButton("💾 Export Excel")
-        export_btn.setObjectName("export_btn")
-        export_btn.setToolTip("Export SQLite data to Excel workbook (Current List sheet)")
-        export_btn.clicked.connect(self._export_excel)
-        row1.addWidget(export_btn)
-
-        history_btn = QPushButton("📋 History")
-        history_btn.setObjectName("history_btn")
-        history_btn.setToolTip("View change history for the selected unit")
-        history_btn.clicked.connect(self._open_audit)
-        row1.addWidget(history_btn)
-
-        outer.addLayout(row1)
-
-        self._sync_status_widget = SyncStatusWidget()
-        self._sync_status_widget.setObjectName("sync_status_widget")
-        outer.addWidget(self._sync_status_widget)
-        return outer
-
     def _setup_multi_user_sync(self):
         sync = self._services.sync_service
         if not sync.is_enabled():
@@ -1043,12 +1101,14 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Export Error", f"Failed:\n{e}")
             self.status_bar.showMessage("Export failed", 5000)
 
-    def _open_audit(self) -> None:
-        """Open the audit trail dialog for the selected unit."""
+    def _open_audit(self, unit: Unit | None = None) -> None:
+        """Open the audit trail dialog for the given or currently selected unit."""
         from gui.audit_dialog import AuditDialog
 
         com_number = None
-        if hasattr(self, "current_unit") and self.current_unit is not None:
+        if unit is not None:
+            com_number = unit.com_number
+        elif hasattr(self, "current_unit") and self.current_unit is not None:
             com_number = self.current_unit.com_number
         dlg = AuditDialog(
             self._services.db_path,
@@ -1074,9 +1134,8 @@ class MainWindow(QMainWindow):
             self._refresh_data()
             return
         if a0.key() == Qt.Key_F and a0.modifiers() & Qt.ControlModifier:
-            if hasattr(self.list_panel, "com_search"):
-                self.list_panel.com_search.setFocus()
-                self.list_panel.com_search.selectAll()
+            self._search_edit.setFocus()
+            self._search_edit.selectAll()
             return
         if a0.key() == Qt.Key_1 and a0.modifiers() & Qt.ControlModifier:
             self._switch_view("calendar")
@@ -1088,6 +1147,9 @@ class MainWindow(QMainWindow):
             self._switch_view("alerts")
             return
         if a0.key() == Qt.Key_Escape:
+            if self._search_edit.hasFocus():
+                self._search_edit.clear()
+                return
             self.on_unit_selected(None)
             return
         super().keyPressEvent(a0)
