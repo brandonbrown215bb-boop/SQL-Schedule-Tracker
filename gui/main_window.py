@@ -38,9 +38,11 @@ from gui.due_date_changed_dialog import DueDateChangedDialog
 from gui.edit_form import EditForm
 from gui.list_panel import ListPanel
 from gui.loading_overlay import LoadingOverlay
+from gui.notification_panel import NotificationPanel
 from gui.onboarding import should_show_onboarding, show_onboarding
+from gui.reference_dialog import ReferenceDialog
 from gui.sync_status import SyncStatusWidget
-from gui.theme import apply_theme, init_labels
+from gui.theme import apply_theme, init_labels, style_alerts_btn
 from gui.timeline_panel import TimelinePanel
 from services.config_service import ConfigService
 from services.export_service import ExportService
@@ -86,6 +88,89 @@ class SaveWorker(QThread):
         try:
             self._unit_service.save(self.unit)
             self.finished.emit()
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class PullSSRSWorker(QThread):
+    """Background worker for fetching SSRS data."""
+
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, import_service: ImportService, url: str, lookback_days: int, lookahead_days: int):
+        super().__init__()
+        self._import_service = import_service
+        self.url = url
+        self.lookback_days = lookback_days
+        self.lookahead_days = lookahead_days
+
+    def run(self):
+        try:
+            res = self._import_service.from_ssrs(
+                url=self.url,
+                lookback_days=self.lookback_days,
+                lookahead_days=self.lookahead_days
+            )
+            self.finished.emit(res)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class CSVDiffWorker(QThread):
+    """Background worker for computing CSV import diff."""
+
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, import_service: ImportService, source_path: str):
+        super().__init__()
+        self._import_service = import_service
+        self.source_path = source_path
+
+    def run(self):
+        try:
+            diff = self._import_service.diff_before_import(self.source_path)
+            self.finished.emit(diff)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class CSVImportWorker(QThread):
+    """Background worker for importing CSV data."""
+
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, import_service: ImportService, source_path: str):
+        super().__init__()
+        self._import_service = import_service
+        self.source_path = source_path
+
+    def run(self):
+        try:
+            res = self._import_service.from_csv(self.source_path)
+            self.finished.emit(res)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class ExcelExportWorker(QThread):
+    """Background worker for exporting to Excel."""
+
+    finished = pyqtSignal(int)
+    error = pyqtSignal(str)
+
+    def __init__(self, export_service: ExportService, excel_path: str, db_path: str):
+        super().__init__()
+        self._export_service = export_service
+        self.excel_path = excel_path
+        self.db_path = db_path
+
+    def run(self):
+        try:
+            row_count = self._export_service.to_excel(self.excel_path, self.db_path)
+            self.finished.emit(row_count)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -201,6 +286,8 @@ class MainWindow(QMainWindow):
             cvd_mode=self._current_cvd,
             high_contrast=self._current_hc,
         )
+        if hasattr(self, "notification_panel") and self.notification_panel is not None:
+            self.notification_panel.set_theme(self._current_theme_name, self._current_cvd)
 
     def _init_status_bar(self) -> None:
         self.setWindowTitle("Unit Tracker")
@@ -371,6 +458,7 @@ class MainWindow(QMainWindow):
         )
         self.list_panel.unit_selected.connect(self.on_unit_selected)
         self.list_panel.unit_saved.connect(self.on_save_unit)
+        self.list_panel.inline_dirty_changed.connect(self._on_inline_dirty_changed)
         self.list_panel.stale_changed.connect(self._on_stale_changed)
         self.list_panel.column_widths_changed.connect(self._on_column_widths_changed)
         self.list_panel.column_visibility_changed.connect(self._on_column_visibility_changed)
@@ -463,6 +551,7 @@ class MainWindow(QMainWindow):
 
     def _init_loading_overlay(self) -> None:
         self.loading_overlay = LoadingOverlay(self.centralWidget())
+        self.notification_panel = NotificationPanel(self)
 
     def _check_onboarding(self) -> None:
         if should_show_onboarding(self._services.config):
@@ -478,12 +567,26 @@ class MainWindow(QMainWindow):
         dashboard_action.setToolTip("Open the scheduling status chart (exportable as PNG)")
         dashboard_action.triggered.connect(self._open_dashboard)
         help_menu = menubar.addMenu("&Help")
+        
+        legend_action = help_menu.addAction("&Legend & Reference Guide")
+        legend_action.setToolTip("Show visual legend, glossary, and shortcuts (F1)")
+        legend_action.triggered.connect(self._show_legend)
+        
         walkthrough_action = help_menu.addAction("&Show Walkthrough")
         walkthrough_action.setToolTip("Show the onboarding walkthrough")
         walkthrough_action.triggered.connect(lambda: show_onboarding(self, self._services.config))
         help_menu.addSeparator()
         about_action = help_menu.addAction("&About Unit Tracker")
         about_action.triggered.connect(self._show_about)
+
+    def _show_legend(self) -> None:
+        dlg = ReferenceDialog(
+            parent=self,
+            theme_name=self._current_theme_name,
+            cvd_mode=self._current_cvd,
+            high_contrast=self._current_hc,
+        )
+        dlg.exec_()
 
     def _show_about(self):
         QMessageBox.about(
@@ -550,10 +653,15 @@ class MainWindow(QMainWindow):
             self.alerts_view_btn.setText(
                 f"🔔 Alerts ({self._alert_critical_count}) (Ctrl+3)"
             )
-            self.alerts_view_btn.setStyleSheet("font-weight: bold; color: #dc2626;")
         else:
             self.alerts_view_btn.setText("🔔 Alerts (Ctrl+3)")
-            self.alerts_view_btn.setStyleSheet("")
+
+        style_alerts_btn(
+            self.alerts_view_btn,
+            self._current_theme_name,
+            has_alerts=(self._alert_critical_count > 0),
+            high_contrast=self._current_hc,
+        )
 
     def _on_batch_mode_changed(self, count: int) -> None:
         """Show/hide batch banner in right panel and dim edit form (P8)."""
@@ -571,13 +679,28 @@ class MainWindow(QMainWindow):
         self.calendar_panel.calendar.set_show_stale(show_stale)
         self.calendar_panel.refresh(self.units)
 
+    def _update_dirty_title(self) -> None:
+        is_dirty = self._form_dirty or getattr(self, "_inline_dirty", False)
+        base_title = "Unit Tracker"
+        self.setWindowTitle(f"* {base_title}" if is_dirty else base_title)
+
+    def _notify(self, message: str, level: str = "info") -> None:
+        """Show a temporary toast notification and log it."""
+        if hasattr(self, "notification_panel") and self.notification_panel is not None:
+            self.notification_panel.show_notification(message, level)
+        logger.info("Notification (%s): %s", level, message)
+
     def _on_dirty_changed(self, dirty: bool) -> None:
         self._form_dirty = dirty
-        base_title = "Unit Tracker"
-        self.setWindowTitle(f"* {base_title}" if dirty else base_title)
+        self._update_dirty_title()
+
+    def _on_inline_dirty_changed(self, dirty: bool) -> None:
+        self._inline_dirty = dirty
+        self._update_dirty_title()
 
     def _confirm_discard(self) -> bool:
-        if not getattr(self, "_form_dirty", False):
+        is_dirty = self._form_dirty or getattr(self, "_inline_dirty", False)
+        if not is_dirty:
             return True
         reply = QMessageBox.question(
             self,
@@ -586,7 +709,16 @@ class MainWindow(QMainWindow):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-        return reply == QMessageBox.Yes
+        if reply == QMessageBox.Yes:
+            self._form_dirty = False
+            self._inline_dirty = False
+            self._update_dirty_title()
+            if hasattr(self, "edit_form"):
+                self.edit_form._dirty = False
+            if hasattr(self, "list_panel") and hasattr(self.list_panel, "_inline_edit_bar"):
+                self.list_panel._inline_edit_bar._dirty = False
+            return True
+        return False
 
     # ── Selection + Save ───────────────────────────────────────────────
 
@@ -642,7 +774,7 @@ class MainWindow(QMainWindow):
             self.timeline_panel.set_unit(unit)
             self.edit_form.current_unit = unit
             self._pending_save_unit = None
-            self.status_bar.showMessage(f"✓ Saved COM {unit.com_number}", 3000)
+            self._notify(f"Saved COM {unit.com_number}", "success")
 
     def _on_save_error(self, error_msg: str) -> None:
         worker = self.sender()
@@ -660,7 +792,7 @@ class MainWindow(QMainWindow):
             f"Could not save to database:\n{error_msg}\n\n"
             f"Your changes are still in the form. Check your network connection and try saving again.",
         )
-        self.status_bar.showMessage("Save failed — check network connection", 8000)
+        self._notify("Save failed — check network connection", "error")
 
     def _show_conflict_dialog(self, error_msg: str, local_unit: Unit | None = None) -> None:
         local_unit = local_unit or self.current_unit
@@ -794,7 +926,7 @@ class MainWindow(QMainWindow):
         self.alert_panel.set_units(self.units)
         self._update_alert_badge()
         self._status_unit_count.setText(f"{len(self.units)} units loaded")
-        self.status_bar.showMessage(f"Loaded {len(self.units)} units from SQLite")
+        self._notify(f"Loaded {len(self.units)} units from SQLite", "success")
         logger.info("MainWindow: Loaded %d units.", len(self.units))
 
         # Re-run global search after data refresh to prevent desync (P4)
@@ -830,6 +962,7 @@ class MainWindow(QMainWindow):
     def _on_load_error(self, error_msg: str):
         self.loading_overlay.hide()
         self._set_io_busy(False)
+        self._notify("Failed to load database", "error")
         logger.error("MainWindow: Error loading database: %s", error_msg)
         if self._should_suppress_error_dialog():
             logger.info("MainWindow: Error dialog suppressed (throttled)")
@@ -1043,6 +1176,10 @@ class MainWindow(QMainWindow):
     # ── Import / Export (delegated to services) ────────────────────────
 
     def _pull_csv(self):
+        if getattr(self, "_io_busy", False):
+            self._notify("Operation in progress. Please wait...", "warning")
+            return
+
         source_dir = self._services.config.get(
             "unedited_reports_dir", "P:/Detailing Schedule 2019/Unedited Reports"
         )
@@ -1051,34 +1188,65 @@ class MainWindow(QMainWindow):
         )
         if not source_path:
             return
-        self.status_bar.showMessage("Computing import diff...")
-        try:
-            diff = self._services.import_service.diff_before_import(source_path)
-        except Exception as e:
-            QMessageBox.warning(
-                self, "Import Preview Error", f"Could not compute import diff:\n{e}"
-            )
-            self.status_bar.showMessage("Import preview failed", 5000)
-            return
-        from gui.import_preview_dialog import ImportPreviewDialog
 
+        self._set_io_busy(True)
+        self.loading_overlay.show_with_message("Computing import diff...")
+        self._csv_diff_worker = CSVDiffWorker(self._services.import_service, source_path)
+        self._csv_diff_worker.finished.connect(self._on_csv_diff_finished)
+        self._csv_diff_worker.error.connect(self._on_csv_diff_error)
+        self._csv_diff_worker.start()
+
+    def _on_csv_diff_finished(self, diff):
+        self.loading_overlay.hide()
+        self.notification_panel.flush_queue()
+        self._set_io_busy(False)
+
+        from gui.import_preview_dialog import ImportPreviewDialog
         dlg = ImportPreviewDialog(diff, parent=self)
         dlg.exec_()
         if not dlg.approved:
-            self.status_bar.showMessage("Import cancelled", 3000)
+            self._notify("Import cancelled", "info")
             return
-        self.status_bar.showMessage("Importing CSV...")
-        try:
-            result = self._services.import_service.from_csv(source_path)
-            self.status_bar.showMessage(
-                f"✓ Imported {result.total_affected} rows successfully", 8000
-            )
-            self._refresh_data()
-        except Exception as e:
-            QMessageBox.warning(self, "Import Error", f"Failed:\n{e}")
-            self.status_bar.showMessage("Import failed", 5000)
+
+        self._set_io_busy(True)
+        self.loading_overlay.show_with_message("Importing CSV...")
+        self._csv_import_worker = CSVImportWorker(
+            self._services.import_service, self._csv_diff_worker.source_path
+        )
+        self._csv_import_worker.finished.connect(self._on_csv_import_finished)
+        self._csv_import_worker.error.connect(self._on_csv_import_error)
+        self._csv_import_worker.start()
+
+    def _on_csv_diff_error(self, error_msg: str):
+        self.loading_overlay.hide()
+        self.notification_panel.flush_queue()
+        self._set_io_busy(False)
+        logger.error("CSV diff calculation failed: %s", error_msg)
+        QMessageBox.warning(
+            self, "Import Preview Error", f"Could not compute import diff:\n{error_msg}"
+        )
+        self._notify("Import preview failed", "error")
+
+    def _on_csv_import_finished(self, result):
+        self.loading_overlay.hide()
+        self.notification_panel.flush_queue()
+        self._set_io_busy(False)
+        self._notify(f"Imported {result.total_affected} rows successfully", "success")
+        self._refresh_data()
+
+    def _on_csv_import_error(self, error_msg: str):
+        self.loading_overlay.hide()
+        self.notification_panel.flush_queue()
+        self._set_io_busy(False)
+        logger.error("CSV import failed: %s", error_msg)
+        QMessageBox.warning(self, "Import Error", f"Failed:\n{error_msg}")
+        self._notify("Import failed", "error")
 
     def _pull_ssrs(self):
+        if getattr(self, "_io_busy", False):
+            self._notify("Operation in progress. Please wait...", "warning")
+            return
+
         ssrs_url = self._services.config.get("ssrs_url", "")
         if not ssrs_url:
             QMessageBox.warning(
@@ -1101,23 +1269,40 @@ class MainWindow(QMainWindow):
         )
         if reply != QMessageBox.Yes:
             return
-        self.status_bar.showMessage("Fetching SSRS data...")
-        try:
-            result = self._services.import_service.from_ssrs(
-                url=ssrs_url, lookback_days=lookback, lookahead_days=lookahead
-            )
-            self.status_bar.showMessage(
-                f"✓ SSRS import complete — {result.inserted} inserted, "
-                f"{result.updated} updated, {result.errors} errors",
-                8000,
-            )
-            self._refresh_data()
-        except Exception as e:
-            logger.exception("SSRS pull failed")
-            QMessageBox.warning(self, "SSRS Import Error", f"Failed:\n{e}")
-            self.status_bar.showMessage("SSRS import failed", 5000)
+
+        self._set_io_busy(True)
+        self.loading_overlay.show_with_message("Fetching SSRS data...")
+        self._pull_ssrs_worker = PullSSRSWorker(
+            self._services.import_service, ssrs_url, lookback, lookahead
+        )
+        self._pull_ssrs_worker.finished.connect(self._on_pull_ssrs_finished)
+        self._pull_ssrs_worker.error.connect(self._on_pull_ssrs_error)
+        self._pull_ssrs_worker.start()
+
+    def _on_pull_ssrs_finished(self, result):
+        self.loading_overlay.hide()
+        self.notification_panel.flush_queue()
+        self._set_io_busy(False)
+        self._notify(
+            f"SSRS import complete — {result.inserted} inserted, "
+            f"{result.updated} updated, {result.errors} errors",
+            "success"
+        )
+        self._refresh_data()
+
+    def _on_pull_ssrs_error(self, error_msg: str):
+        self.loading_overlay.hide()
+        self.notification_panel.flush_queue()
+        self._set_io_busy(False)
+        logger.error("SSRS pull failed: %s", error_msg)
+        QMessageBox.warning(self, "SSRS Import Error", f"Failed:\n{error_msg}")
+        self._notify("SSRS import failed", "error")
 
     def _export_excel(self):
+        if getattr(self, "_io_busy", False):
+            self._notify("Operation in progress. Please wait...", "warning")
+            return
+
         excel_path = self._services.config.get("excel_path", "")
         if not excel_path or not os.path.exists(excel_path):
             reports_dir = self._services.config.get("unedited_reports_dir", "")
@@ -1142,14 +1327,29 @@ class MainWindow(QMainWindow):
         )
         if reply != QMessageBox.Yes:
             return
-        self.status_bar.showMessage("Exporting to Excel...")
-        try:
-            row_count = self._services.export_service.to_excel(excel_path, self._services.db_path)
-            self.status_bar.showMessage(f"✓ Exported {row_count} rows to Excel", 8000)
-        except Exception as e:
-            logger.exception("Excel export failed")
-            QMessageBox.warning(self, "Export Error", f"Failed:\n{e}")
-            self.status_bar.showMessage("Export failed", 5000)
+
+        self._set_io_busy(True)
+        self.loading_overlay.show_with_message("Exporting to Excel...")
+        self._excel_export_worker = ExcelExportWorker(
+            self._services.export_service, excel_path, self._services.db_path
+        )
+        self._excel_export_worker.finished.connect(self._on_excel_export_finished)
+        self._excel_export_worker.error.connect(self._on_excel_export_error)
+        self._excel_export_worker.start()
+
+    def _on_excel_export_finished(self, row_count):
+        self.loading_overlay.hide()
+        self.notification_panel.flush_queue()
+        self._set_io_busy(False)
+        self._notify(f"Exported {row_count} rows to Excel", "success")
+
+    def _on_excel_export_error(self, error_msg: str):
+        self.loading_overlay.hide()
+        self.notification_panel.flush_queue()
+        self._set_io_busy(False)
+        logger.error("Excel export failed: %s", error_msg)
+        QMessageBox.warning(self, "Export Error", f"Failed:\n{error_msg}")
+        self._notify("Export failed", "error")
 
     def _open_audit(self, unit: Unit | None = None) -> None:
         """Open the audit trail dialog for the given or currently selected unit."""
@@ -1182,6 +1382,9 @@ class MainWindow(QMainWindow):
             return
         if a0.key() == Qt.Key_F5:
             self._refresh_data()
+            return
+        if a0.key() == Qt.Key_F1:
+            self._show_legend()
             return
         if a0.key() == Qt.Key_F and a0.modifiers() & Qt.ControlModifier:
             self._search_edit.setFocus()
@@ -1230,8 +1433,11 @@ class MainWindow(QMainWindow):
         for panel in (self.calendar_panel, self.list_panel, self.timeline_panel, self.edit_form):
             if hasattr(panel, "set_theme"):
                 panel.set_theme(theme_name, self._current_cvd)
+        if hasattr(self, "notification_panel") and self.notification_panel is not None:
+            self.notification_panel.set_theme(theme_name, self._current_cvd)
+        self._update_alert_badge()
         self._save_ui_config()
-        self.status_bar.showMessage(f"Theme: {theme_name}", 2000)
+        self._notify(f"Theme: {theme_name}", "info")
 
     def _on_column_widths_changed(self, widths: dict) -> None:
         self._services.config.setdefault("ui", {})["list_column_widths"] = widths
@@ -1375,6 +1581,9 @@ class MainWindow(QMainWindow):
         if self._closing:
             self._cleanup_before_close()
             event.accept()
+            return
+        if not self._confirm_discard():
+            event.ignore()
             return
         if self._active_save_worker_running():
             event.ignore()

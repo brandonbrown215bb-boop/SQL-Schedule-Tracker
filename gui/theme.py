@@ -42,6 +42,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QTableWidget,
     QWidget,
+    QProgressBar,
 )
 
 # ─── Theme Token Dicts ───────────────────────────────────────────────
@@ -471,6 +472,23 @@ def _style_calendar(widget: QWidget, tokens: dict[str, str]) -> None:
     """)
 
 
+def _style_progress(widget: QWidget, tokens: dict[str, str]) -> None:
+    t = tokens
+    widget.setStyleSheet(f"""
+        QProgressBar {{
+            border: 1px solid {t["border"]};
+            background: {t["bg_tertiary"]};
+            border-radius: 4px;
+            text-align: center;
+            color: {t["text_primary"]};
+        }}
+        QProgressBar::chunk {{
+            background-color: {t["accent"]};
+            border-radius: 3px;
+        }}
+    """)
+
+
 _THEME_HANDLERS: dict[type, Callable] = {
     QPushButton: _style_button,
     QTableWidget: _style_table,
@@ -481,6 +499,7 @@ _THEME_HANDLERS: dict[type, Callable] = {
     QFrame: _style_card,
     QGroupBox: _style_card,
     QCalendarWidget: _style_calendar,
+    QProgressBar: _style_progress,
 }
 
 
@@ -530,6 +549,84 @@ def apply_theme(
         if panel is not None:
             panel.setStyleSheet(f"background: {tokens['bg_secondary']};")
 
+    # Global UI container stylesheets if root widget is QMainWindow
+    from PyQt5.QtWidgets import QMainWindow
+    if isinstance(widget, QMainWindow):
+        widget.setStyleSheet(f"""
+            QMainWindow {{
+                background: {tokens['bg_primary']};
+            }}
+            QMenuBar {{
+                background: {tokens['bg_secondary']};
+                color: {tokens['text_primary']};
+                border-bottom: 1px solid {tokens['border']};
+            }}
+            QMenuBar::item {{
+                background: transparent;
+                color: {tokens['text_primary']};
+            }}
+            QMenuBar::item:selected {{
+                background: {tokens['bg_hover']};
+            }}
+            QMenu {{
+                background: {tokens['bg_secondary']};
+                color: {tokens['text_primary']};
+                border: 1px solid {tokens['border']};
+            }}
+            QMenu::item:selected {{
+                background: {tokens['accent']};
+                color: {tokens['text_on_accent']};
+            }}
+            QStatusBar {{
+                background: {tokens['bg_secondary']};
+                color: {tokens['text_secondary']};
+                border-top: 1px solid {tokens['border']};
+            }}
+            QSplitter::handle {{
+                background: {tokens['border']};
+            }}
+        """)
+
     _style_widget(widget, tokens)
     for child in widget.findChildren(QWidget):
         _style_widget(child, tokens)
+
+    # Style blame_label (Option A) at the very end to override any generic QFrame styles
+    blame = widget.findChild(QWidget, "blame_label")
+    if blame is not None:
+        blame.setStyleSheet(f"color: {tokens['text_secondary']}; font-size: 11px; padding-left: 4px;")
+
+
+def style_alerts_btn(
+    widget: QWidget, theme_name: str, has_alerts: bool, high_contrast: bool = False
+) -> None:
+    """Style the Alerts button dynamically based on theme and alert presence.
+
+    Ensures the button retains the correct border, padding, border-radius,
+    and hover styling of _BTN_DEFAULT, while applying bold and text_error styling
+    if has_alerts is True.
+    """
+    tokens = THEMES[theme_name]
+    if high_contrast:
+        tokens = boost_contrast(theme_name)
+
+    if has_alerts:
+        color = tokens.get("text_error", "#dc2626")
+        font_weight = "bold"
+    else:
+        color = tokens.get("text_primary", "#1e293b")
+        font_weight = "500"
+
+    style = f"""
+        QPushButton {{
+            background: {tokens['bg_tertiary']};
+            color: {color};
+            border: 1px solid {tokens['border']};
+            border-radius: 6px;
+            padding: 6px 14px;
+            font-weight: {font_weight};
+        }}
+        QPushButton:hover {{ background: {tokens['border']}; }}
+    """
+    widget.setStyleSheet(style)
+

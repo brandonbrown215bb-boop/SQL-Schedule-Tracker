@@ -57,7 +57,9 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── pivot_chart.py            # Scheduling dashboard charts
 │   ├── sync_status.py            # Multi-user sync status indicator
 │   ├── loading_overlay.py        # Loading spinner overlay
+│   ├── notification_panel.py     # Toast notification system for transient UI feedback
 │   ├── onboarding.py             # First-run wizard
+│   ├── reference_dialog.py       # Reference guide dialog (glossary, legend, shortcuts)
 │   ├── theme.py                  # Dark/light theme + CVD modes
 │   ├── batch_edit_dialog.py      # Bulk edit dialog
 │   ├── inline_edit_bar.py        # Inline editing bar
@@ -103,7 +105,11 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── test_contrast_audit.py    # Accessibility contrast ratio tests
 │   ├── test_theme.py             # Theme + CVD tests
 │   ├── test_sync_status.py       # Sync status widget tests
-│   └── test_close_progress_dialog.py  # Close progress dialog tests
+│   ├── test_close_progress_dialog.py  # Close progress dialog tests
+│   ├── test_imports.py           # Import validation tests
+│   ├── test_notification_panel.py # Notification panel (toast) tests
+│   ├── test_reference_dialog.py  # Reference guide dialog tests
+│   └── test_workers.py           # Background worker thread tests
 ├── scripts/
 │   ├── doc_check.py              # Documentation drift checker
 │   ├── benchmark.py              # Performance benchmarks
@@ -382,8 +388,12 @@ Tests use pytest with a SQLite database fixture (`db_path`, `db_with_units`). Th
 | `test_reload_performance.py` | Load timing benchmarks |
 | `test_contrast_audit.py` | Accessibility contrast ratios |
 | `test_theme.py` | Theme application + CVD overrides |
-| `test_sync_status.py` | Sync status widget |
-| `test_close_progress_dialog.py` | Close-with-sync progress dialog |
+| `test_sync_status.py` | Sync status widget tests |
+| `test_close_progress_dialog.py`  | Close progress dialog tests |
+| `test_imports.py` | Import validation tests |
+| `test_notification_panel.py` | Notification panel (toast) tests |
+| `test_reference_dialog.py` | Reference guide dialog tests |
+| `test_workers.py` | Background worker thread tests |
 
 Run tests: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ -v`
 
@@ -459,6 +469,6 @@ Full schema in `automation/create_db.py` → `SCHEMA_SQL`.
 
 ---
 
-*Last updated: 2026-06-16*
-*Architecture: Sprints 1-8 complete. Service layer + validation layer + bulk ops + audit UI. 376 tests passing. Lint clean.*
+*Last updated: 2026-06-24*
+*Architecture: Sprints 1-8 complete. Service layer + validation layer + bulk ops + audit UI. 398 tests passing. Lint clean.*
 *Fixes applied 2026-06-16: PARSE_FUNCS→SANITIZE_FUNCS import in import_preview.py (broke 7 test files), batch_edit_dialog test fixture missing "Brandon B" detailer, inline_edit_bar nested-if SIM102, import_service E402 mid-file import.*

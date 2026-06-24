@@ -122,3 +122,52 @@ class TestCVDOverrides:
     def test_no_cvd_mode_preserves_defaults(self):
         colors = get_status_colors("light", cvd_mode="none")
         assert colors == EXPECTED_LIGHT
+
+
+class TestStyleAlertsBtn:
+    """Tests for style_alerts_btn dynamic button styling."""
+
+    def test_style_alerts_btn_light_with_alerts(self, qapp):
+        from gui.theme import style_alerts_btn
+        from PyQt5.QtWidgets import QPushButton
+
+        btn = QPushButton()
+        style_alerts_btn(btn, theme_name="light", has_alerts=True, high_contrast=False)
+        stylesheet = btn.styleSheet()
+        assert "color: #dc2626" in stylesheet
+        assert "font-weight: bold" in stylesheet
+        assert "background: #f1f5f9" in stylesheet
+
+    def test_style_alerts_btn_light_no_alerts(self, qapp):
+        from gui.theme import style_alerts_btn
+        from PyQt5.QtWidgets import QPushButton
+
+        btn = QPushButton()
+        style_alerts_btn(btn, theme_name="light", has_alerts=False, high_contrast=False)
+        stylesheet = btn.styleSheet()
+        assert "color: #1e293b" in stylesheet
+        assert "font-weight: 500" in stylesheet
+        assert "background: #f1f5f9" in stylesheet
+
+    def test_style_alerts_btn_dark_with_alerts(self, qapp):
+        from gui.theme import style_alerts_btn
+        from PyQt5.QtWidgets import QPushButton
+
+        btn = QPushButton()
+        style_alerts_btn(btn, theme_name="dark", has_alerts=True, high_contrast=False)
+        stylesheet = btn.styleSheet()
+        assert "color: #f87171" in stylesheet
+        assert "font-weight: bold" in stylesheet
+        assert "background: #334155" in stylesheet
+
+    def test_style_alerts_btn_dark_no_alerts(self, qapp):
+        from gui.theme import style_alerts_btn
+        from PyQt5.QtWidgets import QPushButton
+
+        btn = QPushButton()
+        style_alerts_btn(btn, theme_name="dark", has_alerts=False, high_contrast=False)
+        stylesheet = btn.styleSheet()
+        assert "color: #f1f5f9" in stylesheet
+        assert "font-weight: 500" in stylesheet
+        assert "background: #334155" in stylesheet
+

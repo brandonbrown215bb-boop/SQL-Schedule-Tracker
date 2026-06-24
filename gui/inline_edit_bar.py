@@ -36,6 +36,7 @@ class InlineEditBar(QWidget):
     """
 
     unit_saved = pyqtSignal(object)  # Unit
+    dirty_changed = pyqtSignal(bool)
 
     def __init__(self, default_detailers: list[str], parent=None):
         super().__init__(parent)
@@ -144,7 +145,10 @@ class InlineEditBar(QWidget):
             self.setVisible(True)
         finally:
             self._loading = False
+            was_dirty = self._dirty
             self._dirty = False
+            if was_dirty:
+                self.dirty_changed.emit(False)
 
     @property
     def is_dirty(self) -> bool:
@@ -154,7 +158,9 @@ class InlineEditBar(QWidget):
 
     def _on_field_changed(self) -> None:
         if not self._loading:
-            self._dirty = True
+            if not self._dirty:
+                self._dirty = True
+                self.dirty_changed.emit(True)
 
     def _on_save(self) -> None:
         if self._unit is None:
@@ -189,7 +195,10 @@ class InlineEditBar(QWidget):
         unit.dept_due_date_previous = self._unit.dept_due_date_previous
         unit.updated_at = self._unit.updated_at
 
+        was_dirty = self._dirty
         self._dirty = False
+        if was_dirty:
+            self.dirty_changed.emit(False)
         self.unit_saved.emit(unit)
 
     def _on_revert(self) -> None:
@@ -210,7 +219,10 @@ class InlineEditBar(QWidget):
         self.detailer_combo.setCurrentIndex(0)
         self.pct_spin.setValue(0.0)
         self.notes_edit.setText("")
+        was_dirty = self._dirty
         self._dirty = False
+        if was_dirty:
+            self.dirty_changed.emit(False)
 
     @staticmethod
     def _set_combo_text(combo: QComboBox, text: str) -> None:

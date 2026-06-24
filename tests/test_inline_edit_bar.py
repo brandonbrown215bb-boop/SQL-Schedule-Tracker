@@ -79,6 +79,32 @@ class TestInlineEditBarDirty:
         bar.notes_edit.setText("Changed")
         assert bar.is_dirty is True
 
+    def test_dirty_changed_signal_on_edit(self, bar, sample_unit):
+        bar.set_unit(sample_unit)
+        emitted = []
+        bar.dirty_changed.connect(lambda val: emitted.append(val))
+        bar.pct_spin.setValue(75.0)
+        assert len(emitted) == 1
+        assert emitted[0] is True
+
+    def test_dirty_changed_signal_on_save(self, bar, sample_unit):
+        bar.set_unit(sample_unit)
+        bar.pct_spin.setValue(75.0)
+        emitted = []
+        bar.dirty_changed.connect(lambda val: emitted.append(val))
+        bar._on_save()
+        assert len(emitted) == 1
+        assert emitted[0] is False
+
+    def test_dirty_changed_signal_on_revert(self, bar, sample_unit):
+        bar.set_unit(sample_unit)
+        bar.pct_spin.setValue(75.0)
+        emitted = []
+        bar.dirty_changed.connect(lambda val: emitted.append(val))
+        bar._on_revert()
+        assert len(emitted) == 1
+        assert emitted[0] is False
+
 
 class TestInlineEditBarSave:
     def test_save_emits_signal(self, bar, sample_unit):

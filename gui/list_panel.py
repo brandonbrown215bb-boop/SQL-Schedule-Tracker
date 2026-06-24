@@ -359,6 +359,7 @@ class ListPanel(QWidget):
 
     unit_selected = pyqtSignal(object)  # Unit
     unit_saved = pyqtSignal(object)  # Unit (from inline edit bar)
+    inline_dirty_changed = pyqtSignal(bool)
     stale_changed = pyqtSignal(bool)  # show_stale
     column_widths_changed = pyqtSignal(dict)  # {key: width}
     column_visibility_changed = pyqtSignal(list)  # list of visible column keys
@@ -578,6 +579,7 @@ class ListPanel(QWidget):
         # ── Inline Edit Bar ──
         self._inline_edit_bar = InlineEditBar(self._default_detailers)
         self._inline_edit_bar.unit_saved.connect(self._on_inline_save)
+        self._inline_edit_bar.dirty_changed.connect(self.inline_dirty_changed)
         layout.addWidget(self._inline_edit_bar)
 
         # ── Batch Edit Bar ──
