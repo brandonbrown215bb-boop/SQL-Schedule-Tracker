@@ -1,69 +1,47 @@
 # FEAT-10: DR/DVL Check Tracking
 
-**Status**: NOT STARTED  
-**Priority**: Low  
-**Effort**: Small  
+**Status**: IMPLEMENTED
+**Priority**: Medium
+**Effort**: Small
 
 ## Objective
 
 Track whether Design Review (DR) and Design Verification Letter (DVL) checks have been completed for each unit, providing visibility into procedural compliance.
 
-## Background
+## Implementation
 
-The `dr_checks` and `dvl_checks` columns already exist in the DB schema and are exported to Excel (columns AE and AF). They store free-text status strings (e.g., "Done", "Pending", "N/A"). However, they're not displayed in the UI.
+### Status Enum
 
-## Schema
+Three states per field, stored as integers in the DB:
+- `0` = Pending (amber/yellow badge)
+- `1` = Done (green badge)
+- `2` = N/A (gray badge)
 
-| Column | Type | Purpose |
-|--------|------|---------|
-| `dr_checks` | TEXT | Design Review check status |
-| `dvl_checks` | TEXT | Design Verification Letter check status |
+Default: `0` (Pending)
 
-## Proposed Implementation
+### Schema
 
-### 1. Add fields to Unit dataclass
+Two new columns added via ALTER TABLE migration in `data/db.py`:
+- `dr_check_status INTEGER DEFAULT 0`
+- `dvl_check_status INTEGER DEFAULT 0`
 
-```python
-dr_checks: str = ""
-dvl_checks: str = ""
-```
+### Files Modified
 
-### 2. Load from DB
+1. **`data/models.py`** — Added `dr_check_status: int = 0` and `dvl_check_status: int = 0` to Unit dataclass
+2. **`data/db.py`** — ALTER TABLE migration + read in `row_to_unit()`
+3. **`data/writer.py`** — Added both fields to UPDATE statement in `save_unit()`
+4. **`gui/edit_form.py`** — New "Checksheet" section with two QComboBox fields (Pending/Done/N/A), wired to dirty tracking and save
+5. **`gui/list_panel.py`** — Two new column definitions (default hidden), badge rendering with theme-aware colors, sortable
 
-In `row_to_unit()`:
+### UI
 
-```python
-dr_checks=row["dr_checks"] or "",
-dvl_checks=row["dvl_checks"] or "",
-```
-
-### 3. Persist on save
-
-In `save_unit()`, add both fields to the UPDATE statement.
-
-### 4. Add to edit form
-
-Add two `QLineEdit` fields in the "Identity Fields" section (or a new "Checksheet" section).
-
-### 5. Add to list panel
-
-Add columns (default hidden):
-
-```python
-("dr_checks", "DR Check", 60, False),
-("dvl_checks", "DVL Check", 60, False),
-```
-
-## Files to Modify
-
-1. `data/models.py` — Add `dr_checks`, `dvl_checks`
-2. `data/db.py` — Load in `row_to_unit()`
-3. `data/writer.py` — Persist in `save_unit()`
-4. `gui/edit_form.py` — Add form fields
-5. `gui/list_panel.py` — Add column definitions
+- **Edit Form**: "Checksheet" section between Identity and Numeric fields, with DR Check and DVL Check dropdowns
+- **List Panel**: "DR Check" and "DVL Check" columns (default hidden), rendered as colored badges (amber/green/gray)
 
 ## Testing
 
-1. DR/DVL values load and display correctly
-2. Editing and saving persists changes
-3. List panel columns sort and filter correctly
+All 376 existing tests pass. Manual verification:
+- DR/DVL values load and display correctly in edit form and list panel
+- Editing and saving persists changes to database
+- List panel columns sort correctly
+- Badge colors render correctly in both light and dark themes

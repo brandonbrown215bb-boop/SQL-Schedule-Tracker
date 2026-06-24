@@ -87,6 +87,10 @@ class Unit:
     # Stored in SQLite but treated as a regular field (not transient).
     working_days_in_checking: int | None = None
 
+    # DR/DVL check status (0=PENDING, 1=DONE, 2=NA)
+    dr_check_status: int = 0
+    dvl_check_status: int = 0
+
     def __post_init__(self) -> None:
         """Clear computed caches after construction."""
         self._clear_caches()

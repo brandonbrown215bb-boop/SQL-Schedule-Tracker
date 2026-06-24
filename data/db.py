@@ -98,6 +98,14 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
                     updated += 1
             logger.info(f"Migration: backfilled working_days_in_checking for {updated} rows")
 
+        if "dr_check_status" not in cols:
+            conn.execute("ALTER TABLE units ADD COLUMN dr_check_status INTEGER DEFAULT 0")
+            logger.info("Migration: added dr_check_status column")
+
+        if "dvl_check_status" not in cols:
+            conn.execute("ALTER TABLE units ADD COLUMN dvl_check_status INTEGER DEFAULT 0")
+            logger.info("Migration: added dvl_check_status column")
+
         # ── Sprint 1: Database indexes for common query filters ────────────
         desired_indexes = {
             "idx_units_detailing_due_date": "detailing_due_date",
@@ -318,6 +326,8 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         working_days_in_checking=row["working_days_in_checking"]
         if "working_days_in_checking" in row and row["working_days_in_checking"] is not None
         else None,
+        dr_check_status=row["dr_check_status"] if "dr_check_status" in row and row["dr_check_status"] is not None else 0,
+        dvl_check_status=row["dvl_check_status"] if "dvl_check_status" in row and row["dvl_check_status"] is not None else 0,
         updated_at=row["updated_at"] or "",
     )
 

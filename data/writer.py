@@ -107,6 +107,8 @@ def save_unit(
             notes = ?,
             status_color = ?,
             working_days_in_checking = ?,
+            dr_check_status = ?,
+            dvl_check_status = ?,
             updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
         {where_clause}
     """,
@@ -141,6 +143,8 @@ def save_unit(
                 if unit.unit_detailing_completion_date
                 else None,
             ),
+            unit.dr_check_status,
+            unit.dvl_check_status,
             *where_params,
         ),
     )
