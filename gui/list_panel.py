@@ -69,6 +69,8 @@ COLUMN_DEFS: list[tuple[str, str, int, bool]] = [
     ("working_days_in_checking", "Check WD", 60, False),
     ("notes", "Notes", 200, False),
     ("alert_level", "Alert", 80, False),
+    ("dr_check_status", "DR Check", 70, False),
+    ("dvl_check_status", "DVL Check", 70, False),
 ]
 
 
@@ -101,6 +103,18 @@ SEVERITY_ORDER: dict[str, int] = {
     "gray": 4,
     "green": 5,
 }
+
+# ─── DR/DVL Check Status (FEAT-10) ──────────────────────────────────
+
+CHECK_STATUS_LABELS: dict[int, str] = {0: "Pending", 1: "Done", 2: "N/A"}
+
+CHECK_STATUS_COLORS: dict[int, QColor] = {
+    0: QColor(234, 179, 8),   # amber/yellow for Pending
+    1: QColor(34, 197, 94),   # green for Done
+    2: QColor(148, 163, 184), # gray for N/A
+}
+
+CHECK_STATUS_SEVERITY: dict[int, int] = {0: 0, 1: 1, 2: 2}  # Pending first
 
 
 # ─── Filter Presets ─────────────────────────────────────────────────
@@ -331,6 +345,10 @@ class UnitListModel:
 
             def key_func(unit: Unit) -> float:
                 return getattr(unit, column_key, 0.0)
+        elif column_key in ("dr_check_status", "dvl_check_status"):
+
+            def key_func(unit: Unit) -> int:
+                return getattr(unit, column_key, 0)
         else:
             # String sort for text columns
             def key_func(unit: Unit):
@@ -723,6 +741,9 @@ class ListPanel(QWidget):
         if key == "status_color":
             return ""  # Color block — no text
 
+        if key in ("dr_check_status", "dvl_check_status"):
+            return CHECK_STATUS_LABELS.get(int(value), "?")
+
         if key == "description_tags":
             if not value:
                 return ""
@@ -927,6 +948,18 @@ class ListPanel(QWidget):
                     item.setFont(bold_font)
                     item.setText(icon)
                     item.setToolTip(f"{icon} {label}")
+
+                if key in ("dr_check_status", "dvl_check_status"):
+                    status_val = int(value) if value is not None else 0
+                    color = CHECK_STATUS_COLORS.get(status_val, QColor(148, 163, 184))
+                    item.setBackground(QBrush(color))
+                    brightness = (
+                        color.red() * 299 + color.green() * 587 + color.blue() * 114
+                    ) / 1000
+                    text_color = QColor("white") if brightness < 160 else QColor("#1e293b")
+                    item.setForeground(QBrush(text_color))
+                    item.setFont(bold_font)
+                    item.setToolTip(CHECK_STATUS_LABELS.get(status_val, "?"))
 
                 if (
                     key == "detailing_due_date"

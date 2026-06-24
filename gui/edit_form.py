@@ -120,6 +120,19 @@ class EditForm(QWidget):
         self.notes_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.form.addRow(QLabel("Notes:"), self.notes_edit)
 
+        # --- Checksheet fields (FEAT-10) ---
+        checksheet_label = QLabel("<b>Checksheet</b>")
+        self.form.addRow(checksheet_label)
+        self.form.addRow(self._create_h_line())
+
+        self.dr_check_combo = QComboBox()
+        self.dr_check_combo.addItems(["Pending", "Done", "N/A"])
+        self.form.addRow(QLabel("DR Check:"), self.dr_check_combo)
+
+        self.dvl_check_combo = QComboBox()
+        self.dvl_check_combo.addItems(["Pending", "Done", "N/A"])
+        self.form.addRow(QLabel("DVL Check:"), self.dvl_check_combo)
+
         # --- Numeric fields ---
         numeric_label = QLabel("<b>Numeric Fields</b>")
         self.form.addRow(numeric_label)
@@ -208,6 +221,8 @@ class EditForm(QWidget):
             self.due_prev_date_edit,
             self.due_date_edit,
             self.build_date_edit,
+            self.dr_check_combo,
+            self.dvl_check_combo,
         )
         for f in _fields:
             if isinstance(f, QLineEdit):
@@ -316,6 +331,8 @@ class EditForm(QWidget):
                 self._set_date(self.due_prev_date_edit, None)
                 self._set_date(self.due_date_edit, None)
                 self._set_date(self.build_date_edit, None)
+                self.dr_check_combo.setCurrentIndex(0)
+                self.dvl_check_combo.setCurrentIndex(0)
                 self.current_unit = None
                 return
 
@@ -347,6 +364,10 @@ class EditForm(QWidget):
             self._set_date(self.due_prev_date_edit, unit.dept_due_date_previous)
             self._set_date(self.due_date_edit, unit.detailing_due_date)
             self._set_date(self.build_date_edit, unit.build_date)
+
+            # FEAT-10: DR/DVL check status
+            self.dr_check_combo.setCurrentIndex(unit.dr_check_status)
+            self.dvl_check_combo.setCurrentIndex(unit.dvl_check_status)
         finally:
             for f in _signal_blocks:
                 f.blockSignals(False)
@@ -450,6 +471,8 @@ class EditForm(QWidget):
             dept_due_date_previous=self._get_date(self.due_prev_date_edit),
             detailing_due_date=self._get_date(self.due_date_edit),
             build_date=self._get_date(self.build_date_edit),
+            dr_check_status=self.dr_check_combo.currentIndex(),
+            dvl_check_status=self.dvl_check_combo.currentIndex(),
             updated_at=orig.updated_at,
             excel_row=orig.excel_row,
             fingerprint=orig.fingerprint,

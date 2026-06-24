@@ -373,6 +373,8 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         week_ending_friday=_parse_date(row["week_ending_friday"])
         if "week_ending_friday" in row.keys() and row["week_ending_friday"] is not None
         else None,
+        dr_check_status=row["dr_check_status"] if "dr_check_status" in row and row["dr_check_status"] is not None else 0,
+        dvl_check_status=row["dvl_check_status"] if "dvl_check_status" in row and row["dvl_check_status"] is not None else 0,
         updated_at=row["updated_at"] or "",
     )
 
