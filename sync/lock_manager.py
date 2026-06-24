@@ -123,7 +123,7 @@ class LockManager:
     def _remove_stale_lock(self, path: Path, info: LockInfo) -> None:
         current = self._read_lock(path)
         if current and current.token == info.token and current.is_stale:
-            with suppress(FileNotFoundError):
+            with suppress(FileNotFoundError, PermissionError, OSError):
                 path.unlink()
 
 

@@ -75,12 +75,16 @@ class TestSetUnitPopulatesAllFields:
     """AC#1: set_unit() populates all fields correctly."""
 
     def test_identity_fields_populated(self, edit_form, sample_unit):
+        sample_unit.dr_checks = "Done"
+        sample_unit.dvl_checks = "Pending"
         edit_form.set_unit(sample_unit)
         assert edit_form.com_number_edit.text() == "123456"
         assert edit_form.job_name_edit.text() == "Test Job Alpha"
         assert edit_form.contract_edit.text() == "CNT-2024-001"
         assert edit_form.description_edit.text() == "A sample unit"
         assert edit_form.checking_status_edit.text() == "In Progress"
+        assert edit_form.dr_checks_edit.text() == "Done"
+        assert edit_form.dvl_checks_edit.text() == "Pending"
 
     def test_detailer_combo_set(self, edit_form, sample_unit):
         edit_form.set_unit(sample_unit)
@@ -179,6 +183,8 @@ class TestOnSaveEmitsCorrectData:
 
         edit_form.set_unit(sample_unit)
         edit_form.job_name_edit.setText("Modified Job")
+        edit_form.dr_checks_edit.setText("Done")
+        edit_form.dvl_checks_edit.setText("Pending")
         edit_form.actual_hours_spin.setValue(99.5)
         edit_form.percent_spin.setValue(75.0)
         edit_form._on_save()
@@ -186,6 +192,8 @@ class TestOnSaveEmitsCorrectData:
         assert len(saved_units) == 1
         emitted = saved_units[0]
         assert emitted.job_name == "Modified Job"
+        assert emitted.dr_checks == "Done"
+        assert emitted.dvl_checks == "Pending"
         assert emitted.actual_hours == 99.5
         assert emitted.percent_complete == 75.0
 

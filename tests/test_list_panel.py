@@ -438,6 +438,117 @@ class TestListPanelWidget:
         for color_key in ["gray", "yellow", "purple", "orange", "green", "red"]:
             assert color_key in SEVERITY_ORDER
 
+    def test_grouping_cell_highlighting(self, qapp):
+        """Groups of 2+ get a palette color; singletons get none.
+
+        Value-based strategy: same value → same palette color regardless
+        of position. Two units sharing a week get the same color; a unit
+        with a unique week gets no color.
+        """
+        from PyQt5.QtCore import Qt as _Qt
+        from PyQt5.QtGui import QBrush
+        # u1 + u2 share the same week and same contract (2 occurrences → qualifies)
+        # u3 has a unique week and unique contract (singleton → no highlight)
+        u1 = _make_unit(com="COM-A", due=date(2026, 6, 24))
+        u2 = _make_unit(com="COM-B", due=date(2026, 6, 24))
+        u3 = _make_unit(com="COM-C", due=date(2026, 7, 1))
+
+        u1.contract_number = "CON-1"
+        u2.contract_number = "CON-1"
+        u3.contract_number = "CON-2"  # singleton contract
+
+        panel = ListPanel([u1, u2, u3])
+        panel._model.sort_by("detailing_due_date", True)
+        panel._refresh_table_full()
+
+        col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
+        com_col = col_keys.index("com_number")
+        due_col = col_keys.index("detailing_due_date")
+
+        def _is_painted(item) -> bool:
+            """True if the item has an explicit solid background brush set."""
+            return item.background().style() == _Qt.SolidPattern
+
+        # Rows 0 & 1 share values → both should have a solid highlight brush
+        assert _is_painted(panel.table.item(0, com_col)), "Row 0 COM should be highlighted"
+        assert _is_painted(panel.table.item(0, due_col)), "Row 0 Due should be highlighted"
+
+        # Same value → same color
+        brush_com_0 = panel.table.item(0, com_col).background()
+        brush_due_0 = panel.table.item(0, due_col).background()
+        brush_com_1 = panel.table.item(1, com_col).background()
+        brush_due_1 = panel.table.item(1, due_col).background()
+        assert brush_com_1.color() == brush_com_0.color(), "Rows 0 & 1 COM must share tint"
+        assert brush_due_1.color() == brush_due_0.color(), "Rows 0 & 1 Due must share tint"
+
+        # Row 2 is a singleton → brush style must NOT be SolidPattern (no explicit fill)
+        assert not _is_painted(panel.table.item(2, com_col)), "Singleton COM must not be highlighted"
+        assert not _is_painted(panel.table.item(2, due_col)), "Singleton Due must not be highlighted"
+
+    def test_grouping_no_highlight_when_all_unique(self, qapp):
+        """When every unit has a unique value, no cell should be highlighted."""
+        from PyQt5.QtCore import Qt as _Qt
+        u1 = _make_unit(com="COM-A", due=date(2026, 6, 24))
+        u2 = _make_unit(com="COM-B", due=date(2026, 7, 1))
+        u3 = _make_unit(com="COM-C", due=date(2026, 7, 8))
+
+        u1.contract_number = "CON-1"
+        u2.contract_number = "CON-2"
+        u3.contract_number = "CON-3"
+
+        panel = ListPanel([u1, u2, u3])
+        panel._model.sort_by("detailing_due_date", True)
+        panel._refresh_table_full()
+
+        col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
+        com_col = col_keys.index("com_number")
+        due_col = col_keys.index("detailing_due_date")
+
+        for row in range(3):
+            assert panel.table.item(row, com_col).background().style() != _Qt.SolidPattern, \
+                f"Row {row} COM should not be highlighted (all unique)"
+            assert panel.table.item(row, due_col).background().style() != _Qt.SolidPattern, \
+                f"Row {row} Due should not be highlighted (all unique)"
+
+    def test_grouping_same_value_same_color_regardless_of_sort(self, qapp):
+        """Value-based: the same grouping key always maps to the same palette
+        color no matter where the row appears after re-sorting.
+        """
+        from PyQt5.QtCore import Qt as _Qt
+        # All three units share the same contract but differ in due date
+        u1 = _make_unit(com="COM-A", due=date(2026, 6, 24))
+        u2 = _make_unit(com="COM-B", due=date(2026, 7, 1))
+        u3 = _make_unit(com="COM-C", due=date(2026, 7, 8))
+        for u in (u1, u2, u3):
+            u.contract_number = "SHARED"
+
+        panel = ListPanel([u1, u2, u3])
+
+        # Sort ascending — capture COM colors at each position
+        panel._model.sort_by("detailing_due_date", True)
+        panel._refresh_table_full()
+        col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
+        com_col = col_keys.index("com_number")
+
+        color_asc = [panel.table.item(r, com_col).background().color() for r in range(3)]
+
+        # Sort descending — rows reverse; same value should produce same color
+        panel._model.sort_by("detailing_due_date", False)
+        panel._refresh_table_full()
+        color_desc = [panel.table.item(r, com_col).background().color() for r in range(3)]
+
+        # All three share the same contract so all should be painted
+        for r in range(3):
+            assert color_asc[r].isValid(), f"Asc row {r} COM should be highlighted"
+            assert color_desc[r].isValid(), f"Desc row {r} COM should be highlighted"
+
+        # The color for each unit must be the same regardless of its row position
+        # (asc row 0 == desc row 2; asc row 2 == desc row 0)
+        assert color_asc[0] == color_desc[2], "Same value must map to same color after re-sort"
+        assert color_asc[2] == color_desc[0], "Same value must map to same color after re-sort"
+
+
+
 
 # ─── Constants Validation ──────────────────────────────────────────
 

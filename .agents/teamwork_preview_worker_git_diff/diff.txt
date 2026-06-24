@@ -1,0 +1,838 @@
+diff --git a/agents.md b/agents.md
+index 394a857..b07dc1b 100644
+--- a/agents.md
++++ b/agents.md
+@@ -57,7 +57,9 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
+ │   ├── pivot_chart.py            # Scheduling dashboard charts
+ │   ├── sync_status.py            # Multi-user sync status indicator
+ │   ├── loading_overlay.py        # Loading spinner overlay
++│   ├── notification_panel.py     # Toast notification system for transient UI feedback
+ │   ├── onboarding.py             # First-run wizard
++│   ├── reference_dialog.py       # Reference guide dialog (glossary, legend, shortcuts)
+ │   ├── theme.py                  # Dark/light theme + CVD modes
+ │   ├── batch_edit_dialog.py      # Bulk edit dialog
+ │   ├── inline_edit_bar.py        # Inline editing bar
+@@ -103,7 +105,11 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
+ │   ├── test_contrast_audit.py    # Accessibility contrast ratio tests
+ │   ├── test_theme.py             # Theme + CVD tests
+ │   ├── test_sync_status.py       # Sync status widget tests
+-│   └── test_close_progress_dialog.py  # Close progress dialog tests
++│   ├── test_close_progress_dialog.py  # Close progress dialog tests
++│   ├── test_imports.py           # Import validation tests
++│   ├── test_notification_panel.py # Notification panel (toast) tests
++│   ├── test_reference_dialog.py  # Reference guide dialog tests
++│   └── test_workers.py           # Background worker thread tests
+ ├── scripts/
+ │   ├── doc_check.py              # Documentation drift checker
+ │   ├── benchmark.py              # Performance benchmarks
+@@ -382,8 +388,12 @@ Tests use pytest with a SQLite database fixture (`db_path`, `db_with_units`). Th
+ | `test_reload_performance.py` | Load timing benchmarks |
+ | `test_contrast_audit.py` | Accessibility contrast ratios |
+ | `test_theme.py` | Theme application + CVD overrides |
+-| `test_sync_status.py` | Sync status widget |
+-| `test_close_progress_dialog.py` | Close-with-sync progress dialog |
++| `test_sync_status.py` | Sync status widget tests |
++| `test_close_progress_dialog.py`  | Close progress dialog tests |
++| `test_imports.py` | Import validation tests |
++| `test_notification_panel.py` | Notification panel (toast) tests |
++| `test_reference_dialog.py` | Reference guide dialog tests |
++| `test_workers.py` | Background worker thread tests |
+ 
+ Run tests: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ -v`
+ 
+@@ -459,6 +469,6 @@ Full schema in `automation/create_db.py` → `SCHEMA_SQL`.
+ 
+ ---
+ 
+-*Last updated: 2026-06-16*
+-*Architecture: Sprints 1-8 complete. Service layer + validation layer + bulk ops + audit UI. 376 tests passing. Lint clean.*
++*Last updated: 2026-06-24*
++*Architecture: Sprints 1-8 complete. Service layer + validation layer + bulk ops + audit UI. 398 tests passing. Lint clean.*
+ *Fixes applied 2026-06-16: PARSE_FUNCS→SANITIZE_FUNCS import in import_preview.py (broke 7 test files), batch_edit_dialog test fixture missing "Brandon B" detailer, inline_edit_bar nested-if SIM102, import_service E402 mid-file import.*
+diff --git a/gui/inline_edit_bar.py b/gui/inline_edit_bar.py
+index f0ce58c..28760eb 100644
+--- a/gui/inline_edit_bar.py
++++ b/gui/inline_edit_bar.py
+@@ -36,6 +36,7 @@ class InlineEditBar(QWidget):
+     """
+ 
+     unit_saved = pyqtSignal(object)  # Unit
++    dirty_changed = pyqtSignal(bool)
+ 
+     def __init__(self, default_detailers: list[str], parent=None):
+         super().__init__(parent)
+@@ -144,7 +145,10 @@ class InlineEditBar(QWidget):
+             self.setVisible(True)
+         finally:
+             self._loading = False
++            was_dirty = self._dirty
+             self._dirty = False
++            if was_dirty:
++                self.dirty_changed.emit(False)
+ 
+     @property
+     def is_dirty(self) -> bool:
+@@ -154,7 +158,9 @@ class InlineEditBar(QWidget):
+ 
+     def _on_field_changed(self) -> None:
+         if not self._loading:
+-            self._dirty = True
++            if not self._dirty:
++                self._dirty = True
++                self.dirty_changed.emit(True)
+ 
+     def _on_save(self) -> None:
+         if self._unit is None:
+@@ -189,7 +195,10 @@ class InlineEditBar(QWidget):
+         unit.dept_due_date_previous = self._unit.dept_due_date_previous
+         unit.updated_at = self._unit.updated_at
+ 
++        was_dirty = self._dirty
+         self._dirty = False
++        if was_dirty:
++            self.dirty_changed.emit(False)
+         self.unit_saved.emit(unit)
+ 
+     def _on_revert(self) -> None:
+@@ -210,7 +219,10 @@ class InlineEditBar(QWidget):
+         self.detailer_combo.setCurrentIndex(0)
+         self.pct_spin.setValue(0.0)
+         self.notes_edit.setText("")
++        was_dirty = self._dirty
+         self._dirty = False
++        if was_dirty:
++            self.dirty_changed.emit(False)
+ 
+     @staticmethod
+     def _set_combo_text(combo: QComboBox, text: str) -> None:
+diff --git a/gui/list_panel.py b/gui/list_panel.py
+index c0fb5b0..99aa54e 100644
+--- a/gui/list_panel.py
++++ b/gui/list_panel.py
+@@ -359,6 +359,7 @@ class ListPanel(QWidget):
+ 
+     unit_selected = pyqtSignal(object)  # Unit
+     unit_saved = pyqtSignal(object)  # Unit (from inline edit bar)
++    inline_dirty_changed = pyqtSignal(bool)
+     stale_changed = pyqtSignal(bool)  # show_stale
+     column_widths_changed = pyqtSignal(dict)  # {key: width}
+     column_visibility_changed = pyqtSignal(list)  # list of visible column keys
+@@ -578,6 +579,7 @@ class ListPanel(QWidget):
+         # ── Inline Edit Bar ──
+         self._inline_edit_bar = InlineEditBar(self._default_detailers)
+         self._inline_edit_bar.unit_saved.connect(self._on_inline_save)
++        self._inline_edit_bar.dirty_changed.connect(self.inline_dirty_changed)
+         layout.addWidget(self._inline_edit_bar)
+ 
+         # ── Batch Edit Bar ──
+diff --git a/gui/main_window.py b/gui/main_window.py
+index 1b0d117..47921e7 100644
+--- a/gui/main_window.py
++++ b/gui/main_window.py
+@@ -38,9 +38,11 @@ from gui.due_date_changed_dialog import DueDateChangedDialog
+ from gui.edit_form import EditForm
+ from gui.list_panel import ListPanel
+ from gui.loading_overlay import LoadingOverlay
++from gui.notification_panel import NotificationPanel
+ from gui.onboarding import should_show_onboarding, show_onboarding
++from gui.reference_dialog import ReferenceDialog
+ from gui.sync_status import SyncStatusWidget
+-from gui.theme import apply_theme, init_labels
++from gui.theme import apply_theme, init_labels, style_alerts_btn
+ from gui.timeline_panel import TimelinePanel
+ from services.config_service import ConfigService
+ from services.export_service import ExportService
+@@ -90,6 +92,89 @@ class SaveWorker(QThread):
+             self.error.emit(str(e))
+ 
+ 
++class PullSSRSWorker(QThread):
++    """Background worker for fetching SSRS data."""
++
++    finished = pyqtSignal(object)
++    error = pyqtSignal(str)
++
++    def __init__(self, import_service: ImportService, url: str, lookback_days: int, lookahead_days: int):
++        super().__init__()
++        self._import_service = import_service
++        self.url = url
++        self.lookback_days = lookback_days
++        self.lookahead_days = lookahead_days
++
++    def run(self):
++        try:
++            res = self._import_service.from_ssrs(
++                url=self.url,
++                lookback_days=self.lookback_days,
++                lookahead_days=self.lookahead_days
++            )
++            self.finished.emit(res)
++        except Exception as e:
++            self.error.emit(str(e))
++
++
++class CSVDiffWorker(QThread):
++    """Background worker for computing CSV import diff."""
++
++    finished = pyqtSignal(object)
++    error = pyqtSignal(str)
++
++    def __init__(self, import_service: ImportService, source_path: str):
++        super().__init__()
++        self._import_service = import_service
++        self.source_path = source_path
++
++    def run(self):
++        try:
++            diff = self._import_service.diff_before_import(self.source_path)
++            self.finished.emit(diff)
++        except Exception as e:
++            self.error.emit(str(e))
++
++
++class CSVImportWorker(QThread):
++    """Background worker for importing CSV data."""
++
++    finished = pyqtSignal(object)
++    error = pyqtSignal(str)
++
++    def __init__(self, import_service: ImportService, source_path: str):
++        super().__init__()
++        self._import_service = import_service
++        self.source_path = source_path
++
++    def run(self):
++        try:
++            res = self._import_service.from_csv(self.source_path)
++            self.finished.emit(res)
++        except Exception as e:
++            self.error.emit(str(e))
++
++
++class ExcelExportWorker(QThread):
++    """Background worker for exporting to Excel."""
++
++    finished = pyqtSignal(int)
++    error = pyqtSignal(str)
++
++    def __init__(self, export_service: ExportService, excel_path: str, db_path: str):
++        super().__init__()
++        self._export_service = export_service
++        self.excel_path = excel_path
++        self.db_path = db_path
++
++    def run(self):
++        try:
++            row_count = self._export_service.to_excel(self.excel_path, self.db_path)
++            self.finished.emit(row_count)
++        except Exception as e:
++            self.error.emit(str(e))
++
++
+ class ServiceRegistry:
+     """Holds all service instances. Created by main(), injected into MainWindow."""
+ 
+@@ -201,6 +286,8 @@ class MainWindow(QMainWindow):
+             cvd_mode=self._current_cvd,
+             high_contrast=self._current_hc,
+         )
++        if hasattr(self, "notification_panel") and self.notification_panel is not None:
++            self.notification_panel.set_theme(self._current_theme_name, self._current_cvd)
+ 
+     def _init_status_bar(self) -> None:
+         self.setWindowTitle("Unit Tracker")
+@@ -371,6 +458,7 @@ class MainWindow(QMainWindow):
+         )
+         self.list_panel.unit_selected.connect(self.on_unit_selected)
+         self.list_panel.unit_saved.connect(self.on_save_unit)
++        self.list_panel.inline_dirty_changed.connect(self._on_inline_dirty_changed)
+         self.list_panel.stale_changed.connect(self._on_stale_changed)
+         self.list_panel.column_widths_changed.connect(self._on_column_widths_changed)
+         self.list_panel.column_visibility_changed.connect(self._on_column_visibility_changed)
+@@ -463,6 +551,7 @@ class MainWindow(QMainWindow):
+ 
+     def _init_loading_overlay(self) -> None:
+         self.loading_overlay = LoadingOverlay(self.centralWidget())
++        self.notification_panel = NotificationPanel(self)
+ 
+     def _check_onboarding(self) -> None:
+         if should_show_onboarding(self._services.config):
+@@ -478,6 +567,11 @@ class MainWindow(QMainWindow):
+         dashboard_action.setToolTip("Open the scheduling status chart (exportable as PNG)")
+         dashboard_action.triggered.connect(self._open_dashboard)
+         help_menu = menubar.addMenu("&Help")
++        
++        legend_action = help_menu.addAction("&Legend & Reference Guide")
++        legend_action.setToolTip("Show visual legend, glossary, and shortcuts (F1)")
++        legend_action.triggered.connect(self._show_legend)
++        
+         walkthrough_action = help_menu.addAction("&Show Walkthrough")
+         walkthrough_action.setToolTip("Show the onboarding walkthrough")
+         walkthrough_action.triggered.connect(lambda: show_onboarding(self, self._services.config))
+@@ -485,6 +579,15 @@ class MainWindow(QMainWindow):
+         about_action = help_menu.addAction("&About Unit Tracker")
+         about_action.triggered.connect(self._show_about)
+ 
++    def _show_legend(self) -> None:
++        dlg = ReferenceDialog(
++            parent=self,
++            theme_name=self._current_theme_name,
++            cvd_mode=self._current_cvd,
++            high_contrast=self._current_hc,
++        )
++        dlg.exec_()
++
+     def _show_about(self):
+         QMessageBox.about(
+             self,
+@@ -550,10 +653,15 @@ class MainWindow(QMainWindow):
+             self.alerts_view_btn.setText(
+                 f"🔔 Alerts ({self._alert_critical_count}) (Ctrl+3)"
+             )
+-            self.alerts_view_btn.setStyleSheet("font-weight: bold; color: #dc2626;")
+         else:
+             self.alerts_view_btn.setText("🔔 Alerts (Ctrl+3)")
+-            self.alerts_view_btn.setStyleSheet("")
++
++        style_alerts_btn(
++            self.alerts_view_btn,
++            self._current_theme_name,
++            has_alerts=(self._alert_critical_count > 0),
++            high_contrast=self._current_hc,
++        )
+ 
+     def _on_batch_mode_changed(self, count: int) -> None:
+         """Show/hide batch banner in right panel and dim edit form (P8)."""
+@@ -571,13 +679,28 @@ class MainWindow(QMainWindow):
+         self.calendar_panel.calendar.set_show_stale(show_stale)
+         self.calendar_panel.refresh(self.units)
+ 
++    def _update_dirty_title(self) -> None:
++        is_dirty = self._form_dirty or getattr(self, "_inline_dirty", False)
++        base_title = "Unit Tracker"
++        self.setWindowTitle(f"* {base_title}" if is_dirty else base_title)
++
++    def _notify(self, message: str, level: str = "info") -> None:
++        """Show a temporary toast notification and log it."""
++        if hasattr(self, "notification_panel") and self.notification_panel is not None:
++            self.notification_panel.show_notification(message, level)
++        logger.info("Notification (%s): %s", level, message)
++
+     def _on_dirty_changed(self, dirty: bool) -> None:
+         self._form_dirty = dirty
+-        base_title = "Unit Tracker"
+-        self.setWindowTitle(f"* {base_title}" if dirty else base_title)
++        self._update_dirty_title()
++
++    def _on_inline_dirty_changed(self, dirty: bool) -> None:
++        self._inline_dirty = dirty
++        self._update_dirty_title()
+ 
+     def _confirm_discard(self) -> bool:
+-        if not getattr(self, "_form_dirty", False):
++        is_dirty = self._form_dirty or getattr(self, "_inline_dirty", False)
++        if not is_dirty:
+             return True
+         reply = QMessageBox.question(
+             self,
+@@ -586,7 +709,16 @@ class MainWindow(QMainWindow):
+             QMessageBox.Yes | QMessageBox.No,
+             QMessageBox.No,
+         )
+-        return reply == QMessageBox.Yes
++        if reply == QMessageBox.Yes:
++            self._form_dirty = False
++            self._inline_dirty = False
++            self._update_dirty_title()
++            if hasattr(self, "edit_form"):
++                self.edit_form._dirty = False
++            if hasattr(self, "list_panel") and hasattr(self.list_panel, "_inline_edit_bar"):
++                self.list_panel._inline_edit_bar._dirty = False
++            return True
++        return False
+ 
+     # ── Selection + Save ───────────────────────────────────────────────
+ 
+@@ -642,7 +774,7 @@ class MainWindow(QMainWindow):
+             self.timeline_panel.set_unit(unit)
+             self.edit_form.current_unit = unit
+             self._pending_save_unit = None
+-            self.status_bar.showMessage(f"✓ Saved COM {unit.com_number}", 3000)
++            self._notify(f"Saved COM {unit.com_number}", "success")
+ 
+     def _on_save_error(self, error_msg: str) -> None:
+         worker = self.sender()
+@@ -660,7 +792,7 @@ class MainWindow(QMainWindow):
+             f"Could not save to database:\n{error_msg}\n\n"
+             f"Your changes are still in the form. Check your network connection and try saving again.",
+         )
+-        self.status_bar.showMessage("Save failed — check network connection", 8000)
++        self._notify("Save failed — check network connection", "error")
+ 
+     def _show_conflict_dialog(self, error_msg: str, local_unit: Unit | None = None) -> None:
+         local_unit = local_unit or self.current_unit
+@@ -794,7 +926,7 @@ class MainWindow(QMainWindow):
+         self.alert_panel.set_units(self.units)
+         self._update_alert_badge()
+         self._status_unit_count.setText(f"{len(self.units)} units loaded")
+-        self.status_bar.showMessage(f"Loaded {len(self.units)} units from SQLite")
++        self._notify(f"Loaded {len(self.units)} units from SQLite", "success")
+         logger.info("MainWindow: Loaded %d units.", len(self.units))
+ 
+         # Re-run global search after data refresh to prevent desync (P4)
+@@ -830,6 +962,7 @@ class MainWindow(QMainWindow):
+     def _on_load_error(self, error_msg: str):
+         self.loading_overlay.hide()
+         self._set_io_busy(False)
++        self._notify("Failed to load database", "error")
+         logger.error("MainWindow: Error loading database: %s", error_msg)
+         if self._should_suppress_error_dialog():
+             logger.info("MainWindow: Error dialog suppressed (throttled)")
+@@ -1043,6 +1176,10 @@ class MainWindow(QMainWindow):
+     # ── Import / Export (delegated to services) ────────────────────────
+ 
+     def _pull_csv(self):
++        if getattr(self, "_io_busy", False):
++            self._notify("Operation in progress. Please wait...", "warning")
++            return
++
+         source_dir = self._services.config.get(
+             "unedited_reports_dir", "P:/Detailing Schedule 2019/Unedited Reports"
+         )
+@@ -1051,34 +1188,65 @@ class MainWindow(QMainWindow):
+         )
+         if not source_path:
+             return
+-        self.status_bar.showMessage("Computing import diff...")
+-        try:
+-            diff = self._services.import_service.diff_before_import(source_path)
+-        except Exception as e:
+-            QMessageBox.warning(
+-                self, "Import Preview Error", f"Could not compute import diff:\n{e}"
+-            )
+-            self.status_bar.showMessage("Import preview failed", 5000)
+-            return
+-        from gui.import_preview_dialog import ImportPreviewDialog
+ 
++        self._set_io_busy(True)
++        self.loading_overlay.show_with_message("Computing import diff...")
++        self._csv_diff_worker = CSVDiffWorker(self._services.import_service, source_path)
++        self._csv_diff_worker.finished.connect(self._on_csv_diff_finished)
++        self._csv_diff_worker.error.connect(self._on_csv_diff_error)
++        self._csv_diff_worker.start()
++
++    def _on_csv_diff_finished(self, diff):
++        self.loading_overlay.hide()
++        self.notification_panel.flush_queue()
++        self._set_io_busy(False)
++
++        from gui.import_preview_dialog import ImportPreviewDialog
+         dlg = ImportPreviewDialog(diff, parent=self)
+         dlg.exec_()
+         if not dlg.approved:
+-            self.status_bar.showMessage("Import cancelled", 3000)
++            self._notify("Import cancelled", "info")
+             return
+-        self.status_bar.showMessage("Importing CSV...")
+-        try:
+-            result = self._services.import_service.from_csv(source_path)
+-            self.status_bar.showMessage(
+-                f"✓ Imported {result.total_affected} rows successfully", 8000
+-            )
+-            self._refresh_data()
+-        except Exception as e:
+-            QMessageBox.warning(self, "Import Error", f"Failed:\n{e}")
+-            self.status_bar.showMessage("Import failed", 5000)
++
++        self._set_io_busy(True)
++        self.loading_overlay.show_with_message("Importing CSV...")
++        self._csv_import_worker = CSVImportWorker(
++            self._services.import_service, self._csv_diff_worker.source_path
++        )
++        self._csv_import_worker.finished.connect(self._on_csv_import_finished)
++        self._csv_import_worker.error.connect(self._on_csv_import_error)
++        self._csv_import_worker.start()
++
++    def _on_csv_diff_error(self, error_msg: str):
++        self.loading_overlay.hide()
++        self.notification_panel.flush_queue()
++        self._set_io_busy(False)
++        logger.error("CSV diff calculation failed: %s", error_msg)
++        QMessageBox.warning(
++            self, "Import Preview Error", f"Could not compute import diff:\n{error_msg}"
++        )
++        self._notify("Import preview failed", "error")
++
++    def _on_csv_import_finished(self, result):
++        self.loading_overlay.hide()
++        self.notification_panel.flush_queue()
++        self._set_io_busy(False)
++        self._notify(f"Imported {result.total_affected} rows successfully", "success")
++        self._refresh_data()
++
++    def _on_csv_import_error(self, error_msg: str):
++        self.loading_overlay.hide()
++        self.notification_panel.flush_queue()
++        self._set_io_busy(False)
++        logger.error("CSV import failed: %s", error_msg)
++        QMessageBox.warning(self, "Import Error", f"Failed:\n{error_msg}")
++        self._notify("Import failed", "error")
+ 
+     def _pull_ssrs(self):
++        if getattr(self, "_io_busy", False):
++            self._notify("Operation in progress. Please wait...", "warning")
++            return
++
+         ssrs_url = self._services.config.get("ssrs_url", "")
+         if not ssrs_url:
+             QMessageBox.warning(
+@@ -1101,23 +1269,40 @@ class MainWindow(QMainWindow):
+         )
+         if reply != QMessageBox.Yes:
+             return
+-        self.status_bar.showMessage("Fetching SSRS data...")
+-        try:
+-            result = self._services.import_service.from_ssrs(
+-                url=ssrs_url, lookback_days=lookback, lookahead_days=lookahead
+-            )
+-            self.status_bar.showMessage(
+-                f"✓ SSRS import complete — {result.inserted} inserted, "
+-                f"{result.updated} updated, {result.errors} errors",
+-                8000,
+-            )
+-            self._refresh_data()
+-        except Exception as e:
+-            logger.exception("SSRS pull failed")
+-            QMessageBox.warning(self, "SSRS Import Error", f"Failed:\n{e}")
+-            self.status_bar.showMessage("SSRS import failed", 5000)
++
++        self._set_io_busy(True)
++        self.loading_overlay.show_with_message("Fetching SSRS data...")
++        self._pull_ssrs_worker = PullSSRSWorker(
++            self._services.import_service, ssrs_url, lookback, lookahead
++        )
++        self._pull_ssrs_worker.finished.connect(self._on_pull_ssrs_finished)
++        self._pull_ssrs_worker.error.connect(self._on_pull_ssrs_error)
++        self._pull_ssrs_worker.start()
++
++    def _on_pull_ssrs_finished(self, result):
++        self.loading_overlay.hide()
++        self.notification_panel.flush_queue()
++        self._set_io_busy(False)
++        self._notify(
++            f"SSRS import complete — {result.inserted} inserted, "
++            f"{result.updated} updated, {result.errors} errors",
++            "success"
++        )
++        self._refresh_data()
++
++    def _on_pull_ssrs_error(self, error_msg: str):
++        self.loading_overlay.hide()
++        self.notification_panel.flush_queue()
++        self._set_io_busy(False)
++        logger.error("SSRS pull failed: %s", error_msg)
++        QMessageBox.warning(self, "SSRS Import Error", f"Failed:\n{error_msg}")
++        self._notify("SSRS import failed", "error")
+ 
+     def _export_excel(self):
++        if getattr(self, "_io_busy", False):
++            self._notify("Operation in progress. Please wait...", "warning")
++            return
++
+         excel_path = self._services.config.get("excel_path", "")
+         if not excel_path or not os.path.exists(excel_path):
+             reports_dir = self._services.config.get("unedited_reports_dir", "")
+@@ -1142,14 +1327,29 @@ class MainWindow(QMainWindow):
+         )
+         if reply != QMessageBox.Yes:
+             return
+-        self.status_bar.showMessage("Exporting to Excel...")
+-        try:
+-            row_count = self._services.export_service.to_excel(excel_path, self._services.db_path)
+-            self.status_bar.showMessage(f"✓ Exported {row_count} rows to Excel", 8000)
+-        except Exception as e:
+-            logger.exception("Excel export failed")
+-            QMessageBox.warning(self, "Export Error", f"Failed:\n{e}")
+-            self.status_bar.showMessage("Export failed", 5000)
++
++        self._set_io_busy(True)
++        self.loading_overlay.show_with_message("Exporting to Excel...")
++        self._excel_export_worker = ExcelExportWorker(
++            self._services.export_service, excel_path, self._services.db_path
++        )
++        self._excel_export_worker.finished.connect(self._on_excel_export_finished)
++        self._excel_export_worker.error.connect(self._on_excel_export_error)
++        self._excel_export_worker.start()
++
++    def _on_excel_export_finished(self, row_count):
++        self.loading_overlay.hide()
++        self.notification_panel.flush_queue()
++        self._set_io_busy(False)
++        self._notify(f"Exported {row_count} rows to Excel", "success")
++
++    def _on_excel_export_error(self, error_msg: str):
++        self.loading_overlay.hide()
++        self.notification_panel.flush_queue()
++        self._set_io_busy(False)
++        logger.error("Excel export failed: %s", error_msg)
++        QMessageBox.warning(self, "Export Error", f"Failed:\n{error_msg}")
++        self._notify("Export failed", "error")
+ 
+     def _open_audit(self, unit: Unit | None = None) -> None:
+         """Open the audit trail dialog for the given or currently selected unit."""
+@@ -1183,6 +1383,9 @@ class MainWindow(QMainWindow):
+         if a0.key() == Qt.Key_F5:
+             self._refresh_data()
+             return
++        if a0.key() == Qt.Key_F1:
++            self._show_legend()
++            return
+         if a0.key() == Qt.Key_F and a0.modifiers() & Qt.ControlModifier:
+             self._search_edit.setFocus()
+             self._search_edit.selectAll()
+@@ -1230,8 +1433,11 @@ class MainWindow(QMainWindow):
+         for panel in (self.calendar_panel, self.list_panel, self.timeline_panel, self.edit_form):
+             if hasattr(panel, "set_theme"):
+                 panel.set_theme(theme_name, self._current_cvd)
++        if hasattr(self, "notification_panel") and self.notification_panel is not None:
++            self.notification_panel.set_theme(theme_name, self._current_cvd)
++        self._update_alert_badge()
+         self._save_ui_config()
+-        self.status_bar.showMessage(f"Theme: {theme_name}", 2000)
++        self._notify(f"Theme: {theme_name}", "info")
+ 
+     def _on_column_widths_changed(self, widths: dict) -> None:
+         self._services.config.setdefault("ui", {})["list_column_widths"] = widths
+@@ -1376,6 +1582,9 @@ class MainWindow(QMainWindow):
+             self._cleanup_before_close()
+             event.accept()
+             return
++        if not self._confirm_discard():
++            event.ignore()
++            return
+         if self._active_save_worker_running():
+             event.ignore()
+             if not self._close_waiting:
+diff --git a/gui/theme.py b/gui/theme.py
+index 7fb3cb5..1678352 100644
+--- a/gui/theme.py
++++ b/gui/theme.py
+@@ -42,6 +42,7 @@ from PyQt5.QtWidgets import (
+     QPushButton,
+     QTableWidget,
+     QWidget,
++    QProgressBar,
+ )
+ 
+ # ─── Theme Token Dicts ───────────────────────────────────────────────
+@@ -471,6 +472,23 @@ def _style_calendar(widget: QWidget, tokens: dict[str, str]) -> None:
+     """)
+ 
+ 
++def _style_progress(widget: QWidget, tokens: dict[str, str]) -> None:
++    t = tokens
++    widget.setStyleSheet(f"""
++        QProgressBar {{
++            border: 1px solid {t["border"]};
++            background: {t["bg_tertiary"]};
++            border-radius: 4px;
++            text-align: center;
++            color: {t["text_primary"]};
++        }}
++        QProgressBar::chunk {{
++            background-color: {t["accent"]};
++            border-radius: 3px;
++        }}
++    """)
++
++
+ _THEME_HANDLERS: dict[type, Callable] = {
+     QPushButton: _style_button,
+     QTableWidget: _style_table,
+@@ -481,6 +499,7 @@ _THEME_HANDLERS: dict[type, Callable] = {
+     QFrame: _style_card,
+     QGroupBox: _style_card,
+     QCalendarWidget: _style_calendar,
++    QProgressBar: _style_progress,
+ }
+ 
+ 
+@@ -530,6 +549,84 @@ def apply_theme(
+         if panel is not None:
+             panel.setStyleSheet(f"background: {tokens['bg_secondary']};")
+ 
++    # Global UI container stylesheets if root widget is QMainWindow
++    from PyQt5.QtWidgets import QMainWindow
++    if isinstance(widget, QMainWindow):
++        widget.setStyleSheet(f"""
++            QMainWindow {{
++                background: {tokens['bg_primary']};
++            }}
++            QMenuBar {{
++                background: {tokens['bg_secondary']};
++                color: {tokens['text_primary']};
++                border-bottom: 1px solid {tokens['border']};
++            }}
++            QMenuBar::item {{
++                background: transparent;
++                color: {tokens['text_primary']};
++            }}
++            QMenuBar::item:selected {{
++                background: {tokens['bg_hover']};
++            }}
++            QMenu {{
++                background: {tokens['bg_secondary']};
++                color: {tokens['text_primary']};
++                border: 1px solid {tokens['border']};
++            }}
++            QMenu::item:selected {{
++                background: {tokens['accent']};
++                color: {tokens['text_on_accent']};
++            }}
++            QStatusBar {{
++                background: {tokens['bg_secondary']};
++                color: {tokens['text_secondary']};
++                border-top: 1px solid {tokens['border']};
++            }}
++            QSplitter::handle {{
++                background: {tokens['border']};
++            }}
++        """)
++
+     _style_widget(widget, tokens)
+     for child in widget.findChildren(QWidget):
+         _style_widget(child, tokens)
++
++    # Style blame_label (Option A) at the very end to override any generic QFrame styles
++    blame = widget.findChild(QWidget, "blame_label")
++    if blame is not None:
++        blame.setStyleSheet(f"color: {tokens['text_secondary']}; font-size: 11px; padding-left: 4px;")
++
++
++def style_alerts_btn(
++    widget: QWidget, theme_name: str, has_alerts: bool, high_contrast: bool = False
++) -> None:
++    """Style the Alerts button dynamically based on theme and alert presence.
++
++    Ensures the button retains the correct border, padding, border-radius,
++    and hover styling of _BTN_DEFAULT, while applying bold and text_error styling
++    if has_alerts is True.
++    """
++    tokens = THEMES[theme_name]
++    if high_contrast:
++        tokens = boost_contrast(theme_name)
++
++    if has_alerts:
++        color = tokens.get("text_error", "#dc2626")
++        font_weight = "bold"
++    else:
++        color = tokens.get("text_primary", "#1e293b")
++        font_weight = "500"
++
++    style = f"""
++        QPushButton {{
++            background: {tokens['bg_tertiary']};
++            color: {color};
++            border: 1px solid {tokens['border']};
++            border-radius: 6px;
++            padding: 6px 14px;
++            font-weight: {font_weight};
++        }}
++        QPushButton:hover {{ background: {tokens['border']}; }}
++    """
++    widget.setStyleSheet(style)
++
+diff --git a/tests/test_inline_edit_bar.py b/tests/test_inline_edit_bar.py
+index 95bc006..da7e467 100644
+--- a/tests/test_inline_edit_bar.py
++++ b/tests/test_inline_edit_bar.py
+@@ -79,6 +79,32 @@ class TestInlineEditBarDirty:
+         bar.notes_edit.setText("Changed")
+         assert bar.is_dirty is True
+ 
++    def test_dirty_changed_signal_on_edit(self, bar, sample_unit):
++        bar.set_unit(sample_unit)
++        emitted = []
++        bar.dirty_changed.connect(lambda val: emitted.append(val))
++        bar.pct_spin.setValue(75.0)
++        assert len(emitted) == 1
++        assert emitted[0] is True
++
++    def test_dirty_changed_signal_on_save(self, bar, sample_unit):
++        bar.set_unit(sample_unit)
++        bar.pct_spin.setValue(75.0)
++        emitted = []
++        bar.dirty_changed.connect(lambda val: emitted.append(val))
++        bar._on_save()
++        assert len(emitted) == 1
++        assert emitted[0] is False
++
++    def test_dirty_changed_signal_on_revert(self, bar, sample_unit):
++        bar.set_unit(sample_unit)
++        bar.pct_spin.setValue(75.0)
++        emitted = []
++        bar.dirty_changed.connect(lambda val: emitted.append(val))
++        bar._on_revert()
++        assert len(emitted) == 1
++        assert emitted[0] is False
++
+ 
+ class TestInlineEditBarSave:
+     def test_save_emits_signal(self, bar, sample_unit):
+diff --git a/tests/test_theme.py b/tests/test_theme.py
+index 85ee1be..84bd322 100644
+--- a/tests/test_theme.py
++++ b/tests/test_theme.py
+@@ -122,3 +122,52 @@ class TestCVDOverrides:
+     def test_no_cvd_mode_preserves_defaults(self):
+         colors = get_status_colors("light", cvd_mode="none")
+         assert colors == EXPECTED_LIGHT
++
++
++class TestStyleAlertsBtn:
++    """Tests for style_alerts_btn dynamic button styling."""
++
++    def test_style_alerts_btn_light_with_alerts(self, qapp):
++        from gui.theme import style_alerts_btn
++        from PyQt5.QtWidgets import QPushButton
++
++        btn = QPushButton()
++        style_alerts_btn(btn, theme_name="light", has_alerts=True, high_contrast=False)
++        stylesheet = btn.styleSheet()
++        assert "color: #dc2626" in stylesheet
++        assert "font-weight: bold" in stylesheet
++        assert "background: #f1f5f9" in stylesheet
++
++    def test_style_alerts_btn_light_no_alerts(self, qapp):
++        from gui.theme import style_alerts_btn
++        from PyQt5.QtWidgets import QPushButton
++
++        btn = QPushButton()
++        style_alerts_btn(btn, theme_name="light", has_alerts=False, high_contrast=False)
++        stylesheet = btn.styleSheet()
++        assert "color: #1e293b" in stylesheet
++        assert "font-weight: 500" in stylesheet
++        assert "background: #f1f5f9" in stylesheet
++
++    def test_style_alerts_btn_dark_with_alerts(self, qapp):
++        from gui.theme import style_alerts_btn
++        from PyQt5.QtWidgets import QPushButton
++
++        btn = QPushButton()
++        style_alerts_btn(btn, theme_name="dark", has_alerts=True, high_contrast=False)
++        stylesheet = btn.styleSheet()
++        assert "color: #f87171" in stylesheet
++        assert "font-weight: bold" in stylesheet
++        assert "background: #334155" in stylesheet
++
++    def test_style_alerts_btn_dark_no_alerts(self, qapp):
++        from gui.theme import style_alerts_btn
++        from PyQt5.QtWidgets import QPushButton
++
++        btn = QPushButton()
++        style_alerts_btn(btn, theme_name="dark", has_alerts=False, high_contrast=False)
++        stylesheet = btn.styleSheet()
++        assert "color: #f1f5f9" in stylesheet
++        assert "font-weight: 500" in stylesheet
++        assert "background: #334155" in stylesheet
++

@@ -205,6 +205,16 @@ class AlertPanel(QWidget):
         """Rebuild from current units (e.g. after external data change)."""
         self._rebuild()
 
+    def set_selected_unit(self, com_number: str | None) -> None:
+        """Highlight the specified unit in the alert list."""
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            unit = item.data(Qt.UserRole)
+            if unit and unit.com_number == com_number:
+                self.list_widget.setCurrentItem(item)
+                return
+        self.list_widget.clearSelection()
+
     # ── Visibility handling ──────────────────────────────────────────
 
     def showEvent(self, event) -> None:

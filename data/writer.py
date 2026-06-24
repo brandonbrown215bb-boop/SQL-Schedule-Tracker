@@ -78,12 +78,19 @@ def save_unit(
         (unit.com_number,),
     ).fetchone()
 
-    if unit.updated_at:
+    if unit.updated_at:  # Has a timestamp — match it exactly
         where_clause = "WHERE com_number = ? AND updated_at = ?"
         where_params: tuple = (unit.com_number, unit.updated_at)
     else:
-        where_clause = "WHERE com_number = ?"
+        where_clause = "WHERE com_number = ? AND updated_at IS NULL"
         where_params = (unit.com_number,)
+
+    # Calculate week_ending_friday dynamically if detailing_due_date is set
+    from datetime import timedelta
+    if unit.detailing_due_date:
+        unit.week_ending_friday = unit.detailing_due_date + timedelta(days=(4 - unit.detailing_due_date.weekday()) % 7)
+    else:
+        unit.week_ending_friday = None
 
     cursor = conn.execute(
         f"""
@@ -93,6 +100,8 @@ def save_unit(
             description = ?,
             detailer = ?,
             checking_status = ?,
+            dr_checks = ?,
+            dvl_checks = ?,
             department_hours = ?,
             percent_complete = ?,
             actual_hours = ?,
@@ -107,6 +116,8 @@ def save_unit(
             notes = ?,
             status_color = ?,
             working_days_in_checking = ?,
+            remaining_hours = ?,
+            week_ending_friday = ?,
             updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
         {where_clause}
     """,
@@ -116,10 +127,13 @@ def save_unit(
             unit.description,
             unit.detailer,
             unit.checking_status,
+            unit.dr_checks,
+            unit.dvl_checks,
             unit.department_hours,
             unit.percent_complete / 100,
             unit.actual_hours,
-            unit.target_department_hours,
+            # restore original target_dept_hours for non-primary identicals
+            getattr(unit, '_original_target_department_hours', unit.target_department_hours),
             unit.iec_internal_hours,
             unit.dept_due_date_previous.isoformat() if unit.dept_due_date_previous else None,
             unit.detailing_due_date.isoformat() if unit.detailing_due_date else None,
@@ -141,6 +155,8 @@ def save_unit(
                 if unit.unit_detailing_completion_date
                 else None,
             ),
+            (unit.department_hours or 0.0) * (1.0 - (unit.percent_complete or 0.0) / 100.0),
+            unit.week_ending_friday.isoformat() if unit.week_ending_friday else None,
             *where_params,
         ),
     )
@@ -159,6 +175,8 @@ def save_unit(
         "description": unit.description,
         "detailer": unit.detailer,
         "checking_status": unit.checking_status,
+        "dr_checks": unit.dr_checks,
+        "dvl_checks": unit.dvl_checks,
         "department_hours": unit.department_hours,
         "percent_complete": unit.percent_complete / 100,
         "actual_hours": unit.actual_hours,
@@ -182,6 +200,9 @@ def save_unit(
         else None,
         "notes": unit.notes,
         "status_color": unit.calculated_status_color,
+        "week_ending_friday": unit.week_ending_friday.isoformat()
+        if unit.week_ending_friday
+        else None,
     }
     log_field_changes(conn, unit.com_number, old_row, new_values)
 

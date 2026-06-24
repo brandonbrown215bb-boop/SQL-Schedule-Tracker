@@ -55,16 +55,32 @@ class SyncStatusWidget(QWidget):
         self.setVisible(False)
         self.setAccessibleName("Sync queue status")
 
-    def set_progress(self, remaining: int, total: int) -> None:
+    def set_progress(self, remaining: int | str, total: int) -> None:
         """Refresh the label and progress bar.
 
         Args:
             remaining: number of units still in the queue (including the
-                in-flight worker, if any).
+                in-flight worker, if any) or a status message string.
             total: number of units in the current batch (processed + remaining).
                 If ``total <= 0`` the bar is reset to 0/0.
         """
-        remaining = max(0, int(remaining))
+        self.setVisible(True)
+        try:
+            rem_val = int(remaining)
+            is_str_msg = False
+        except (ValueError, TypeError):
+            rem_val = 0
+            is_str_msg = True
+
+        if is_str_msg:
+            self._label.setText(str(remaining))
+            self._bar.setRange(0, 0)
+            self._bar.setValue(0)
+            self._bar.setFormat("…")
+            self.setAccessibleName(str(remaining))
+            return
+
+        remaining = max(0, rem_val)
         total = max(0, int(total))
         self._last_remaining = remaining
         self._last_total = total
@@ -107,6 +123,7 @@ class SyncStatusWidget(QWidget):
         self._bar.setValue(0)
         self._bar.setFormat("…")
         self._label.setText("")
+        self.setVisible(False)
 
     def remaining(self) -> int:
         """Return the last ``remaining`` value passed to ``set_progress()``."""

@@ -111,7 +111,11 @@ class RevisionStore:
     def _read_all(self) -> dict[str, dict[str, object]]:
         try:
             return json.loads(self.revision_file.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, json.JSONDecodeError):
+        except FileNotFoundError:
+            return {}
+        except json.JSONDecodeError:
+            import logging
+            logging.getLogger(__name__).warning("Corrupt revision file: %s — returning empty", self.revision_file)
             return {}
 
     def _write_all(self, revisions: dict[str, dict[str, object]]) -> None:

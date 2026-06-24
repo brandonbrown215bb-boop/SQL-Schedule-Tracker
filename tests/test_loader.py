@@ -49,6 +49,8 @@ class TestLoadUnits:
                 description TEXT DEFAULT '',
                 detailer TEXT DEFAULT '',
                 checking_status TEXT DEFAULT '',
+                dr_checks TEXT DEFAULT '',
+                dvl_checks TEXT DEFAULT '',
                 department_hours REAL DEFAULT 0.0,
                 target_dept_hours REAL DEFAULT 0.0,
                 iec_internal_hours REAL DEFAULT 0.0,
@@ -98,11 +100,7 @@ class TestFingerprint:
         assert fp1 != fp2
 
     def test_modified_field_changes_fingerprint(self, sample_unit):
-        from data.loader import _fingerprint_cache
-
         fp1 = unit_fingerprint(sample_unit)
-        # Clear cache to simulate fresh fingerprint after mutation
-        _fingerprint_cache.clear()
         sample_unit.percent_complete = 75.0
         fp2 = unit_fingerprint(sample_unit)
         assert fp1 != fp2

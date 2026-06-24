@@ -33,16 +33,31 @@ class ImportPreviewDialog(QDialog):
         approved: True if user clicked Import.
     """
 
-    def __init__(self, diff, parent=None):
+    def __init__(self, diff, parent=None, theme_name: str | None = None):
         """
         Args:
             diff: An ImportDiff object from automation.import_preview.
             parent: Parent widget.
+            theme_name: Optional theme name override.
         """
         super().__init__(parent)
         self.approved = False
         self._diff = diff
+
+        # Determine theme
+        if theme_name is None:
+            if parent is not None and hasattr(parent, "_current_theme_name"):
+                theme_name = parent._current_theme_name
+            else:
+                theme_name = "light"
+        self._theme_name = theme_name
+
+        from gui.theme import apply_theme, get_status_colors, THEMES
+        self._status_colors = get_status_colors(theme_name)
+        self._tokens = THEMES.get(theme_name, THEMES["light"])
+
         self._setup_ui()
+        apply_theme(self, theme_name)
 
     def _setup_ui(self):
         self.setWindowTitle("Import Preview")
@@ -58,7 +73,7 @@ class ImportPreviewDialog(QDialog):
 
         # File info
         file_label = QLabel(f"Source: {self._diff.csv_path}")
-        file_label.setStyleSheet("color: gray;")
+        file_label.setStyleSheet(f"color: {self._tokens.get('text_secondary', 'gray')};")
         layout.addWidget(file_label)
 
         # Splitter: left = change list, right = detail panel
@@ -78,54 +93,64 @@ class ImportPreviewDialog(QDialog):
         # New rows
         if self._diff.new_rows:
             section_label = QLabel(f"New Units ({len(self._diff.new_rows)})")
-            section_label.setStyleSheet("font-weight: bold; color: green; padding-top: 8px;")
+            section_label.setStyleSheet(
+                f"font-weight: bold; color: {self._status_colors.get('green', 'green')}; padding-top: 8px;"
+            )
             scroll_layout.addWidget(section_label)
 
             for row_diff in self._diff.new_rows:
-                row_widget = self._create_row_widget(row_diff, QColor(220, 255, 220))
+                row_widget = self._create_row_widget(row_diff, "green")
                 scroll_layout.addWidget(row_widget)
 
         # Updated rows
         if self._diff.updated_rows:
             section_label = QLabel(f"Updated Units ({len(self._diff.updated_rows)})")
-            section_label.setStyleSheet("font-weight: bold; color: #B8860B; padding-top: 8px;")
+            section_label.setStyleSheet(
+                f"font-weight: bold; color: {self._status_colors.get('yellow', '#B8860B')}; padding-top: 8px;"
+            )
             scroll_layout.addWidget(section_label)
 
             for row_diff in self._diff.updated_rows:
-                row_widget = self._create_row_widget(row_diff, QColor(255, 255, 200))
+                row_widget = self._create_row_widget(row_diff, "yellow")
                 scroll_layout.addWidget(row_widget)
 
         # Unchanged rows (collapsed)
         if self._diff.unchanged_rows:
             section_label = QLabel(f"Unchanged ({len(self._diff.unchanged_rows)})")
-            section_label.setStyleSheet("font-weight: bold; color: gray; padding-top: 8px;")
+            section_label.setStyleSheet(
+                f"font-weight: bold; color: {self._status_colors.get('gray', 'gray')}; padding-top: 8px;"
+            )
             scroll_layout.addWidget(section_label)
 
             # Show first 10 only
             shown = self._diff.unchanged_rows[:10]
             for row_diff in shown:
                 row_label = QLabel(f"  COM {row_diff.com_number}")
-                row_label.setStyleSheet("color: gray;")
+                row_label.setStyleSheet(f"color: {self._tokens.get('text_secondary', 'gray')};")
                 scroll_layout.addWidget(row_label)
             if len(self._diff.unchanged_rows) > 10:
                 more = QLabel(f"  ... and {len(self._diff.unchanged_rows) - 10} more")
-                more.setStyleSheet("color: gray; font-style: italic;")
+                more.setStyleSheet(f"color: {self._tokens.get('text_secondary', 'gray')}; font-style: italic;")
                 scroll_layout.addWidget(more)
 
         # Errors
         if self._diff.errors:
             section_label = QLabel(f"Errors ({len(self._diff.errors)})")
-            section_label.setStyleSheet("font-weight: bold; color: red; padding-top: 8px;")
+            section_label.setStyleSheet(
+                f"font-weight: bold; color: {self._status_colors.get('red', 'red')}; padding-top: 8px;"
+            )
             scroll_layout.addWidget(section_label)
 
             for row_diff in self._diff.errors:
-                row_widget = self._create_row_widget(row_diff, QColor(255, 220, 220))
+                row_widget = self._create_row_widget(row_diff, "red")
                 scroll_layout.addWidget(row_widget)
 
         # If no changes at all
         if not self._diff.new_rows and not self._diff.updated_rows and not self._diff.errors:
             no_changes = QLabel("No changes detected — import would not modify any data.")
-            no_changes.setStyleSheet("padding: 20px; color: gray; font-style: italic;")
+            no_changes.setStyleSheet(
+                f"padding: 20px; color: {self._tokens.get('text_secondary', 'gray')}; font-style: italic;"
+            )
             scroll_layout.addWidget(no_changes)
 
         scroll_layout.addStretch()
@@ -171,11 +196,15 @@ class ImportPreviewDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
-    def _create_row_widget(self, row_diff, bg_color: QColor) -> QWidget:
+    def _create_row_widget(self, row_diff, color_key: str) -> QWidget:
         """Create a clickable widget for a single row diff."""
         widget = QWidget()
+        hex_color = self._status_colors.get(color_key, "#888888")
+        c = QColor(hex_color)
+        r, g, b = c.red(), c.green(), c.blue()
+        # Use semi-transparent background for both light and dark themes (alpha=0.15)
         widget.setStyleSheet(
-            f"background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()}); "
+            f"background-color: rgba({r},{g},{b},0.15); "
             "border-radius: 3px; margin: 2px;"
         )
         layout = QHBoxLayout(widget)
@@ -190,16 +219,24 @@ class ImportPreviewDialog(QDialog):
         # Change count / status
         if row_diff.status == "new":
             status_label = QLabel("NEW")
-            status_label.setStyleSheet("color: green; font-weight: bold;")
+            status_label.setStyleSheet(
+                f"color: {self._status_colors.get('green', 'green')}; font-weight: bold;"
+            )
         elif row_diff.status == "updated":
             status_label = QLabel(f"{row_diff.change_count} field(s)")
-            status_label.setStyleSheet("color: #B8860B; font-weight: bold;")
+            status_label.setStyleSheet(
+                f"color: {self._status_colors.get('yellow', '#B8860B')}; font-weight: bold;"
+            )
         elif row_diff.status == "error":
             status_label = QLabel("ERROR")
-            status_label.setStyleSheet("color: red; font-weight: bold;")
+            status_label.setStyleSheet(
+                f"color: {self._status_colors.get('red', 'red')}; font-weight: bold;"
+            )
         else:
             status_label = QLabel("unchanged")
-            status_label.setStyleSheet("color: gray;")
+            status_label.setStyleSheet(
+                f"color: {self._status_colors.get('gray', 'gray')};"
+            )
         layout.addWidget(status_label)
 
         layout.addStretch()

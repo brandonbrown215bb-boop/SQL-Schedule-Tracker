@@ -61,6 +61,8 @@ COLUMN_DEFS: list[tuple[str, str, int, bool]] = [
     ("actual_hours", "Actual Hours", 70, False),
     ("target_department_hours", "Target Hrs", 70, False),
     ("checking_status", "Checking", 80, False),
+    ("dr_checks", "DR Check", 80, False),
+    ("dvl_checks", "DVL Check", 80, False),
     ("contract_number", "Contract #", 90, False),
     ("build_date", "Build Date", 80, False),
     ("unit_detailing_start_date", "Start Date", 80, False),
@@ -823,6 +825,54 @@ class ListPanel(QWidget):
             self.table.setColumnWidth(col_idx, w)
         self._emitting_widths = False
 
+        # Pre-compute value-based group highlight colors for due date and contract number.
+        #
+        # Strategy: "paint by value" — each unique grouping key is assigned one of
+        # two palette colors via hash(str(value)) % 2. The same value always maps
+        # to the same color regardless of sort order, so groups are visually
+        # consistent even when the list is re-sorted. Singletons (values that
+        # appear only once across the visible rows) receive no highlight.
+
+        from gui.theme import get_group_highlight_palette as _palette_fn
+        _palette = _palette_fn(self._theme_name)  # (color_a, color_b)
+
+        def _compute_value_colors(key_fn) -> list["QColor | None"]:
+            """Return a QColor (or None) for each unit in `units`.
+
+            Counts occurrences of each key across the visible rows first;
+            only values with 2+ occurrences receive a color.
+            """
+            keys = [key_fn(u) for u in units]
+            # Count occurrences
+            freq: dict = {}
+            for k in keys:
+                freq[k] = freq.get(k, 0) + 1
+            # Assign colors
+            result: list = []
+            for k in keys:
+                if k is None or k == "" or freq[k] < 2:
+                    result.append(None)
+                else:
+                    result.append(_palette[hash(str(k)) % 2])
+            return result
+
+        def _due_week_friday(unit):
+            """Compute the Friday of the unit's detailing_due_date week.
+
+            Computed live so grouping is always consistent regardless of what
+            is stored in week_ending_friday (which may be NULL for imported
+            rows or differ from SSRS-supplied values).
+            """
+            d = unit.detailing_due_date
+            if d is None:
+                return None
+            return d + timedelta(days=(4 - d.weekday()) % 7)
+
+        due_date_colors = _compute_value_colors(_due_week_friday)
+        com_colors = _compute_value_colors(
+            lambda u: u.contract_number or None  # None = no contract = singleton
+        )
+
         bold_font = QFont()
         bold_font.setBold(True)
 
@@ -835,6 +885,17 @@ class ListPanel(QWidget):
                     value = getattr(unit, key, None)
                 display = self._format_cell(key, value)
                 item = QTableWidgetItem(display)
+
+                # Group highlights — value-based: same value → same palette color
+                if key == "detailing_due_date" and value:
+                    color = due_date_colors[row_idx]
+                    if color is not None:
+                        item.setBackground(QBrush(color))
+
+                if key == "com_number":
+                    color = com_colors[row_idx]
+                    if color is not None:
+                        item.setBackground(QBrush(color))
 
                 if key in (
                     "percent_complete",

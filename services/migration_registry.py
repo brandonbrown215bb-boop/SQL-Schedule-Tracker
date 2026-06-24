@@ -99,7 +99,10 @@ class SchemaMigrationRegistry:
         """
         t0 = time.perf_counter()
         try:
-            self._conn.executescript(migration.up_sql)
+            # Split SQL into individual statements and execute within a transaction
+            statements = [s.strip() for s in migration.up_sql.split(";") if s.strip()]
+            for stmt in statements:
+                self._conn.execute(stmt)
             elapsed = int((time.perf_counter() - t0) * 1000)
             self._conn.execute(
                 "INSERT INTO _schema_migrations "
@@ -130,7 +133,9 @@ class SchemaMigrationRegistry:
         if migration.custom_rollback:
             migration.custom_rollback(self._conn)
         elif migration.down_sql:
-            self._conn.executescript(migration.down_sql)
+            statements = [s.strip() for s in migration.down_sql.split(";") if s.strip()]
+            for stmt in statements:
+                self._conn.execute(stmt)
         else:
             raise RuntimeError(f"Migration v{migration.version} has no rollback script")
         self._conn.execute(

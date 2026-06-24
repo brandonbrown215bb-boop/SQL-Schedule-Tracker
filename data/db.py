@@ -15,6 +15,28 @@ _db_path: str | None = None
 _local = threading.local()
 
 
+def _safe_journal_mode(conn: sqlite3.Connection, db_path: str) -> None:
+    """Set WAL mode only if the database is on a local filesystem."""
+    import os
+    path = os.path.abspath(db_path)
+    # UNC paths (\\server\share) or mapped drives on Windows network shares
+    if path.startswith("\\\\") or (os.name == "nt" and _is_network_drive(path)):
+        conn.execute("PRAGMA journal_mode=DELETE")
+    else:
+        conn.execute("PRAGMA journal_mode=WAL")
+
+
+def _is_network_drive(path: str) -> bool:
+    """Check if a Windows drive letter maps to a network share."""
+    import os
+    try:
+        import ctypes
+        drive = os.path.splitdrive(path)[0] + "\\"
+        return ctypes.windll.kernel32.GetDriveTypeW(drive) == 4  # DRIVE_REMOTE
+    except Exception:
+        return False
+
+
 def get_db(db_path: str | None = None) -> sqlite3.Connection:
     """Get a per-thread SQLite connection.
 
@@ -31,7 +53,7 @@ def get_db(db_path: str | None = None) -> sqlite3.Connection:
     # Recreate connection if path changed or doesn't exist
     if conn is None or getattr(_local, "db_path", None) != _db_path:
         conn = sqlite3.connect(_db_path)
-        conn.execute("PRAGMA journal_mode=WAL")
+        _safe_journal_mode(conn, _db_path)
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.row_factory = sqlite3.Row
         _local.conn = conn
@@ -97,6 +119,10 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
                     )
                     updated += 1
             logger.info(f"Migration: backfilled working_days_in_checking for {updated} rows")
+
+        if "week_ending_friday" not in cols:
+            conn.execute("ALTER TABLE units ADD COLUMN week_ending_friday TEXT")
+            logger.info("Migration: added week_ending_friday column")
 
         # ── Sprint 1: Database indexes for common query filters ────────────
         desired_indexes = {
@@ -169,10 +195,33 @@ def log_field_changes(
     """
     _ensure_audit_log(conn)
 
-    if old_row is None:
-        return 0
+    def _normalize_for_comparison(val):
+        """Normalize a value for audit log comparison, accounting for SQLite type affinity."""
+        if val is None:
+            return None
+        if isinstance(val, float):
+            # Normalize float to int if it's a whole number (SQLite stores 0.0 as 0)
+            if val == int(val):
+                return str(int(val))
+            return str(val)
+        return str(val)
 
     changes = 0
+    if old_row is None:
+        # New unit — log all initial field values as creation events
+        for field, new_val in new_values.items():
+            new_str = _normalize_for_comparison(new_val)
+            if new_str is not None:
+                conn.execute(
+                    "INSERT INTO _audit_log (com_number, field_name, old_value, new_value, saved_by) "
+                    "VALUES (?, ?, NULL, ?, ?)",
+                    (com_number, field, new_str, saved_by),
+                )
+                changes += 1
+        if changes > 0:
+            conn.commit()
+        return changes
+
     for field, new_val in new_values.items():
         # sqlite3.Row doesn't support `.get()` — use try/except
         try:
@@ -181,8 +230,8 @@ def log_field_changes(
             old_val = None
 
         # Normalize for comparison: dates, None, etc.
-        old_str = str(old_val) if old_val is not None else None
-        new_str = str(new_val) if new_val is not None else None
+        old_str = _normalize_for_comparison(old_val)
+        new_str = _normalize_for_comparison(new_val)
 
         if old_str != new_str:
             conn.execute(
@@ -251,9 +300,10 @@ def backup_db(db_path: str, backup_dir: str | None = None, *, keep_count: int = 
     from datetime import datetime
 
     if backup_dir is None:
-        backup_dir = os.path.dirname(db_path)
-        if not backup_dir:
-            backup_dir = "."
+        base_dir = os.path.dirname(db_path)
+        if not base_dir:
+            base_dir = "."
+        backup_dir = os.path.join(base_dir, "backups")
 
     os.makedirs(backup_dir, exist_ok=True)
 
@@ -300,10 +350,12 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         detailer=row["detailer"] or "",
         checking_status=row["checking_status"] or "",
         notes=row["notes"] or "",
+        dr_checks=row["dr_checks"] or "" if "dr_checks" in row.keys() else "",
+        dvl_checks=row["dvl_checks"] or "" if "dvl_checks" in row.keys() else "",
         status_color=row["status_color"] or "gray",  # persisted from last computed value
         department_hours=row["department_hours"] or 0.0,
         target_department_hours=row["target_dept_hours"]
-        if "target_dept_hours" in row and row["target_dept_hours"] is not None
+        if "target_dept_hours" in row.keys() and row["target_dept_hours"] is not None
         else 0.0,
         iec_internal_hours=row["iec_internal_hours"] or 0.0,
         percent_complete=(row["percent_complete"] or 0.0) * 100,
@@ -316,7 +368,10 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         detailing_due_date=_parse_date(row["detailing_due_date"]),
         build_date=_parse_date(row["build_date"]),
         working_days_in_checking=row["working_days_in_checking"]
-        if "working_days_in_checking" in row and row["working_days_in_checking"] is not None
+        if "working_days_in_checking" in row.keys() and row["working_days_in_checking"] is not None
+        else None,
+        week_ending_friday=_parse_date(row["week_ending_friday"])
+        if "week_ending_friday" in row.keys() and row["week_ending_friday"] is not None
         else None,
         updated_at=row["updated_at"] or "",
     )

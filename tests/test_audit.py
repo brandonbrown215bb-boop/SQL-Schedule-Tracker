@@ -77,10 +77,15 @@ class TestAuditLog:
         assert changes == 0
 
     def test_log_field_changes_none_old_row(self, audit_db):
-        """log_field_changes should return 0 when old_row is None."""
+        """log_field_changes should record creation changes when old_row is None."""
         conn = sqlite3.connect(audit_db)
         changes = log_field_changes(conn, "TEST003", None, {"detailer": "X"})
-        assert changes == 0
+        assert changes == 1
+        # Check audit trail has the entry
+        entries = get_audit_trail(audit_db, com_number="TEST003")
+        assert len(entries) == 1
+        assert entries[0]["old_value"] is None
+        assert entries[0]["new_value"] == "X"
 
     def test_save_unit_records_audit(self, audit_db):
         """save_unit should record audit entries when values change."""
@@ -92,6 +97,9 @@ class TestAuditLog:
             ("14201", "Carl M", 0.50),
         )
         conn.commit()
+        # Fetch updated_at
+        row = conn.execute("SELECT updated_at FROM units WHERE com_number = '14201'").fetchone()
+        updated_at = row["updated_at"]
         conn.close()
 
         # Now save a unit with a changed detailer
@@ -105,6 +113,7 @@ class TestAuditLog:
             department_hours=40.0,
             percent_complete=50.0,
             actual_hours=20.0,
+            updated_at=updated_at,
         )
         save_unit(audit_db, unit)
 

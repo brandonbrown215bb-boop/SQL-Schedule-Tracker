@@ -100,6 +100,15 @@ class TestSave:
         assert result is not None
         assert result.job_name == "Modified Job Name"
 
+    def test_save_preserves_dr_and_dvl_checks(self, svc_with_units, existing_unit):
+        existing_unit.dr_checks = "Done"
+        existing_unit.dvl_checks = "Pending"
+        svc_with_units.save(existing_unit)
+        result = svc_with_units.get_by_com("14201")
+        assert result is not None
+        assert result.dr_checks == "Done"
+        assert result.dvl_checks == "Pending"
+
     def test_save_sets_updated_at(self, svc_with_units, existing_unit):
         svc_with_units.save(existing_unit)
         assert existing_unit.updated_at != ""
@@ -198,6 +207,26 @@ class TestFingerprint:
             description=existing_unit.description,
             detailer=existing_unit.detailer,
             checking_status=existing_unit.checking_status,
+            department_hours=existing_unit.department_hours,
+            actual_hours=existing_unit.actual_hours,
+            target_department_hours=existing_unit.target_department_hours,
+            iec_internal_hours=existing_unit.iec_internal_hours,
+            percent_complete=existing_unit.percent_complete,
+        )
+        fp2 = UnitService.compute_fingerprint(modified)
+        assert fp1 != fp2
+
+    def test_fingerprint_changes_with_dr_dvl_checks(self, existing_unit):
+        fp1 = UnitService.compute_fingerprint(existing_unit)
+        modified = Unit(
+            com_number="99999",
+            job_name=existing_unit.job_name,
+            contract_number=existing_unit.contract_number,
+            description=existing_unit.description,
+            detailer=existing_unit.detailer,
+            checking_status=existing_unit.checking_status,
+            dr_checks="Done",
+            dvl_checks=existing_unit.dvl_checks,
             department_hours=existing_unit.department_hours,
             actual_hours=existing_unit.actual_hours,
             target_department_hours=existing_unit.target_department_hours,

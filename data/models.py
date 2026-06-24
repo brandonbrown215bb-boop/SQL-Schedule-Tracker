@@ -38,6 +38,8 @@ class Unit:
     detailer: str
     checking_status: str
     notes: str = ""
+    dr_checks: str = ""
+    dvl_checks: str = ""
 
     # Computed status color (not stored in Excel)
     #
@@ -82,10 +84,14 @@ class Unit:
     # identical (shares contract_number with other units and has a later due date).
     # When True, the edit form should NOT auto-calculate target_department_hours.
     is_non_primary_identical: bool = field(default=False, compare=False, repr=False)
+    _original_target_department_hours: float | None = field(default=None, compare=False, repr=False)
 
     # Persisted computed field: working days in the checking pipeline.
     # Stored in SQLite but treated as a regular field (not transient).
     working_days_in_checking: int | None = None
+
+    # Persisted week ending Friday date from SSRS/detailing due date.
+    week_ending_friday: date | None = None
 
     def __post_init__(self) -> None:
         """Clear computed caches after construction."""
@@ -165,25 +171,29 @@ class Unit:
             if days_until_due < 0:
                 return "red"
 
-            # Capacity-based rules (using working days, not calendar days)
             working_days = _working_days_between(today, self.detailing_due_date, self.working_days)
-            if working_days > 0 and self.department_hours > 0:
+            if self.department_hours > 0:
                 remaining_hours = self.department_hours * (1.0 - pct / 100.0)
 
-                # Reserve checking pipeline time for units not yet in checking
-                needs_checking_overhead = (
-                    self.unit_moved_to_checking_date is None
-                    and self.unit_detailing_completion_date is None
-                )
-                effective_working_days = working_days
-                if needs_checking_overhead:
-                    effective_working_days = max(0, working_days - CHECKING_OVERHEAD_WD)
+                # Zero (or negative) working days with remaining work -> red
+                if working_days <= 0:
+                    if remaining_hours > 0:
+                        return "red"
+                else:
+                    # Reserve checking pipeline time for units not yet in checking
+                    needs_checking_overhead = (
+                        self.unit_moved_to_checking_date is None
+                        and self.unit_detailing_completion_date is None
+                    )
+                    effective_working_days = working_days
+                    if needs_checking_overhead:
+                        effective_working_days = max(0, working_days - CHECKING_OVERHEAD_WD)
 
-                available_hours = effective_working_days * HOURS_PER_DAY
+                    available_hours = effective_working_days * HOURS_PER_DAY
 
-                # Behind schedule: remaining work exceeds available capacity
-                if remaining_hours > available_hours:
-                    return "red"
+                    # Behind schedule: remaining work exceeds available capacity
+                    if remaining_hours > available_hours:
+                        return "red"
         if pct >= 95.0:
             return "orange"
         if pct >= 90.0:

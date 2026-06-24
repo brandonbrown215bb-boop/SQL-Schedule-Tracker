@@ -94,6 +94,7 @@ class InlineEditBar(QWidget):
 
         # Save button
         self.save_btn = QPushButton("Save")
+        self.save_btn.setObjectName("inline_save_btn")
         self.save_btn.setMinimumWidth(50)
         self.save_btn.clicked.connect(self._on_save)
         layout.addWidget(self.save_btn)
@@ -174,6 +175,8 @@ class InlineEditBar(QWidget):
             description=self._unit.description,
             detailer=self.detailer_combo.currentText(),
             checking_status=self._unit.checking_status,
+            dr_checks=self._unit.dr_checks,
+            dvl_checks=self._unit.dvl_checks,
             department_hours=self._unit.department_hours,
             target_department_hours=self._unit.target_department_hours,
             iec_internal_hours=self._unit.iec_internal_hours,

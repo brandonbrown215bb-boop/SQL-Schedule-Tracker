@@ -84,7 +84,7 @@ ONBOARDING_STEPS: list[WalkthroughStep] = [
             "Sortable table of all units with multi-column filtering: "
             "status, detailer, date presets (overdue/today/next 7-30 days/month), "
             "custom date range, COM search, and alert-level filter. "
-            "Column widths are resizable. Right-click context menus available. "
+            "Column widths are resizable. "
             "Press Ctrl+F to jump to the COM search box."
         ),
         position="top",
@@ -189,7 +189,7 @@ ONBOARDING_STEPS: list[WalkthroughStep] = [
             "Ctrl+S = Save current unit, Ctrl+T = Toggle theme, "
             "F5 = Refresh data, Ctrl+F = Focus global search, "
             "Escape = Clear selection or search. The list view also supports "
-            "arrow-key navigation and context menus."
+            "arrow-key navigation."
         ),
         position="bottom",
     ),

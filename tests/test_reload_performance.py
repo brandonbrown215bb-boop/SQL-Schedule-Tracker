@@ -29,6 +29,8 @@ def large_db(tmp_path):
             description TEXT DEFAULT '',
             detailer TEXT DEFAULT '',
             checking_status TEXT DEFAULT '',
+            dr_checks TEXT DEFAULT '',
+            dvl_checks TEXT DEFAULT '',
             notes TEXT DEFAULT '',
             status_color TEXT DEFAULT 'gray',
             manufacturing_location TEXT DEFAULT '',

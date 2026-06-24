@@ -10,7 +10,6 @@ import logging
 from dataclasses import dataclass, field
 
 from data.db import get_db
-from automation.import_csv import CSV_TO_DB, SANITIZE_FUNCS as PARSE_FUNCS
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +59,7 @@ class ImportDiff:
 
 def parse_csv_rows(csv_path: str) -> list[dict]:
     """Parse a CSV file and return a list of row_data dicts."""
+    from automation.import_csv import CSV_TO_DB, SANITIZE_FUNCS as PARSE_FUNCS
     rows = []
     with open(csv_path, encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
@@ -133,6 +133,23 @@ def _csv_row_to_changes(old_row, new_data: dict) -> list[dict]:
 
     for field_name in import_fields:
         new_val = new_data.get(field_name)
+        if old_row is not None:
+            try:
+                old_val = old_row[field_name]
+            except (IndexError, KeyError):
+                old_val = None
+        else:
+            old_val = None
+
+        if new_val is None and old_val is not None:
+            # CSV would clear this field — flag as a deletion
+            changes.append({
+                "field": field_name,
+                "old": old_val,
+                "new": None,
+            })
+            continue
+
         if new_val is None:
             continue
 

@@ -130,7 +130,13 @@ class SessionRegistry:
             return []
 
         active: list[SessionInfo] = []
-        for entry in sessions_dir.iterdir():
+        try:
+            entries = list(sessions_dir.iterdir())
+        except OSError:
+            import logging
+            logging.getLogger(__name__).warning("Cannot read sessions directory: %s", sessions_dir)
+            return active
+        for entry in entries:
             if not entry.name.endswith(".json"):
                 continue
             try:

@@ -164,7 +164,11 @@ class SharedCache:
             # Strip schema key if present
             data.pop(self.SCHEMA_KEY, None)
             return data
-        except (FileNotFoundError, OSError, json.JSONDecodeError):
+        except FileNotFoundError:
+            return {}
+        except json.JSONDecodeError:
+            import logging
+            logging.getLogger(__name__).warning("Corrupt cache file: %s — returning empty", self.cache_file)
             return {}
 
     def _write_all(self, entries: dict[str, dict[str, object]]) -> None:

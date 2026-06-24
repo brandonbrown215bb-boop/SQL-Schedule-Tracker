@@ -77,6 +77,15 @@ class TestSyncStatusWidgetUpdate:
         # Should still show the remaining count
         assert "2 update" in widget._label.text()
 
+    def test_update_with_string_shows_message(self, qtbot):
+        widget = SyncStatusWidget()
+        qtbot.addWidget(widget)
+        widget.set_progress(remaining="Saving unit...", total=-1)
+        assert widget.isVisible()
+        assert widget._label.text() == "Saving unit..."
+        assert widget._bar.minimum() == 0
+        assert widget._bar.maximum() == 0
+
     def test_update_clamps_negative_values(self, qtbot):
         widget = SyncStatusWidget()
         qtbot.addWidget(widget)

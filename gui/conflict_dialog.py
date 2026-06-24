@@ -64,8 +64,12 @@ class ConflictDialog(QDialog):
         modified_by: str,
         modified_at: str,
         parent=None,
+        theme_name: str = "light",
     ):
         super().__init__(parent)
+        self._theme_name = theme_name
+        from gui.theme import apply_theme
+        apply_theme(self, theme_name)
         self.setWindowTitle(f"Save Conflict — COM {com_number}")
         self.setMinimumSize(650, 450)
         self.setModal(True)
@@ -116,8 +120,13 @@ class ConflictDialog(QDialog):
             item_local = QTableWidgetItem(local_val)
             item_remote = QTableWidgetItem(remote_val)
             if local_val != remote_val:
-                item_local.setBackground(QColor("#fef9c3"))
-                item_remote.setBackground(QColor("#fef9c3"))
+                from gui.theme import THEMES
+                from PyQt5.QtGui import QBrush
+                tokens = THEMES.get(self._theme_name, THEMES["light"])
+                item_local.setBackground(QBrush(QColor(tokens["bg_selected"])))
+                item_remote.setBackground(QBrush(QColor(tokens["bg_selected"])))
+                item_local.setForeground(QBrush(QColor(tokens["text_primary"])))
+                item_remote.setForeground(QBrush(QColor(tokens["text_primary"])))
             table.setItem(i, 1, item_local)
             table.setItem(i, 2, item_remote)
 

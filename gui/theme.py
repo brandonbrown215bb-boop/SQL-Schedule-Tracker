@@ -241,6 +241,14 @@ _BTN_DEFAULT = """\
         font-weight: 500;
     }}
     QPushButton:hover {{ background: {border}; }}
+    QPushButton:checked {{
+        background: {accent};
+        color: {text_on_accent};
+        border: 1px solid {accent};
+    }}
+    QPushButton:checked:hover {{
+        background: {accent_hover};
+    }}
 """
 
 _TABLE = """\
@@ -630,3 +638,30 @@ def style_alerts_btn(
     """
     widget.setStyleSheet(style)
 
+
+def get_group_highlight_palette(theme_name: str) -> tuple[QColor, QColor]:
+    """Return a (color_a, color_b) palette for value-based group highlights.
+
+    Each unique grouping value is assigned one of the two colors via
+    ``hash(str(value)) % 2``, so the same value always maps to the same
+    color regardless of sort order. Singletons receive no color at all.
+
+    Colors are chosen to be subtle enough not to compete with status
+    colors while still providing clear visual separation between groups.
+    """
+    if theme_name == "dark":
+        return (
+            QColor("#1e3a8a"),  # deep navy  — blue family
+            QColor("#3b1f6b"),  # deep violet — purple family
+        )
+    else:
+        return (
+            QColor("#dbeafe"),  # blue-100
+            QColor("#ede9fe"),  # violet-100
+        )
+
+
+# Keep old name as a shim so any callers outside list_panel still work.
+def get_group_highlight_color(theme_name: str) -> QColor:
+    """Deprecated shim — use get_group_highlight_palette instead."""
+    return get_group_highlight_palette(theme_name)[0]

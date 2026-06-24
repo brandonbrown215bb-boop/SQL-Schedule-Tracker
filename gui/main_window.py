@@ -83,12 +83,14 @@ class SaveWorker(QThread):
         super().__init__()
         self._unit_service = unit_service
         self.unit = unit
+        self.exception: Exception | None = None
 
     def run(self):
         try:
             self._unit_service.save(self.unit)
             self.finished.emit()
         except Exception as e:
+            self.exception = e
             self.error.emit(str(e))
 
 
@@ -241,7 +243,10 @@ class MainWindow(QMainWindow):
         # ── Sync-queue UI state ───────────────────────────────────────
         self._sync_status_session_total: int = 0
         self._sync_status_session_initial: int = 0
-        self._sync_unit_durations: list[float] = []
+        from collections import deque
+        self._sync_unit_durations: deque[float] = deque(maxlen=50)
+        self._save_queue: list[Unit] = []
+        self._search_single_match: Unit | None = None
         self._current_unit_save_started_at: float = 0.0
         self._close_progress = None
         self._close_poll_timer: QTimer | None = None
@@ -365,6 +370,7 @@ class MainWindow(QMainWindow):
         """Execute the global search after debounce fires."""
         query = self._search_edit.text().strip().lower()
         if not query:
+            self._search_single_match = None
             return
         if not self.units:
             return
@@ -728,6 +734,9 @@ class MainWindow(QMainWindow):
         self.current_unit = unit
         self.timeline_panel.set_unit(unit)
         self.edit_form.set_unit(unit)
+        com = unit.com_number if unit else None
+        self.calendar_panel.set_highlighted_unit(com)
+        self.alert_panel.set_selected_unit(com)
         if unit is not None:
             if unit.due_date_changed:
                 unit.due_date_changed = False
@@ -751,10 +760,13 @@ class MainWindow(QMainWindow):
             )
             return
         if self._active_save_worker_running():
-            logger.warning("Save already in progress — queuing")
+            logger.info("Save already in progress — queuing unit %s", unit.com_number)
+            self._save_queue.append(unit)
             return
         self.status_bar.showMessage(f"Saving COM {unit.com_number}...")
         worker = SaveWorker(self._svc, unit)
+        worker._start_time = time.time()
+        self._sync_status_widget.set_progress(f"Saving {unit.com_number}...", -1)
         worker.finished.connect(self._on_save_finished)
         worker.error.connect(self._on_save_error)
         self._save_worker = worker
@@ -766,7 +778,11 @@ class MainWindow(QMainWindow):
         worker = self.sender()
         unit = worker.unit if isinstance(worker, SaveWorker) else self._pending_save_unit
         if isinstance(worker, SaveWorker):
+            if hasattr(worker, '_start_time'):
+                elapsed = time.time() - worker._start_time
+                self._sync_unit_durations.append(elapsed)
             self._retire_save_worker(worker)
+        self._sync_status_widget.reset()
         if unit:
             self._commit_unit_to_memory(unit)
             self.calendar_panel.refresh(self.units)
@@ -776,23 +792,39 @@ class MainWindow(QMainWindow):
             self._pending_save_unit = None
             self._notify(f"Saved COM {unit.com_number}", "success")
 
+        # Drain save queue
+        if self._save_queue:
+            next_unit = self._save_queue.pop(0)
+            self._start_save_worker(next_unit)
+
     def _on_save_error(self, error_msg: str) -> None:
         worker = self.sender()
         failed_unit = worker.unit if isinstance(worker, SaveWorker) else self._pending_save_unit
+        is_validation = False
         if isinstance(worker, SaveWorker):
+            from services.validation import ValidationError
+            if getattr(worker, "exception", None) and isinstance(worker.exception, ValidationError):
+                is_validation = True
             self._save_worker_errors[worker] = error_msg
             self._retire_save_worker(worker)
+        self._sync_status_widget.reset()
         logger.error("Save error: %s", error_msg)
         if "was modified by another user" in error_msg:
             self._show_conflict_dialog(error_msg, failed_unit)
-            return
-        QMessageBox.warning(
-            self,
-            "Save Failed",
-            f"Could not save to database:\n{error_msg}\n\n"
-            f"Your changes are still in the form. Check your network connection and try saving again.",
-        )
-        self._notify("Save failed — check network connection", "error")
+        else:
+            hint = "Please correct the highlighted fields and try again." if is_validation else "Check your network connection and try saving again."
+            QMessageBox.warning(
+                self,
+                "Save Failed",
+                f"Could not save to database:\n{error_msg}\n\n"
+                f"Your changes are still in the form. {hint}",
+            )
+            self._notify("Save failed — " + ("validation error" if is_validation else "check network connection"), "error")
+
+        # Drain save queue
+        if self._save_queue:
+            next_unit = self._save_queue.pop(0)
+            self._start_save_worker(next_unit)
 
     def _show_conflict_dialog(self, error_msg: str, local_unit: Unit | None = None) -> None:
         local_unit = local_unit or self.current_unit
@@ -812,6 +844,7 @@ class MainWindow(QMainWindow):
             modified_by="another user",
             modified_at=modified_at,
             parent=self,
+            theme_name=self._current_theme_name,
         )
         dlg.exec_()
         if dlg.overwrite:
@@ -887,9 +920,6 @@ class MainWindow(QMainWindow):
         else:
             self.units.append(unit)
         self.current_unit = unit
-        # Invalidate fingerprint cache so list refresh detects the change
-        from data.loader import _fingerprint_cache
-        _fingerprint_cache.pop(unit.com_number, None)
 
     # ── Data loading ───────────────────────────────────────────────────
 

@@ -12,9 +12,6 @@ from data.models import Unit
 
 logger = logging.getLogger(__name__)
 
-_fingerprint_cache: dict[str, str] = {}
-
-
 def _date_to_str(val) -> str:
     """Convert date to string for fingerprinting."""
     if val is None:
@@ -26,10 +23,6 @@ def _date_to_str(val) -> str:
 
 def unit_fingerprint(unit: Unit) -> str:
     """Stable hash of editable unit fields for optimistic conflict checks."""
-    uid = unit.com_number
-    cached = _fingerprint_cache.get(uid)
-    if cached is not None:
-        return cached
     payload = {
         "com_number": unit.com_number,
         "job_name": unit.job_name,
@@ -37,6 +30,8 @@ def unit_fingerprint(unit: Unit) -> str:
         "description": unit.description,
         "detailer": unit.detailer,
         "checking_status": unit.checking_status,
+        "dr_checks": unit.dr_checks,
+        "dvl_checks": unit.dvl_checks,
         "notes": unit.notes,
         "department_hours": unit.department_hours,
         "actual_hours": unit.actual_hours,
@@ -51,9 +46,7 @@ def unit_fingerprint(unit: Unit) -> str:
         "build_date": _date_to_str(unit.build_date),
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    result = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
-    _fingerprint_cache[uid] = result
-    return result
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def _apply_identicals(units: list[Unit]) -> None:
@@ -90,6 +83,7 @@ def _apply_identicals(units: list[Unit]) -> None:
 
         for u in group:
             if u is not primary:
+                u._original_target_department_hours = u.target_department_hours
                 u.target_department_hours = 0.0
                 u.is_non_primary_identical = True
 

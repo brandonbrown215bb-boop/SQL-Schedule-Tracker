@@ -107,6 +107,8 @@ def db_path(tmp_path):
             description TEXT DEFAULT '',
             detailer TEXT DEFAULT '',
             checking_status TEXT DEFAULT '',
+            dr_checks TEXT DEFAULT '',
+            dvl_checks TEXT DEFAULT '',
             manufacturing_location TEXT DEFAULT '',
             build_cycle TEXT DEFAULT '',
             department_hours REAL DEFAULT 0.0,
@@ -123,6 +125,7 @@ def db_path(tmp_path):
             unit_detailing_start_date TEXT,
             unit_moved_to_checking_date TEXT,
             unit_detailing_completion_date TEXT,
+            week_ending_friday TEXT,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         );

@@ -14,7 +14,13 @@ from services.validation import ValidationError
 
 
 @pytest.fixture
-def unit_to_save():
+def unit_to_save(db_with_units):
+    import sqlite3
+    conn = sqlite3.connect(db_with_units)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT updated_at FROM units WHERE com_number = '14201'").fetchone()
+    conn.close()
+    updated_at = row["updated_at"] if row else ""
     return Unit(
         com_number="14201",
         job_name="Test Job",
@@ -30,6 +36,7 @@ def unit_to_save():
         unit_detailing_start_date=date(2025, 6, 1),
         unit_moved_to_checking_date=None,
         unit_detailing_completion_date=None,
+        updated_at=updated_at,
     )
 
 
@@ -71,10 +78,18 @@ class TestSaveUnit:
         conn.close()
         assert val is None
 
-    def test_com_number_not_found_raises(self, db_path, unit_to_save):
+    def test_com_number_not_found_raises(self, db_path):
         """Saving a COM that doesn't exist in DB raises ConcurrentEditError."""
+        unit = Unit(
+            com_number="14201",
+            job_name="Test Job",
+            contract_number="CN-001",
+            description="Test",
+            detailer="Carl M",
+            checking_status="",
+        )
         with pytest.raises(ConcurrentEditError, match="was modified by another user"):
-            save_unit(db_path, unit_to_save)
+            save_unit(db_path, unit)
 
 
 class TestValidation:
@@ -164,3 +179,27 @@ class TestValidation:
         )
         with pytest.raises(ValidationError, match="target_department_hours: minimum 0"):
             save_unit(db_with_units, unit)
+
+    def test_week_ending_friday_calculated_on_save(self, db_with_units, unit_to_save):
+        """Saving updates the week_ending_friday column in DB based on detailing_due_date."""
+        unit_to_save.detailing_due_date = date(2026, 6, 24)  # Wednesday
+        save_unit(db_with_units, unit_to_save)
+        
+        conn = sqlite3.connect(db_with_units)
+        cur = conn.execute("SELECT week_ending_friday FROM units WHERE com_number = '14201'")
+        val = cur.fetchone()[0]
+        conn.close()
+        # Wednesday June 24, 2026 -> Friday June 26, 2026
+        assert val == "2026-06-26"
+        assert unit_to_save.week_ending_friday == date(2026, 6, 26)
+        
+        # Test None due date
+        unit_to_save.detailing_due_date = None
+        save_unit(db_with_units, unit_to_save)
+        conn = sqlite3.connect(db_with_units)
+        cur = conn.execute("SELECT week_ending_friday FROM units WHERE com_number = '14201'")
+        val = cur.fetchone()[0]
+        conn.close()
+        assert val is None
+        assert unit_to_save.week_ending_friday is None
+

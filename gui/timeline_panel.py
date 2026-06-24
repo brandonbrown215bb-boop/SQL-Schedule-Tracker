@@ -148,11 +148,15 @@ class TimelineWidget(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.TextAntialiasing)
 
+        from gui.theme import THEMES, get_status_colors, STATUS_SHAPES
+        tokens = THEMES.get(self._theme_name, THEMES["light"])
+        colors = get_status_colors(self._theme_name, self._cvd_mode)
+
         # --- Background ---
-        painter.fillRect(self.rect(), QBrush(QColor(252, 252, 255)))
+        painter.fillRect(self.rect(), QBrush(QColor(tokens.get("bg_secondary", "#f8fafc"))))
 
         if self.unit is None:
-            painter.setPen(QPen(QColor(140, 140, 140)))
+            painter.setPen(QPen(QColor(tokens.get("text_muted", "#94a3b8"))))
             painter.setFont(self._font(11))
             painter.drawText(self.rect(), Qt.AlignCenter, "Select a unit to view its timeline")
             painter.end()
@@ -160,7 +164,7 @@ class TimelineWidget(QWidget):
 
         milestones = [(name, d) for name, d in self.unit.milestones if d is not None]
         if not milestones:
-            painter.setPen(QPen(QColor(140, 140, 140)))
+            painter.setPen(QPen(QColor(tokens.get("text_muted", "#94a3b8"))))
             painter.setFont(self._font(11))
             painter.drawText(self.rect(), Qt.AlignCenter, "No milestone dates available")
             painter.end()
@@ -178,21 +182,24 @@ class TimelineWidget(QWidget):
         bar_y = lc["bar_y"]
 
         # --- Status color bar ---
-        from gui.theme import STATUS_SHAPES, get_status_colors
-
-        colors = get_status_colors(self._theme_name, self._cvd_mode)
         bar_color = QColor(colors.get(self.unit.calculated_status_color, colors["gray"]))
 
         # Add icon to bar text
         icon = STATUS_SHAPES.get(self.unit.calculated_status_color, "")
 
         # Bar border
-        painter.setPen(QPen(QColor(160, 160, 160), 1))
+        painter.setPen(QPen(QColor(tokens.get("border_strong", "#cbd5e1")), 1))
         painter.setBrush(QBrush(bar_color))
         painter.drawRoundedRect(bar_x, bar_y, bar_width, self.BAR_HEIGHT, 4, 4)
 
-        # Status text on the bar
-        painter.setPen(QPen(QColor(30, 30, 30)))
+        # Status text on the bar (contrast calculated from background luminance)
+        luminance = (0.299 * bar_color.red() + 0.587 * bar_color.green() + 0.114 * bar_color.blue()) / 255.0
+        status_text_color = (
+            QColor(tokens.get("text_primary", "#1e293b"))
+            if luminance > 0.5
+            else QColor(tokens.get("text_on_accent", "#ffffff"))
+        )
+        painter.setPen(QPen(status_text_color))
         painter.setFont(self._font(9, bold=True))
         status_text = f"{icon} {self.unit.percent_complete:.0f}%  —  {self.unit.checking_status}"
         painter.drawText(
@@ -220,27 +227,31 @@ class TimelineWidget(QWidget):
             # Alternating row background for readability
             if i % 2 == 0:
                 painter.fillRect(
-                    bar_x, row_y, bar_width, self.ROW_HEIGHT, QBrush(QColor(237, 240, 248))
+                    bar_x,
+                    row_y,
+                    bar_width,
+                    self.ROW_HEIGHT,
+                    QBrush(QColor(tokens.get("bg_tertiary", "#f1f5f9"))),
                 )
 
             # Vertical guide line (faint)
-            painter.setPen(QPen(QColor(200, 200, 210), 1, Qt.DotLine))  # type: ignore[reportAttributeAccessIssue]
+            painter.setPen(QPen(QColor(tokens.get("border", "#e2e8f0")), 1, Qt.DotLine))  # type: ignore[reportAttributeAccessIssue]
             painter.drawLine(x, bar_y + self.BAR_HEIGHT, x, row_y + self.ROW_HEIGHT)
 
             # Tick from bar to row
-            painter.setPen(QPen(QColor(100, 100, 100), 1))
+            painter.setPen(QPen(QColor(tokens.get("border_strong", "#cbd5e1")), 1))
             painter.drawLine(x, bar_y + self.BAR_HEIGHT, x, row_y + 2)
 
             # Milestone dot (larger, more visible)
             dot_r = 5
-            painter.setBrush(QBrush(QColor(50, 90, 190)))
-            painter.setPen(QPen(QColor(30, 60, 150), 1))
+            painter.setBrush(QBrush(QColor(tokens.get("accent", "#3b82f6"))))
+            painter.setPen(QPen(QColor(tokens.get("accent_active", "#1d4ed8")), 1))
             painter.drawEllipse(
                 x - dot_r, row_y + self.ROW_HEIGHT // 2 - dot_r, dot_r * 2, dot_r * 2
             )
 
             # Milestone name (left-aligned after the dot)
-            painter.setPen(QPen(QColor(20, 20, 20)))
+            painter.setPen(QPen(QColor(tokens.get("text_primary", "#1e293b"))))
             painter.setFont(self._font(9))
             label_x = bar_x + 14
             label_w = bar_width - 30
@@ -254,7 +265,7 @@ class TimelineWidget(QWidget):
             )
 
             # Date label (right-aligned)
-            painter.setPen(QPen(QColor(80, 80, 100)))
+            painter.setPen(QPen(QColor(tokens.get("text_secondary", "#64748b"))))
             painter.setFont(self._font(8))
             date_str = d.strftime("%b %d, %Y")
             painter.drawText(
@@ -268,7 +279,7 @@ class TimelineWidget(QWidget):
 
         # --- Axis / range labels at the bottom ---
         axis_y = lc["axis_y"]
-        painter.setPen(QPen(QColor(120, 120, 120)))
+        painter.setPen(QPen(QColor(tokens.get("border_strong", "#cbd5e1"))))
         painter.setFont(self._font(8))
 
         # Axis line
@@ -276,19 +287,21 @@ class TimelineWidget(QWidget):
 
         # Draw cached axis ticks
         painter.setFont(self._font(7))
-        painter.setPen(QPen(QColor(100, 100, 100)))
+        painter.setPen(QPen(QColor(tokens.get("border_strong", "#cbd5e1"))))
         for tick in lc["axis_ticks"]:
             painter.drawLine(tick["x"], axis_y, tick["x"], axis_y + 5)
-            painter.drawText(tick["x"] - 30, axis_y + 7, 60, 14, Qt.AlignCenter, tick["label"])  # type: ignore[reportAttributeAccessIssue]
+            painter.drawText(
+                tick["x"] - 30, axis_y + 7, 60, 14, Qt.AlignCenter, tick["label"]
+            )  # type: ignore[reportAttributeAccessIssue]
 
         # --- Today line ---
         if lc["today_x"] is not None:
             today_x = lc["today_x"]
-            painter.setPen(QPen(QColor(210, 40, 40), 2, Qt.DashLine))  # type: ignore[reportAttributeAccessIssue]
+            painter.setPen(QPen(QColor(tokens.get("text_error", "#dc2626")), 2, Qt.DashLine))  # type: ignore[reportAttributeAccessIssue]
             painter.drawLine(today_x, bar_y - 4, today_x, axis_y)
 
             # "TODAY" label
-            painter.setPen(QPen(QColor(210, 40, 40)))
+            painter.setPen(QPen(QColor(tokens.get("text_error", "#dc2626"))))
             painter.setFont(self._font(7, bold=True))
             painter.drawText(
                 today_x + 4,
@@ -320,8 +333,11 @@ class TimelineWidget(QWidget):
             else:
                 current = current.replace(month=current.month + 1, day=1)
 
+        from gui.theme import THEMES
+        tokens = THEMES.get(self._theme_name, THEMES["light"])
+
         painter.setFont(self._font(7))
-        painter.setPen(QPen(QColor(100, 100, 100)))
+        painter.setPen(QPen(QColor(tokens.get("border_strong", "#cbd5e1"))))
 
         while current <= max_date:
             offset_days = (current - min_date).days

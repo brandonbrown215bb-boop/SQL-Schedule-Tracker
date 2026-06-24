@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 
-from data.db import get_audit_trail, row_to_unit
+from data.db import get_audit_trail, row_to_unit, get_db
 from data.loader import _apply_identicals, load_units, unit_fingerprint
 from data.models import Unit
 from data.writer import save_unit
@@ -74,10 +74,7 @@ class UnitService:
         Returns None if not found. Used by conflict dialog to reload
         the remote version of a unit after an optimistic lock failure.
         """
-        import sqlite3
-
-        conn = self._get_conn()
-        conn.row_factory = sqlite3.Row
+        conn = get_db(self._db_path)
         row = conn.execute("SELECT * FROM units WHERE com_number = ?", (com_number,)).fetchone()
         if row is None:
             return None
@@ -170,11 +167,3 @@ class UnitService:
         return get_audit_trail(self._db_path, com_number=com_number, limit=limit)
 
     # ── Internal ──────────────────────────────────────────────────────
-
-    def _get_conn(self):
-        """Get a raw SQLite connection (for internal queries only)."""
-        import sqlite3
-
-        conn = sqlite3.connect(self._db_path)
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn

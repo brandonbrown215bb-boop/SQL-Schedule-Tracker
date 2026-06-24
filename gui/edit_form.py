@@ -22,9 +22,15 @@ from PyQt5.QtWidgets import (
 from data.models import Unit
 from services.validation import validate_unit
 
-# Style for invalid fields (red border + red background)
-_INVALID_STYLE = "border: 2px solid red; background-color: #fff0f0;"
-_VALID_STYLE = ""  # Reset to default
+# Theme-aware validation styles are set dynamically based on current theme
+def _get_invalid_style(theme_name: str = "light") -> str:
+    from gui.theme import THEMES
+    tokens = THEMES.get(theme_name, THEMES["light"])
+    return (
+        f"border: 2px solid {tokens['text_error']}; "
+        f"background-color: {tokens['bg_hover']}; "
+        f"color: {tokens['text_primary']};"
+    )
 
 
 class ClearableDateEdit(QDateEdit):
@@ -57,6 +63,7 @@ class EditForm(QWidget):
     def __init__(self, default_detailers: list[str], parent=None):
         super().__init__(parent)
         self.setObjectName("edit_form")
+        self._theme_name = "light"
 
         layout = QVBoxLayout(self)
 
@@ -99,6 +106,12 @@ class EditForm(QWidget):
 
         self.checking_status_edit = QLineEdit()
         self.form.addRow(QLabel("Checking Status:"), self.checking_status_edit)
+
+        self.dr_checks_edit = QLineEdit()
+        self.form.addRow(QLabel("DR Check:"), self.dr_checks_edit)
+
+        self.dvl_checks_edit = QLineEdit()
+        self.form.addRow(QLabel("DVL Check:"), self.dvl_checks_edit)
 
         self.notes_edit = QTextEdit()
         self.notes_edit.setPlaceholderText("Notes...")
@@ -182,6 +195,8 @@ class EditForm(QWidget):
             self.description_edit,
             self.detailer_edit,
             self.checking_status_edit,
+            self.dr_checks_edit,
+            self.dvl_checks_edit,
             self.notes_edit,
             self.dept_hours_spin,
             self.iec_hours_spin,
@@ -261,6 +276,8 @@ class EditForm(QWidget):
             self.description_edit,
             self.detailer_edit,
             self.checking_status_edit,
+            self.dr_checks_edit,
+            self.dvl_checks_edit,
             self.notes_edit,
             self.dept_hours_spin,
             self.iec_hours_spin,
@@ -285,6 +302,8 @@ class EditForm(QWidget):
                 # self.detailer_edit.setText("") # REMOVED: Replaced with QComboBox
                 self.detailer_edit.setCurrentIndex(0)
                 self.checking_status_edit.setText("")
+                self.dr_checks_edit.setText("")
+                self.dvl_checks_edit.setText("")
                 self.notes_edit.setPlainText("")
                 self.dept_hours_spin.setValue(0)
                 self.target_hours_spin.setValue(0)
@@ -312,6 +331,8 @@ class EditForm(QWidget):
             else:
                 self.detailer_edit.setCurrentIndex(0)
             self.checking_status_edit.setText(unit.checking_status)
+            self.dr_checks_edit.setText(unit.dr_checks)
+            self.dvl_checks_edit.setText(unit.dvl_checks)
             self.notes_edit.setPlainText(unit.notes)
 
             self.dept_hours_spin.setValue(unit.department_hours)
@@ -339,29 +360,31 @@ class EditForm(QWidget):
         """
         errors: list[str] = []
 
-        # Clear all inline validation styles
-        self.percent_spin.setStyleSheet(_VALID_STYLE)
-        self.dept_hours_spin.setStyleSheet(_VALID_STYLE)
-        self.actual_hours_spin.setStyleSheet(_VALID_STYLE)
-        self.due_date_edit.setStyleSheet(_VALID_STYLE)
+        # Remove inline validation styles (theme stylesheet takes over)
+        for widget in (self.percent_spin, self.dept_hours_spin, self.actual_hours_spin, self.target_hours_spin, self.due_date_edit):
+            widget.setStyleSheet("")
+            widget.setProperty("invalid", False)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
 
         # Use the validation layer for field-level checks
         valid, validation_errors = validate_unit(unit)
         if not valid:
+            invalid_style = _get_invalid_style(self._theme_name)
             # Map validation errors to visual indicators
             for err in validation_errors:
                 field = err.split(":")[0] if ":" in err else ""
                 if field == "percent_complete":
-                    self.percent_spin.setStyleSheet(_INVALID_STYLE)
+                    self.percent_spin.setStyleSheet(invalid_style)
                     self.percent_spin.setToolTip(err)
                 elif field == "department_hours":
-                    self.dept_hours_spin.setStyleSheet(_INVALID_STYLE)
+                    self.dept_hours_spin.setStyleSheet(invalid_style)
                     self.dept_hours_spin.setToolTip(err)
                 elif field == "actual_hours":
-                    self.actual_hours_spin.setStyleSheet(_INVALID_STYLE)
+                    self.actual_hours_spin.setStyleSheet(invalid_style)
                     self.actual_hours_spin.setToolTip(err)
                 elif field == "target_department_hours":
-                    self.target_hours_spin.setStyleSheet(_INVALID_STYLE)
+                    self.target_hours_spin.setStyleSheet(invalid_style)
                     self.target_hours_spin.setToolTip(err)
             errors.extend(validation_errors)
         else:
@@ -411,6 +434,8 @@ class EditForm(QWidget):
             description=self.description_edit.text(),
             detailer=detailer,
             checking_status=self.checking_status_edit.text(),
+            dr_checks=self.dr_checks_edit.text(),
+            dvl_checks=self.dvl_checks_edit.text(),
             notes=self.notes_edit.toPlainText(),
             department_hours=self.dept_hours_spin.value(),
             target_department_hours=self.target_hours_spin.value(),
@@ -481,6 +506,10 @@ class EditForm(QWidget):
         if d.year == 2000 and d.month == 1 and d.day == 1:
             return None
         return d
+
+    def set_theme(self, theme_name: str, cvd_mode: str = "none") -> None:
+        self._theme_name = theme_name
+        self.update()
 
     def _on_history_clicked(self) -> None:
         """Emit history_requested for the current unit so MainWindow can open the audit dialog."""

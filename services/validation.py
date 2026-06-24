@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import logging
 import re
+import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from functools import wraps
 from typing import Any
 
@@ -151,6 +153,12 @@ UNIT_FIELD_RULES: dict[str, FieldRule] = {
         nullable=True,
         description="Computed or manually-assigned status color",
     ),
+    "unit_detailing_start_date": FieldRule(nullable=True),
+    "unit_moved_to_checking_date": FieldRule(nullable=True),
+    "unit_detailing_completion_date": FieldRule(nullable=True),
+    "dept_due_date_previous": FieldRule(nullable=True),
+    "detailing_due_date": FieldRule(nullable=True),
+    "build_date": FieldRule(nullable=True),
 }
 
 
@@ -183,6 +191,19 @@ def validate_unit(
     """
     errors: list[str] = []
     rules = rules or UNIT_FIELD_RULES
+
+    DATE_FIELDS = {
+        "unit_detailing_start_date",
+        "unit_moved_to_checking_date",
+        "unit_detailing_completion_date",
+        "dept_due_date_previous",
+        "detailing_due_date",
+        "build_date",
+    }
+    for field in DATE_FIELDS:
+        val = getattr(unit, field, None)
+        if val is not None and not isinstance(val, date):
+            errors.append(f"{field}: must be a date or None, got {type(val).__name__}")
 
     for field_name, rule in rules.items():
         value = getattr(unit, field_name, None)
@@ -266,13 +287,17 @@ def validate_input(**field_rules: FieldRule):
     """
 
     def decorator(func):
+        sig = inspect.signature(func)
         @wraps(func)
         def wrapper(*args, **kwargs):
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+            all_args = bound.arguments
             errors = []
             for field_name, rule in field_rules.items():
-                if field_name not in kwargs:
+                if field_name not in all_args:
                     continue
-                value = kwargs[field_name]
+                value = all_args[field_name]
                 if value is None and not rule.nullable:
                     errors.append(f"{field_name}: is required")
                     continue

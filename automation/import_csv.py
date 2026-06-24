@@ -161,7 +161,8 @@ def run_import(csv_path: str, db_path: str) -> dict:
     stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
 
     conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA journal_mode=WAL")
+    from data.db import _safe_journal_mode
+    _safe_journal_mode(conn, db_path)
     cursor = conn.cursor()
 
     with open(csv_path, encoding="utf-8-sig", newline="") as fh:

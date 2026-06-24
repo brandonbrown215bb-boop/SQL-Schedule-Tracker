@@ -136,9 +136,11 @@ class AuditDialog(QDialog):
         if field:
             entries = [e for e in entries if e.get("field_name") == field]
 
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(entries))
         for row, entry in enumerate(entries):
             self._set_table_row(row, entry)
+        self.table.setSortingEnabled(True)
 
         self.status_label.setText(f"{len(entries)} change(s) found")
 
