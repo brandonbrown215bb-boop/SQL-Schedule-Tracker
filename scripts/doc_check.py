@@ -574,17 +574,17 @@ def check_onboarding(project_root: str, changed_files: set[str]) -> CheckResult:
 
 
 def check_computation_audit(project_root: str, changed_files: set[str]) -> CheckResult:
-    """Check COMPUTATION_AUDIT.md constants and references against code."""
-    result = CheckResult(doc="COMPUTATION_AUDIT.md")
-    audit_path = os.path.join(project_root, "docs", "COMPUTATION_AUDIT.md")
+    """Check DATA_CONTRACT.md constants and references against code."""
+    result = CheckResult(doc="DATA_CONTRACT.md")
+    audit_path = os.path.join(project_root, "docs", "DATA_CONTRACT.md")
     content = read_file(audit_path)
     if content is None:
         result.findings.append(
             Finding(
-                doc="COMPUTATION_AUDIT.md",
+                doc="DATA_CONTRACT.md",
                 check="existence",
                 severity=Severity.INFO,
-                message="COMPUTATION_AUDIT.md not found — skipping computation audit check",
+                message="DATA_CONTRACT.md not found — skipping computation audit check",
             )
         )
         return result
@@ -611,7 +611,7 @@ def check_computation_audit(project_root: str, changed_files: set[str]) -> Check
         if not file_exists(full_file):
             result.findings.append(
                 Finding(
-                    doc="COMPUTATION_AUDIT.md",
+                    doc="DATA_CONTRACT.md",
                     check="stale_file_ref",
                     severity=Severity.FAIL,
                     message=f"Constant '{const_name}' references '{doc_file}' which doesn't exist",
@@ -631,31 +631,31 @@ def check_computation_audit(project_root: str, changed_files: set[str]) -> Check
                 raw_val = code_value.group(1).rstrip(")").rstrip(",")
                 # Normalize: 160.0 == 160, 10.0 == 10
                 try:
-                    doc_f = float(doc_value)
-                    code_f = float(raw_val)
-                    if abs(doc_f - code_f) > 0.001:
-                        result.findings.append(
-                            Finding(
-                                doc="COMPUTATION_AUDIT.md",
-                                check="stale_constant",
-                                severity=Severity.FAIL,
-                                message=f"Constant '{const_name}' is {doc_f} in audit but {code_f} in {doc_file}",
-                                line_number=line_num,
-                                suggestion=f"Update audit: | \\`{const_name}\\` | {code_f} | {doc_file} |",
-                            )
-                        )
+                     doc_f = float(doc_value)
+                     code_f = float(raw_val)
+                     if abs(doc_f - code_f) > 0.001:
+                         result.findings.append(
+                             Finding(
+                                 doc="DATA_CONTRACT.md",
+                                 check="stale_constant",
+                                 severity=Severity.FAIL,
+                                 message=f"Constant '{const_name}' is {doc_f} in audit but {code_f} in {doc_file}",
+                                 line_number=line_num,
+                                 suggestion=f"Update audit: | \\`{const_name}\\` | {code_f} | {doc_file} |",
+                             )
+                         )
                 except ValueError:
-                    # String comparison
-                    if raw_val.strip("'\"") != doc_value.strip("'\""):
-                        result.findings.append(
-                            Finding(
-                                doc="COMPUTATION_AUDIT.md",
-                                check="stale_constant",
-                                severity=Severity.WARNING,
-                                message=f"Constant '{const_name}' value mismatch: audit='{doc_value}' code='{raw_val}'",
-                                line_number=line_num,
-                            )
-                        )
+                     # String comparison
+                     if raw_val.strip("'\"") != doc_value.strip("'\""):
+                         result.findings.append(
+                             Finding(
+                                 doc="DATA_CONTRACT.md",
+                                 check="stale_constant",
+                                 severity=Severity.WARNING,
+                                 message=f"Constant '{const_name}' value mismatch: audit='{doc_value}' code='{raw_val}'",
+                                 line_number=line_num,
+                             )
+                         )
 
     return result
 

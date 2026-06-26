@@ -253,7 +253,7 @@ _BTN_DEFAULT = """\
 
 _TABLE = """\
     QTableWidget {{
-        background: {bg_primary};
+        background-color: {bg_primary};
         color: {text_primary};
         border: 1px solid {border};
         border-radius: 6px;
@@ -437,6 +437,10 @@ def _style_card(widget: QWidget, tokens: dict[str, str]) -> None:
 def _style_calendar(widget: QWidget, tokens: dict[str, str]) -> None:
     t = tokens
     widget.setStyleSheet(f"""
+        QCalendarWidget QWidget#qt_calendar_navigationbar {{
+            background: {t["bg_secondary"]};
+            border-bottom: 1px solid {t["border"]};
+        }}
         QCalendarWidget QTableView {{
             background: {t["bg_primary"]};
             color: {t["text_primary"]};
@@ -446,7 +450,8 @@ def _style_calendar(widget: QWidget, tokens: dict[str, str]) -> None:
         }}
         QCalendarWidget QToolButton {{
             color: {t["text_primary"]};
-            background: {t["bg_tertiary"]};
+            background: transparent;
+            border: none;
             border-radius: 4px;
             padding: 4px;
             min-width: 24px;
@@ -476,6 +481,14 @@ def _style_calendar(widget: QWidget, tokens: dict[str, str]) -> None:
             background: {t["bg_primary"]};
             color: {t["text_primary"]};
             border: 1px solid {t["border"]};
+            border-radius: 4px;
+        }}
+        QCalendarWidget QSpinBox::up-button, QCalendarWidget QSpinBox::down-button {{
+            subcontrol-origin: border;
+            background: {t["bg_tertiary"]};
+        }}
+        QCalendarWidget QSpinBox::up-button:hover, QCalendarWidget QSpinBox::down-button:hover {{
+            background: {t["bg_hover"]};
         }}
     """)
 
@@ -665,3 +678,89 @@ def get_group_highlight_palette(theme_name: str) -> tuple[QColor, QColor]:
 def get_group_highlight_color(theme_name: str) -> QColor:
     """Deprecated shim — use get_group_highlight_palette instead."""
     return get_group_highlight_palette(theme_name)[0]
+
+
+# ─── Week-of-the-Month Highlight Palettes ─────────────────────────────
+
+_WEEK_COLORS_LIGHT: dict[int, str] = {
+    1: "#dbeafe",  # Light Blue
+    2: "#ccfbf1",  # Light Teal
+    3: "#f3e8ff",  # Light Purple
+    4: "#fef3c7",  # Light Amber
+    5: "#ffe4e6",  # Light Rose
+}
+
+_WEEK_COLORS_DARK: dict[int, str] = {
+    1: "#1e3a8a",  # Deep Blue
+    2: "#115e59",  # Deep Teal
+    3: "#4c1d95",  # Deep Purple
+    4: "#78350f",  # Deep Amber
+    5: "#881337",  # Deep Rose
+}
+
+_WEEK_COLORS_DEUT_PROT_LIGHT: dict[int, str] = {
+    1: "#dbeafe",  # Blue
+    2: "#cffafe",  # Cyan
+    3: "#ede9fe",  # Violet
+    4: "#fef3c7",  # Amber/Yellow
+    5: "#e2e8f0",  # Muted Gray
+}
+
+_WEEK_COLORS_DEUT_PROT_DARK: dict[int, str] = {
+    1: "#1e3a8a",  # Deep Blue
+    2: "#155e75",  # Deep Cyan
+    3: "#4c1d95",  # Deep Violet
+    4: "#78350f",  # Deep Amber
+    5: "#334155",  # Deep Gray
+}
+
+_WEEK_COLORS_TRIT_LIGHT: dict[int, str] = {
+    1: "#ccfbf1",  # Light Teal
+    2: "#fce7f3",  # Light Pink
+    3: "#ffe4e6",  # Light Red
+    4: "#ffedd5",  # Light Orange
+    5: "#f1f5f9",  # Light Gray
+}
+
+_WEEK_COLORS_TRIT_DARK: dict[int, str] = {
+    1: "#115e59",  # Deep Teal
+    2: "#701a75",  # Deep Pink
+    3: "#881337",  # Deep Rose
+    4: "#7c2d12",  # Deep Orange
+    5: "#334155",  # Deep Gray
+}
+
+_WEEK_COLORS_HIGH_CONTRAST_LIGHT: dict[int, str] = {
+    1: "#93c5fd",  # Blue-300
+    2: "#5eead4",  # Teal-300
+    3: "#c084fc",  # Purple-300
+    4: "#fde047",  # Yellow-300
+    5: "#fda4af",  # Rose-300
+}
+
+_WEEK_COLORS_HIGH_CONTRAST_DARK: dict[int, str] = {
+    1: "#2563eb",  # Blue-600
+    2: "#0d9488",  # Teal-600
+    3: "#7c3aed",  # Purple-600
+    4: "#ea580c",  # Orange-600
+    5: "#e11d48",  # Rose-600
+}
+
+
+def get_week_highlight_color(
+    theme_name: str, week_index: int, cvd_mode: str = "none", high_contrast: bool = False
+) -> QColor:
+    """Return the theme-appropriate QColor for a 1-based week index (1 to 5)."""
+    idx = max(1, min(5, week_index))
+    
+    if high_contrast:
+        palette = _WEEK_COLORS_HIGH_CONTRAST_DARK if theme_name == "dark" else _WEEK_COLORS_HIGH_CONTRAST_LIGHT
+    elif cvd_mode in ("deuteranopia", "protanopia"):
+        palette = _WEEK_COLORS_DEUT_PROT_DARK if theme_name == "dark" else _WEEK_COLORS_DEUT_PROT_LIGHT
+    elif cvd_mode == "tritanopia":
+        palette = _WEEK_COLORS_TRIT_DARK if theme_name == "dark" else _WEEK_COLORS_TRIT_LIGHT
+    else:
+        palette = _WEEK_COLORS_DARK if theme_name == "dark" else _WEEK_COLORS_LIGHT
+        
+    return QColor(palette[idx])
+

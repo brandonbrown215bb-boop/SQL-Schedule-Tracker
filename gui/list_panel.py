@@ -35,6 +35,9 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -44,6 +47,15 @@ from PyQt5.QtWidgets import (
 from data.models import Unit
 from data.tag_parser import UnitTagRepository, parse_description
 from gui.inline_edit_bar import InlineEditBar
+
+
+def get_week_of_month(friday_date: date) -> int:
+    """Compute the Sunday-to-Saturday calendar week index of the month containing the Friday date."""
+    first_day = date(friday_date.year, friday_date.month, 1)
+    # Sunday is 0, Monday is 1, ..., Saturday is 6
+    first_day_dow = (first_day.weekday() + 1) % 7
+    return (friday_date.day - 1 + first_day_dow) // 7 + 1
+
 
 # ─── Column Definitions ─────────────────────────────────────────────
 # (key, header, width, default_visible)
@@ -350,6 +362,27 @@ class UnitListModel:
         return sorted(detailers)
 
 
+class HighlightDelegate(QStyledItemDelegate):
+    """Custom item delegate that renders custom item background colors even when a QTableWidget stylesheet is active, while preserving standard selection rendering."""
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+
+        # If the item is selected, let the default style paint the selection background.
+        # Otherwise, paint custom background manually and prevent the stylesheet from overriding it.
+        if not (opt.state & QStyle.State_Selected):
+            bg_brush = index.data(Qt.BackgroundRole)
+            if bg_brush and bg_brush.style() != Qt.NoBrush:
+                painter.save()
+                painter.fillRect(opt.rect, bg_brush)
+                painter.restore()
+                # Set backgroundBrush to transparent so super().paint doesn't overwrite it
+                opt.backgroundBrush = QBrush(Qt.transparent)
+
+        super().paint(painter, opt, index)
+
+
 # ─── ListPanel Widget ───────────────────────────────────────────────
 
 
@@ -387,7 +420,6 @@ class ListPanel(QWidget):
         self._emitting_widths: bool = False
         self._default_detailers: list[str] = default_detailers or []
         self._db_path: str = db_path
-        self._inline_bar_above: bool = False  # P13:track bar position
         # Cache of pre-computed tag display strings, keyed by com_number.
         # Invalidated when the model (unit set) changes, preserved across
         # sort-only refreshes so we don't re-parse on every column click.
@@ -569,6 +601,7 @@ class ListPanel(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.doubleClicked.connect(self._on_double_clicked)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.table.setItemDelegate(HighlightDelegate(self.table))
 
         # ── Ctrl+A Select All ──
         select_all_action = QAction("Select All", self.table)
@@ -710,7 +743,12 @@ class ListPanel(QWidget):
             "dept_due_date_previous",
         ):
             if hasattr(value, "strftime"):
-                return value.strftime("%m/%d/%Y")
+                date_str = value.strftime("%m/%d/%Y")
+                if key == "detailing_due_date" and isinstance(value, date):
+                    friday = value + timedelta(days=(4 - value.weekday()) % 7)
+                    week_idx = get_week_of_month(friday)
+                    return f"{date_str} (W{week_idx})"
+                return date_str
             return str(value)
 
         if key == "percent_complete":
@@ -828,13 +866,13 @@ class ListPanel(QWidget):
         # Pre-compute value-based group highlight colors for due date and contract number.
         #
         # Strategy: "paint by value" — each unique grouping key is assigned one of
-        # two palette colors via hash(str(value)) % 2. The same value always maps
+        # five palette colors via (hash(str(value)) % 5) + 1. The same value always maps
         # to the same color regardless of sort order, so groups are visually
         # consistent even when the list is re-sorted. Singletons (values that
         # appear only once across the visible rows) receive no highlight.
 
-        from gui.theme import get_group_highlight_palette as _palette_fn
-        _palette = _palette_fn(self._theme_name)  # (color_a, color_b)
+        main_win = self.window()
+        high_contrast = getattr(main_win, "_current_hc", False) or getattr(self, "_current_hc", False)
 
         def _compute_value_colors(key_fn) -> list["QColor | None"]:
             """Return a QColor (or None) for each unit in `units`.
@@ -853,22 +891,15 @@ class ListPanel(QWidget):
                 if k is None or k == "" or freq[k] < 2:
                     result.append(None)
                 else:
-                    result.append(_palette[hash(str(k)) % 2])
+                    from gui.theme import get_week_highlight_color
+                    # 5 groups, mapped to week colors 1-5
+                    week_idx = (hash(str(k)) % 5) + 1
+                    color = get_week_highlight_color(
+                        self._theme_name, week_idx, self._cvd_mode, high_contrast
+                    )
+                    result.append(color)
             return result
 
-        def _due_week_friday(unit):
-            """Compute the Friday of the unit's detailing_due_date week.
-
-            Computed live so grouping is always consistent regardless of what
-            is stored in week_ending_friday (which may be NULL for imported
-            rows or differ from SSRS-supplied values).
-            """
-            d = unit.detailing_due_date
-            if d is None:
-                return None
-            return d + timedelta(days=(4 - d.weekday()) % 7)
-
-        due_date_colors = _compute_value_colors(_due_week_friday)
         com_colors = _compute_value_colors(
             lambda u: u.contract_number or None  # None = no contract = singleton
         )
@@ -886,16 +917,42 @@ class ListPanel(QWidget):
                 display = self._format_cell(key, value)
                 item = QTableWidgetItem(display)
 
-                # Group highlights — value-based: same value → same palette color
-                if key == "detailing_due_date" and value:
-                    color = due_date_colors[row_idx]
-                    if color is not None:
-                        item.setBackground(QBrush(color))
+                # Week-of-the-month highlight & suffix for Detailing Due Date
+                if key == "detailing_due_date":
+                    print(f"[DEBUG] key={key}, value={value}, type={type(value)}, display={display}")
+                if key == "detailing_due_date" and value and isinstance(value, date):
+                    friday = value + timedelta(days=(4 - value.weekday()) % 7)
+                    week_idx = get_week_of_month(friday)
+                    
+                    from gui.theme import get_week_highlight_color
+                    color = get_week_highlight_color(
+                        self._theme_name, week_idx, self._cvd_mode, high_contrast
+                    )
+                    item.setBackground(QBrush(color))
+                    
+                    # Ensure readable text color based on active theme
+                    from gui.theme import THEMES, boost_contrast
+                    tokens = THEMES[self._theme_name]
+                    if high_contrast:
+                        tokens = boost_contrast(self._theme_name)
+                    item.setForeground(QBrush(QColor(tokens["text_primary"])))
+                    
+                    item.setToolTip(f"Due in Week {week_idx} of the month")
 
                 if key == "com_number":
                     color = com_colors[row_idx]
                     if color is not None:
                         item.setBackground(QBrush(color))
+                        
+                        # Ensure readable text color based on active theme
+                        from gui.theme import THEMES, boost_contrast
+                        tokens = THEMES[self._theme_name]
+                        if high_contrast:
+                            tokens = boost_contrast(self._theme_name)
+                        item.setForeground(QBrush(QColor(tokens["text_primary"])))
+                        
+                        # Set tooltip to indicate the shared top level number
+                        item.setToolTip(f"Shared top level number: {unit.contract_number}")
 
                 if key in (
                     "percent_complete",
@@ -1034,7 +1091,6 @@ class ListPanel(QWidget):
         """Emit unit_selected when the user clicks a row."""
         unit = self._get_selected_unit()
         if unit is not None:
-            self._reposition_inline_bar(True)   # P13: move above table
             # If inline bar is dirty and user selected a different unit, warn
             if (
                 self._inline_edit_bar.is_dirty
@@ -1062,7 +1118,6 @@ class ListPanel(QWidget):
         else:
             self._inline_edit_bar.set_unit(None)
             self.blame_label.setText("")
-            self._reposition_inline_bar(False)  # P13: move back below table
         self._update_batch_bar()
 
     def _update_blame(self, unit: Unit) -> None:
@@ -1237,18 +1292,4 @@ class ListPanel(QWidget):
                 self._refresh_table_full()
                 self.column_visibility_changed.emit(list(new_visible))
 
-    # ── Inline Edit Bar Repositioning (P13) ─────────────────────────────
 
-    def _reposition_inline_bar(self, above: bool) -> None:
-        """Move InlineEditBar above or below the table (P13, Option B)."""
-        if self._inline_bar_above == above:
-            return
-        layout = self.layout()
-        # Remove from current position (index 2 = below table, index 1 = above)
-        layout.removeWidget(self._inline_edit_bar)
-        # Insert at new position: 1 = after filter group (above table), 2 = after table (below)
-        target = 1 if above else 2
-        # Clamp to valid range
-        target = max(0, min(target, layout.count()))
-        layout.insertWidget(target, self._inline_edit_bar)
-        self._inline_bar_above = above

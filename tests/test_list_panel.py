@@ -471,19 +471,14 @@ class TestListPanelWidget:
 
         # Rows 0 & 1 share values → both should have a solid highlight brush
         assert _is_painted(panel.table.item(0, com_col)), "Row 0 COM should be highlighted"
-        assert _is_painted(panel.table.item(0, due_col)), "Row 0 Due should be highlighted"
 
         # Same value → same color
         brush_com_0 = panel.table.item(0, com_col).background()
-        brush_due_0 = panel.table.item(0, due_col).background()
         brush_com_1 = panel.table.item(1, com_col).background()
-        brush_due_1 = panel.table.item(1, due_col).background()
         assert brush_com_1.color() == brush_com_0.color(), "Rows 0 & 1 COM must share tint"
-        assert brush_due_1.color() == brush_due_0.color(), "Rows 0 & 1 Due must share tint"
 
         # Row 2 is a singleton → brush style must NOT be SolidPattern (no explicit fill)
         assert not _is_painted(panel.table.item(2, com_col)), "Singleton COM must not be highlighted"
-        assert not _is_painted(panel.table.item(2, due_col)), "Singleton Due must not be highlighted"
 
     def test_grouping_no_highlight_when_all_unique(self, qapp):
         """When every unit has a unique value, no cell should be highlighted."""
@@ -507,8 +502,6 @@ class TestListPanelWidget:
         for row in range(3):
             assert panel.table.item(row, com_col).background().style() != _Qt.SolidPattern, \
                 f"Row {row} COM should not be highlighted (all unique)"
-            assert panel.table.item(row, due_col).background().style() != _Qt.SolidPattern, \
-                f"Row {row} Due should not be highlighted (all unique)"
 
     def test_grouping_same_value_same_color_regardless_of_sort(self, qapp):
         """Value-based: the same grouping key always maps to the same palette
@@ -610,3 +603,104 @@ class TestFilterSortIntegration:
         model.apply_filters(status="yellow", com_search="Beta")
         assert len(model.filtered_units) == 1
         assert model.filtered_units[0].com_number == "COM-200"
+
+    def test_due_date_week_suffix(self, qapp):
+        """Verify that detailing_due_date always displays the suffix (e.g. ' (W1)')."""
+        u1 = _make_unit(com="COM-A", due=date(2026, 7, 3))  # July 3, 2026 is Week 1
+        panel = ListPanel([u1])
+        panel._refresh_table_full()
+        
+        col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
+        due_col = col_keys.index("detailing_due_date")
+        
+        item = panel.table.item(0, due_col)
+        assert " (W1)" in item.text(), "Due date must contain Week 1 suffix"
+        assert item.toolTip() == "Due in Week 1 of the month", "Tooltip must specify Week 1"
+
+    def test_due_date_week_colors(self, qapp):
+        """Verify due date week highlight colors update dynamically based on theme/CVD mode."""
+        u1 = _make_unit(com="COM-A", due=date(2026, 7, 3))  # July 3, 2026 -> Week 1
+        u2 = _make_unit(com="COM-B", due=date(2026, 7, 10)) # July 10, 2026 -> Week 2
+        
+        panel = ListPanel([u1, u2])
+        panel._refresh_table_full()
+        
+        col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
+        due_col = col_keys.index("detailing_due_date")
+        
+        # Test Light Theme
+        panel.set_theme("light", "none")
+        color_w1_light = panel.table.item(0, due_col).background().color().name()
+        color_w2_light = panel.table.item(1, due_col).background().color().name()
+        assert color_w1_light == "#dbeafe", "Week 1 light theme color mismatch"
+        assert color_w2_light == "#ccfbf1", "Week 2 light theme color mismatch"
+        
+        # Test Dark Theme
+        panel.set_theme("dark", "none")
+        color_w1_dark = panel.table.item(0, due_col).background().color().name()
+        color_w2_dark = panel.table.item(1, due_col).background().color().name()
+        assert color_w1_dark == "#1e3a8a", "Week 1 dark theme color mismatch"
+        assert color_w2_dark == "#115e59", "Week 2 dark theme color mismatch"
+        
+        # Test CVD Deuteranopia
+        panel.set_theme("dark", "deuteranopia")
+        color_w1_deut = panel.table.item(0, due_col).background().color().name()
+        color_w2_deut = panel.table.item(1, due_col).background().color().name()
+        assert color_w1_deut == "#1e3a8a", "Week 1 deuteranopia dark color mismatch"
+        assert color_w2_deut == "#155e75", "Week 2 deuteranopia dark color mismatch"
+        
+        # Test High Contrast Light
+        panel._current_hc = True
+        panel.set_theme("light", "none")
+        color_w1_hc_light = panel.table.item(0, due_col).background().color().name()
+        color_w2_hc_light = panel.table.item(1, due_col).background().color().name()
+        assert color_w1_hc_light == "#93c5fd", "Week 1 high contrast light color mismatch"
+        assert color_w2_hc_light == "#5eead4", "Week 2 high contrast light color mismatch"
+        
+        # Test High Contrast Dark
+        panel.set_theme("dark", "none")
+        color_w1_hc_dark = panel.table.item(0, due_col).background().color().name()
+        color_w2_hc_dark = panel.table.item(1, due_col).background().color().name()
+        assert color_w1_hc_dark == "#2563eb", "Week 1 high contrast dark color mismatch"
+        assert color_w2_hc_dark == "#0d9488", "Week 2 high contrast dark color mismatch"
+
+    def test_highlight_delegate_is_applied(self, qapp):
+        """Verify that HighlightDelegate is set on the list panel's table."""
+        from gui.list_panel import HighlightDelegate
+        panel = ListPanel([])
+        delegate = panel.table.itemDelegate()
+        assert isinstance(delegate, HighlightDelegate), "Table must use HighlightDelegate"
+
+    def test_com_number_group_colors_and_tooltip(self, qapp):
+        """Verify that shared top level numbers (COM column) receive 5-palette highlights, readable text colors, and custom tooltips."""
+        from PyQt5.QtCore import Qt
+        u1 = _make_unit(com="COM-A", due=date(2026, 7, 3))
+        u2 = _make_unit(com="COM-B", due=date(2026, 7, 10))
+        u3 = _make_unit(com="COM-C", due=date(2026, 7, 17))
+        u4 = _make_unit(com="COM-D", due=date(2026, 7, 24))
+
+        # Share contract numbers to group them
+        u1.contract_number = "SHARED-1"
+        u2.contract_number = "SHARED-1"
+        u3.contract_number = "SHARED-2"
+        u4.contract_number = "SHARED-2"
+
+        panel = ListPanel([u1, u2, u3, u4])
+        panel._refresh_table_full()
+
+        col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
+        com_col = col_keys.index("com_number")
+
+        item_a = panel.table.item(0, com_col)
+        item_c = panel.table.item(2, com_col)
+
+        assert item_a.background().style() == Qt.SolidPattern
+        assert item_a.toolTip() == "Shared top level number: SHARED-1"
+
+        assert item_c.background().style() == Qt.SolidPattern
+        assert item_c.toolTip() == "Shared top level number: SHARED-2"
+
+        # Test theme foreground text color
+        panel.set_theme("light", "none")
+        item_a = panel.table.item(0, com_col)
+        assert item_a.foreground().color().name() == "#1e293b"  # tokens["text_primary"] in light mode

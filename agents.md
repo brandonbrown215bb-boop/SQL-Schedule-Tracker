@@ -27,7 +27,7 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 ├── config.yaml                   # All configuration: db path, detailers, schedules, UI prefs
 ├── agents.md                     # ← You are here
 ├── docs/
-│   ├── COMPUTATION_AUDIT.md      # Canonical reference for all computed fields
+│   ├── DATA_CONTRACT.md          # Canonical reference for all computed fields
 │   └── ONBOARDING_STEPS.md       # First-launch walkthrough step reference
 ├── automation/
 │   ├── create_db.py              # Schema creation + detailer seeding
@@ -194,7 +194,7 @@ Location: `data/models.py`
 
 ## 5. Computation Architecture
 
-**CRITICAL**: The canonical reference for ALL computed fields is `docs/COMPUTATION_AUDIT.md`. It documents the business rationale, formulas, constants, and data flow. Read it before modifying any computation.
+**CRITICAL**: The canonical reference for ALL computed fields is `docs/DATA_CONTRACT.md`. It documents the business rationale, formulas, constants, and data flow. Read it before modifying any computation.
 
 ### 5.1 `status_color` (Database-Persisted)
 

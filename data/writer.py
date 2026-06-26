@@ -118,6 +118,10 @@ def save_unit(
             working_days_in_checking = ?,
             remaining_hours = ?,
             week_ending_friday = ?,
+            actual_hours_to_detail_unit = ?,
+            hour_variance = ?,
+            remaining_demand = ?,
+            hours_checking = ?,
             updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
         {where_clause}
     """,
@@ -157,6 +161,10 @@ def save_unit(
             ),
             (unit.department_hours or 0.0) * (1.0 - (unit.percent_complete or 0.0) / 100.0),
             unit.week_ending_friday.isoformat() if unit.week_ending_friday else None,
+            unit.actual_hours_to_detail_unit,
+            unit.hour_variance,
+            unit.remaining_demand,
+            unit.hours_checking,
             *where_params,
         ),
     )
@@ -203,6 +211,10 @@ def save_unit(
         "week_ending_friday": unit.week_ending_friday.isoformat()
         if unit.week_ending_friday
         else None,
+        "actual_hours_to_detail_unit": unit.actual_hours_to_detail_unit,
+        "hour_variance": unit.hour_variance,
+        "remaining_demand": unit.remaining_demand,
+        "hours_checking": unit.hours_checking,
     }
     log_field_changes(conn, unit.com_number, old_row, new_values)
 

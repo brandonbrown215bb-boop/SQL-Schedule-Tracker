@@ -47,6 +47,10 @@ def large_db(tmp_path):
             unit_moved_to_checking_date TEXT,
             unit_detailing_completion_date TEXT,
             working_days_in_checking INTEGER,
+            actual_hours_to_detail_unit REAL DEFAULT 0.0,
+            hour_variance REAL DEFAULT 0.0,
+            remaining_demand REAL DEFAULT 0.0,
+            hours_checking REAL DEFAULT 0.0,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         );

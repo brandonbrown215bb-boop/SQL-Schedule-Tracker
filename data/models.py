@@ -56,7 +56,12 @@ class Unit:
     iec_internal_hours: float = 0.0
     percent_complete: float = 0.0
     actual_hours: float = 0.0
+    actual_hours_to_detail_unit: float = 0.0
+    hour_variance: float = 0.0
+    remaining_demand: float = 0.0
+    hours_checking: float = 0.0
     working_days: list[int] | None = None
+
 
     # Date fields — all Optional since some may be blank
     unit_detailing_start_date: date | None = None

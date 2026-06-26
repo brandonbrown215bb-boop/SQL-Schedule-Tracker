@@ -141,6 +141,40 @@ UNIT_FIELD_RULES: dict[str, FieldRule] = {
         max_length=100,
         description="Checking pipeline status",
     ),
+    "dr_checks": FieldRule(
+        type_check=str,
+        nullable=True,
+        max_length=100,
+        description="DR check status",
+    ),
+    "dvl_checks": FieldRule(
+        type_check=str,
+        nullable=True,
+        max_length=100,
+        description="DVL check status",
+    ),
+    "actual_hours_to_detail_unit": FieldRule(
+        type_check=(int, float),
+        min_value=0,
+        max_value=99999,
+        description="Actual hours to detail unit",
+    ),
+    "hour_variance": FieldRule(
+        type_check=(int, float),
+        description="Hour variance",
+    ),
+    "remaining_demand": FieldRule(
+        type_check=(int, float),
+        min_value=0,
+        max_value=99999,
+        description="Remaining demand",
+    ),
+    "hours_checking": FieldRule(
+        type_check=(int, float),
+        min_value=0,
+        max_value=99999,
+        description="Hours checking",
+    ),
     "notes": FieldRule(
         type_check=str,
         nullable=True,

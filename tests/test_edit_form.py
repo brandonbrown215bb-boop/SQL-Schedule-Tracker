@@ -201,3 +201,63 @@ class TestOnSaveEmitsCorrectData:
         edit_form.set_unit(None)
         edit_form._on_save()
         assert "No Unit loaded" in edit_form.status_label.text()
+
+
+# ── ClearableDateEdit Calendar Popup Tests ─────────────────────────────
+
+
+class TestClearableDateEditCalendarPopup:
+    """Tests for ClearableDateEdit's calendar popup behavior."""
+
+    def test_calendar_popup_defaults_to_today_when_unset(self, edit_form):
+        from PyQt5.QtCore import QDate, QEvent
+        date_edit = edit_form.start_date_edit
+
+        # Ensure initial state is unset
+        assert date_edit.date() == date_edit._UNSET
+
+        # Get the calendar widget
+        calendar = date_edit.calendarWidget()
+
+        # Verify the calendar page is currently showing 2000-01
+        assert calendar.yearShown() == 2000
+        assert calendar.monthShown() == 1
+
+        # Simulate QEvent.Show event on the calendar widget
+        show_event = QEvent(QEvent.Show)
+        date_edit.eventFilter(calendar, show_event)
+
+        # Verify that the calendar page has updated to today's month and year
+        today = QDate.currentDate()
+        assert calendar.yearShown() == today.year()
+        assert calendar.monthShown() == today.month()
+
+    def test_calendar_popup_preserves_date_when_set(self, edit_form):
+        from PyQt5.QtCore import QDate, QEvent
+        date_edit = edit_form.start_date_edit
+
+        # Set a specific date (not _UNSET)
+        test_date = QDate(2021, 5, 20)
+        date_edit.setDate(test_date)
+
+        calendar = date_edit.calendarWidget()
+
+        # Trigger the show event
+        show_event = QEvent(QEvent.Show)
+        date_edit.eventFilter(calendar, show_event)
+
+        # Verify that the calendar page matches the set date, not today
+        assert calendar.yearShown() == 2021
+        assert calendar.monthShown() == 5
+
+    def test_clearable_date_edit_displays_blank_when_unset(self, edit_form):
+        date_edit = edit_form.start_date_edit
+        
+        # When unset, value is _UNSET
+        assert date_edit.date() == date_edit._UNSET
+        # The specialValueText should be space to make it look blank
+        assert date_edit.specialValueText() == " "
+        # The minimumDate must be set to _UNSET so that specialValueText is shown when value is _UNSET
+        assert date_edit.minimumDate() == date_edit._UNSET
+
+

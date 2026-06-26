@@ -1,6 +1,6 @@
 from datetime import date
 
-from PyQt5.QtCore import QDate, Qt, pyqtSignal
+from PyQt5.QtCore import QDate, QEvent, Qt, pyqtSignal
 from PyQt5.QtGui import QKeyEvent
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -42,8 +42,17 @@ class ClearableDateEdit(QDateEdit):
         super().__init__(parent)
         self.setFocusPolicy(Qt.ClickFocus)
         self.setCalendarPopup(True)
-        self.setSpecialValueText(" — ")
+        self.setMinimumDate(self._UNSET)
+        self.setSpecialValueText(" ")
         self.setDate(self._UNSET)
+        self.calendarWidget().installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj == self.calendarWidget() and event.type() == QEvent.Show:
+            if self.date() == self._UNSET:
+                today = QDate.currentDate()
+                self.calendarWidget().setCurrentPage(today.year(), today.month())
+        return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
@@ -442,6 +451,10 @@ class EditForm(QWidget):
             iec_internal_hours=self.iec_hours_spin.value(),
             percent_complete=self.percent_spin.value(),
             actual_hours=self.actual_hours_spin.value(),
+            actual_hours_to_detail_unit=orig.actual_hours_to_detail_unit if orig else 0.0,
+            hour_variance=orig.hour_variance if orig else 0.0,
+            remaining_demand=orig.remaining_demand if orig else 0.0,
+            hours_checking=orig.hours_checking if orig else 0.0,
             working_days=orig.working_days if orig else None,
             status_color=orig.status_color if orig else "gray",
             unit_detailing_start_date=self._get_date(self.start_date_edit),

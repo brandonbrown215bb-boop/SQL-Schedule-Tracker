@@ -788,7 +788,18 @@ class MainWindow(QMainWindow):
             self.calendar_panel.refresh(self.units)
             self.list_panel.refresh(self.units)
             self.timeline_panel.set_unit(unit)
-            self.edit_form.current_unit = unit
+
+            # Keep side edit form and inline edit bar in sync
+            if self.edit_form.current_unit and self.edit_form.current_unit.com_number == unit.com_number:
+                self.edit_form.set_unit(unit)
+            else:
+                self.edit_form.current_unit = unit
+
+            if hasattr(self.list_panel, "_inline_edit_bar"):
+                inline_bar = self.list_panel._inline_edit_bar
+                if inline_bar.isVisible() and inline_bar._unit and inline_bar._unit.com_number == unit.com_number:
+                    inline_bar.set_unit(unit)
+
             self._pending_save_unit = None
             self._notify(f"Saved COM {unit.com_number}", "success")
 
@@ -947,6 +958,12 @@ class MainWindow(QMainWindow):
                     self.edit_form.current_unit = new_unit
                     if not self._form_dirty:
                         self.edit_form.set_unit(new_unit)
+
+                    if hasattr(self.list_panel, "_inline_edit_bar"):
+                        inline_bar = self.list_panel._inline_edit_bar
+                        if inline_bar.isVisible() and inline_bar._unit and inline_bar._unit.com_number == new_unit.com_number:
+                            if not inline_bar.is_dirty:
+                                inline_bar.set_unit(new_unit)
                     break
 
         self._tag_repo = UnitTagRepository(self.units)

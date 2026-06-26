@@ -360,6 +360,18 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         iec_internal_hours=row["iec_internal_hours"] or 0.0,
         percent_complete=(row["percent_complete"] or 0.0) * 100,
         actual_hours=row["actual_hours"] or 0.0,
+        actual_hours_to_detail_unit=row["actual_hours_to_detail_unit"]
+        if "actual_hours_to_detail_unit" in row.keys() and row["actual_hours_to_detail_unit"] is not None
+        else 0.0,
+        hour_variance=row["hour_variance"]
+        if "hour_variance" in row.keys() and row["hour_variance"] is not None
+        else 0.0,
+        remaining_demand=row["remaining_demand"]
+        if "remaining_demand" in row.keys() and row["remaining_demand"] is not None
+        else 0.0,
+        hours_checking=row["hours_checking"]
+        if "hours_checking" in row.keys() and row["hours_checking"] is not None
+        else 0.0,
         working_days=None,  # set from config detailer_schedules after loading
         unit_detailing_start_date=_parse_date(row["unit_detailing_start_date"]),
         unit_moved_to_checking_date=_parse_date(row["unit_moved_to_checking_date"]),
