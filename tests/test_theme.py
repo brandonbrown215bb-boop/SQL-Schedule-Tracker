@@ -128,8 +128,9 @@ class TestStyleAlertsBtn:
     """Tests for style_alerts_btn dynamic button styling."""
 
     def test_style_alerts_btn_light_with_alerts(self, qapp):
-        from gui.theme import style_alerts_btn
         from PyQt5.QtWidgets import QPushButton
+
+        from gui.theme import style_alerts_btn
 
         btn = QPushButton()
         style_alerts_btn(btn, theme_name="light", has_alerts=True, high_contrast=False)
@@ -139,8 +140,9 @@ class TestStyleAlertsBtn:
         assert "background: #f1f5f9" in stylesheet
 
     def test_style_alerts_btn_light_no_alerts(self, qapp):
-        from gui.theme import style_alerts_btn
         from PyQt5.QtWidgets import QPushButton
+
+        from gui.theme import style_alerts_btn
 
         btn = QPushButton()
         style_alerts_btn(btn, theme_name="light", has_alerts=False, high_contrast=False)
@@ -150,8 +152,9 @@ class TestStyleAlertsBtn:
         assert "background: #f1f5f9" in stylesheet
 
     def test_style_alerts_btn_dark_with_alerts(self, qapp):
-        from gui.theme import style_alerts_btn
         from PyQt5.QtWidgets import QPushButton
+
+        from gui.theme import style_alerts_btn
 
         btn = QPushButton()
         style_alerts_btn(btn, theme_name="dark", has_alerts=True, high_contrast=False)
@@ -161,8 +164,9 @@ class TestStyleAlertsBtn:
         assert "background: #334155" in stylesheet
 
     def test_style_alerts_btn_dark_no_alerts(self, qapp):
-        from gui.theme import style_alerts_btn
         from PyQt5.QtWidgets import QPushButton
+
+        from gui.theme import style_alerts_btn
 
         btn = QPushButton()
         style_alerts_btn(btn, theme_name="dark", has_alerts=False, high_contrast=False)

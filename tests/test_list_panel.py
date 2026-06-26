@@ -446,7 +446,6 @@ class TestListPanelWidget:
         with a unique week gets no color.
         """
         from PyQt5.QtCore import Qt as _Qt
-        from PyQt5.QtGui import QBrush
         # u1 + u2 share the same week and same contract (2 occurrences → qualifies)
         # u3 has a unique week and unique contract (singleton → no highlight)
         u1 = _make_unit(com="COM-A", due=date(2026, 6, 24))
@@ -463,7 +462,6 @@ class TestListPanelWidget:
 
         col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
         com_col = col_keys.index("com_number")
-        due_col = col_keys.index("detailing_due_date")
 
         def _is_painted(item) -> bool:
             """True if the item has an explicit solid background brush set."""
@@ -497,7 +495,6 @@ class TestListPanelWidget:
 
         col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
         com_col = col_keys.index("com_number")
-        due_col = col_keys.index("detailing_due_date")
 
         for row in range(3):
             assert panel.table.item(row, com_col).background().style() != _Qt.SolidPattern, \
@@ -507,7 +504,6 @@ class TestListPanelWidget:
         """Value-based: the same grouping key always maps to the same palette
         color no matter where the row appears after re-sorting.
         """
-        from PyQt5.QtCore import Qt as _Qt
         # All three units share the same contract but differ in due date
         u1 = _make_unit(com="COM-A", due=date(2026, 6, 24))
         u2 = _make_unit(com="COM-B", due=date(2026, 7, 1))
@@ -609,10 +605,10 @@ class TestFilterSortIntegration:
         u1 = _make_unit(com="COM-A", due=date(2026, 7, 3))  # July 3, 2026 is Week 1
         panel = ListPanel([u1])
         panel._refresh_table_full()
-        
+
         col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
         due_col = col_keys.index("detailing_due_date")
-        
+
         item = panel.table.item(0, due_col)
         assert " (W1)" in item.text(), "Due date must contain Week 1 suffix"
         assert item.toolTip() == "Due in Week 1 of the month", "Tooltip must specify Week 1"
@@ -621,34 +617,34 @@ class TestFilterSortIntegration:
         """Verify due date week highlight colors update dynamically based on theme/CVD mode."""
         u1 = _make_unit(com="COM-A", due=date(2026, 7, 3))  # July 3, 2026 -> Week 1
         u2 = _make_unit(com="COM-B", due=date(2026, 7, 10)) # July 10, 2026 -> Week 2
-        
+
         panel = ListPanel([u1, u2])
         panel._refresh_table_full()
-        
+
         col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
         due_col = col_keys.index("detailing_due_date")
-        
+
         # Test Light Theme
         panel.set_theme("light", "none")
         color_w1_light = panel.table.item(0, due_col).background().color().name()
         color_w2_light = panel.table.item(1, due_col).background().color().name()
         assert color_w1_light == "#dbeafe", "Week 1 light theme color mismatch"
         assert color_w2_light == "#ccfbf1", "Week 2 light theme color mismatch"
-        
+
         # Test Dark Theme
         panel.set_theme("dark", "none")
         color_w1_dark = panel.table.item(0, due_col).background().color().name()
         color_w2_dark = panel.table.item(1, due_col).background().color().name()
         assert color_w1_dark == "#1e3a8a", "Week 1 dark theme color mismatch"
         assert color_w2_dark == "#115e59", "Week 2 dark theme color mismatch"
-        
+
         # Test CVD Deuteranopia
         panel.set_theme("dark", "deuteranopia")
         color_w1_deut = panel.table.item(0, due_col).background().color().name()
         color_w2_deut = panel.table.item(1, due_col).background().color().name()
         assert color_w1_deut == "#1e3a8a", "Week 1 deuteranopia dark color mismatch"
         assert color_w2_deut == "#155e75", "Week 2 deuteranopia dark color mismatch"
-        
+
         # Test High Contrast Light
         panel._current_hc = True
         panel.set_theme("light", "none")
@@ -656,7 +652,7 @@ class TestFilterSortIntegration:
         color_w2_hc_light = panel.table.item(1, due_col).background().color().name()
         assert color_w1_hc_light == "#93c5fd", "Week 1 high contrast light color mismatch"
         assert color_w2_hc_light == "#5eead4", "Week 2 high contrast light color mismatch"
-        
+
         # Test High Contrast Dark
         panel.set_theme("dark", "none")
         color_w1_hc_dark = panel.table.item(0, due_col).background().color().name()

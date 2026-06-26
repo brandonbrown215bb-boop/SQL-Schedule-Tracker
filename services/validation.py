@@ -12,9 +12,9 @@ Zero Qt dependencies.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import re
-import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date

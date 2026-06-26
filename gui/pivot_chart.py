@@ -5,7 +5,7 @@ import sqlite3
 from datetime import date, timedelta
 
 from PyQt5.QtCore import QDate, QRect, QSize, Qt
-from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
+from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PyQt5.QtWidgets import (
     QDateEdit,
     QDialog,
@@ -34,7 +34,7 @@ class PivotTableView(QWidget):
 
     BAR_HEIGHT = 28
     BAR_GAP = 8
-    LABEL_WIDTH = 100
+    LABEL_WIDTH = 170
     HALF_GAP = 2  # gap between the two halves of a bar
     TEXT_PADDING = 4
 
@@ -106,107 +106,107 @@ class PivotTableView(QWidget):
         label_w = self.LABEL_WIDTH
         bar_area_x = label_w + 8
         bar_area_w = w - bar_area_x - 16  # margin right
-        # 4 columns:  alloc | %complete || units_done | units_not_done
         gap = 4
-        (bar_area_w - gap * 3) // 4  # 3 gaps between 4 columns
         rows = len(self._data)
         total_rows_h = rows * (self.BAR_HEIGHT + self.BAR_GAP)
         start_y = 8
 
-        # ── Draw bars (proportional widths) ──
+        # ── Draw bars ──
         for i, row in enumerate(self._data):
             y = start_y + i * (self.BAR_HEIGHT + self.BAR_GAP)
-
-            # Week label
-            label = str(row["week_label"])
-            p.setPen(QPen(self._text_primary))
-            p.drawText(
-                QRect(0, y, label_w, self.BAR_HEIGHT), Qt.AlignVCenter | Qt.AlignRight, label
-            )
 
             alloc = row["allocated_hours"] or 0.0
             pct = row["pct_hours_complete"] or 0.0  # 0-100
             completed_units = row["unit_completed"] or 0
             not_completed_units = row["unit_not_completed"] or 0
 
+            # Define formatters for clean labels
+            def format_hours(h: float) -> str:
+                if h.is_integer():
+                    return f"{int(h)}"
+                return f"{h:.2f}".rstrip('0').rstrip('.')
+
+            def format_pct(pr: float) -> str:
+                if pr.is_integer():
+                    return f"{int(pr)}%"
+                return f"{pr:.1f}%"
+
+            # Date label (left-aligned)
+            label = str(row["week_label"])
+            p.setPen(QPen(self._text_primary))
+            p.drawText(
+                QRect(8, y, 80, self.BAR_HEIGHT), Qt.AlignVCenter | Qt.AlignLeft, label
+            )
+
+            # Total hours label (right-aligned, immediately to the left of the bar start)
+            hours_str = f"{format_hours(alloc)} hrs"
+            p.setPen(QPen(self._text_secondary))
+            p.drawText(
+                QRect(92, y, label_w - 92, self.BAR_HEIGHT), Qt.AlignVCenter | Qt.AlignRight, hours_str
+            )
+
             # Proportional widths within bar_area_w
             # Hours column gets 50%, Units column gets 50%
             hours_area_w = (bar_area_w - gap) // 2
             units_area_w = bar_area_w - hours_area_w - gap
 
-            # Hours: alloc bar fills hours_area_w proportionally
-            alloc_w = hours_area_w * (alloc / self._max_hours) if self._max_hours else 0
-            # % bar fills the remaining space in hours_area_w
-            hours_area_w * (pct / 100.0)
+            # Compute Hours segment widths
+            hours_bar_total_w = hours_area_w * (alloc / self._max_hours) if self._max_hours else 0
+            completed_w = hours_bar_total_w * (pct / 100.0)
+            remaining_w = hours_bar_total_w - completed_w
 
-            # Units: proportional
-            done_w = units_area_w * (completed_units / self._max_units) if self._max_units else 0
-            left_w = (
-                units_area_w * (not_completed_units / self._max_units) if self._max_units else 0
+            # Compute Units segment widths
+            total_units = completed_units + not_completed_units
+            units_bar_total_w = (
+                units_area_w * (total_units / self._max_units) if self._max_units else 0
             )
+            done_w = units_bar_total_w * (completed_units / total_units) if total_units else 0
+            left_w = units_bar_total_w - done_w
 
-            # ── Hours half (left 50%) ──
-            hours_x = bar_area_x
-            # Allocated hours bar (blue)
-            self._draw_segment(
-                p,
-                hours_x,
-                y,
-                alloc_w,
-                self.BAR_HEIGHT,
-                alloc,
-                self._max_hours,
-                self._segment_colors["allocated"],
-                f"{alloc:.0f} hrs",
-            )
-            # % complete bar (cyan) — fills remaining space in hours area
-            pct_max_w = max(hours_area_w - alloc_w - 4, 8)  # at least 8px for 0%
-            pct_bar_w = max(pct_max_w * (pct / 100.0), 8 if pct >= 0 else 0)
-            hours_remaining = alloc * (1.0 - pct / 100.0)
-            self._draw_segment(
-                p,
-                hours_x + alloc_w + 2,
-                y,
-                pct_bar_w,
-                self.BAR_HEIGHT,
-                pct,
-                100.0,
-                self._segment_colors["pct_complete"],
-                f"{hours_remaining:.0f} hrs left",
-            )
+            completed_hrs = alloc * (pct / 100.0)
 
-            # ── Units half (right 50%) ──
-            units_x = bar_area_x + hours_area_w + gap
-            # Units completed (green) — always starts at units_x
-            self._draw_segment(
-                p,
-                units_x,
-                y,
-                done_w,
-                self.BAR_HEIGHT,
-                completed_units,
-                self._max_units,
-                self._segment_colors["completed"],
-                str(completed_units),
-            )
-            # Units not completed (yellow) — strictly after done bar
-            self._draw_segment(
-                p,
-                units_x + done_w + 2,
-                y,
-                left_w,
-                self.BAR_HEIGHT,
-                not_completed_units,
-                self._max_units,
-                self._segment_colors["not_completed"],
-                str(not_completed_units),
-            )
+            # Combine all 4 segments in sequential order
+            combined_segments = [
+                # 1. Completed Hours (Blue)
+                (
+                    completed_w,
+                    self._segment_colors["allocated"],  # Blue
+                    f"{format_hours(completed_hrs)} hrs",
+                    format_hours(completed_hrs),
+                ),
+                # 2. Remaining Hours / Completion % (Cyan)
+                (
+                    remaining_w,
+                    self._segment_colors["pct_complete"],  # Cyan
+                    format_pct(pct),
+                    format_pct(pct),
+                ),
+                # 3. Completed Units (Green)
+                (
+                    done_w,
+                    self._segment_colors["completed"],  # Green
+                    f"{completed_units} units",
+                    str(completed_units),
+                ),
+                # 4. Uncompleted Units (Yellow/Brown)
+                (
+                    left_w,
+                    self._segment_colors["not_completed"],  # Yellow
+                    f"{not_completed_units} left",
+                    str(not_completed_units),
+                ),
+            ]
 
-        # ── Draw separator line between hours and units halves ──
-        sep_x = bar_area_x + (bar_area_w - gap) // 2 + gap // 2
-        p.setPen(QPen(self._border, 1, Qt.DashLine))
-        bottom_y = start_y + total_rows_h - self.BAR_GAP
-        p.drawLine(sep_x, start_y, sep_x, bottom_y)
+            total_bar_w = hours_bar_total_w + units_bar_total_w
+            self._draw_stacked_bar(
+                p,
+                bar_area_x,
+                y,
+                total_bar_w,
+                self.BAR_HEIGHT,
+                combined_segments,
+                fallback_text=f"{format_hours(completed_hrs)} / {format_hours(alloc)} hrs" if total_bar_w > 0 else "",
+            )
 
         # ── Draw legend (color box + label to the right) ──
         legend_y = start_y + total_rows_h + 10
@@ -214,40 +214,101 @@ class PivotTableView(QWidget):
 
         p.end()
 
-    def _draw_segment(
+    def _draw_stacked_bar(
         self,
         p: QPainter,
         x: float,
         y: float,
         width: float,
         height: int,
-        value: float,
-        max_val: float,
-        color: QColor,
-        text: str,
+        segments: list[tuple[float, QColor, str, str]],
+        fallback_text: str = "",
     ) -> None:
-        """Draw a single colored bar segment with centered text."""
+        """Draws a stacked bar with rounded corners for the entire group, using clipping."""
         if width < 1:
             return
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(color))
-        p.drawRoundedRect(int(x), y, max(int(width), 2), height, 3, 3)
 
-        # Text (only if segment is wide enough)
+        # 1. Create a clip path for the entire bar
+        path = QPainterPath()
+        path.addRoundedRect(x, y, width, height, 4, 4)
+
+        p.save()
+        p.setClipPath(path)
+
+        # 2. Draw segments and save their positions for text rendering
+        cur_x = x
+        segment_rects = []
+        for seg_w, color, text_full, text_short in segments:
+            if seg_w <= 0:
+                continue
+            # Ensure the drawing does not exceed the total width
+            draw_w = seg_w
+            if cur_x + draw_w > x + width:
+                draw_w = (x + width) - cur_x
+
+            # Draw the segment background
+            p.setPen(Qt.NoPen)
+            p.setBrush(QBrush(color))
+            p.drawRect(QRect(int(cur_x), int(y), int(draw_w + 0.5), height))
+
+            segment_rects.append((cur_x, draw_w, color, text_full, text_short))
+            cur_x += draw_w
+
+        # Restore QPainter to clear the clip path for drawing text (so text isn't clipped at edges)
+        p.restore()
+
+        # 3. Draw text labels inside the segments
         fm = p.fontMetrics()
-        text_w = fm.horizontalAdvance(text) if hasattr(fm, "horizontalAdvance") else fm.width(text)
-        if width >= text_w + self.TEXT_PADDING * 2:
-            # Choose text color based on brightness
-            brightness = (color.red() * 299 + color.green() * 587 + color.blue() * 114) / 1000
-            text_color = QColor("#ffffff") if brightness < 160 else QColor("#1e293b")
-            p.setPen(QPen(text_color))
-            p.drawText(QRect(int(x), y, int(width), height), Qt.AlignCenter, text)
+        any_text_drawn = False
+
+        for seg_x, seg_w, color, text_full, text_short in segment_rects:
+            if seg_w < 10:
+                continue
+
+            fit_text = ""
+            for txt in [text_full, text_short]:
+                if not txt:
+                    continue
+                txt_w = fm.horizontalAdvance(txt) if hasattr(fm, "horizontalAdvance") else fm.width(txt)
+                if seg_w >= txt_w + self.TEXT_PADDING * 2:
+                    fit_text = txt
+                    break
+
+            if fit_text:
+                any_text_drawn = True
+                # Choose text color based on brightness
+                brightness = (color.red() * 299 + color.green() * 587 + color.blue() * 114) / 1000
+                text_color = QColor("#ffffff") if brightness < 160 else QColor("#1e293b")
+                p.setPen(QPen(text_color))
+                p.drawText(QRect(int(seg_x), int(y), int(seg_w), height), Qt.AlignCenter, fit_text)
+
+        # 4. Fallback to combined text across the whole bar if no segment text fit
+        if not any_text_drawn and fallback_text:
+            fallback_w = (
+                fm.horizontalAdvance(fallback_text)
+                if hasattr(fm, "horizontalAdvance")
+                else fm.width(fallback_text)
+            )
+            if width >= fallback_w + self.TEXT_PADDING * 2:
+                # Find which segment contains the center of the bar
+                center_x = x + width / 2.0
+                match_color = QColor("#888888")
+                for seg_x, seg_w, color, _, _ in segment_rects:
+                    if seg_x <= center_x <= seg_x + seg_w:
+                        match_color = color
+                        break
+                brightness = (
+                    match_color.red() * 299 + match_color.green() * 587 + match_color.blue() * 114
+                ) / 1000
+                text_color = QColor("#ffffff") if brightness < 160 else QColor("#1e293b")
+                p.setPen(QPen(text_color))
+                p.drawText(QRect(int(x), int(y), int(width), height), Qt.AlignCenter, fallback_text)
 
     def _draw_legend(self, p: QPainter, x: int, y: int) -> None:
         """Draw the color legend below the bars."""
         items = [
-            (self._segment_colors["allocated"], "ALLOCATED HRS"),
-            (self._segment_colors["pct_complete"], "% HOURS COMPLETE"),
+            (self._segment_colors["allocated"], "COMPLETED HOURS"),
+            (self._segment_colors["pct_complete"], "REMAINING HOURS"),
             (self._segment_colors["completed"], "UNITS COMPLETED"),
             (self._segment_colors["not_completed"], "UNITS NOT COMPLETED"),
         ]
@@ -262,7 +323,7 @@ class PivotTableView(QWidget):
             p.setBrush(QBrush(color))
             p.drawRoundedRect(cur_x, y, box_size, box_size, 2, 2)
             cur_x += box_size + 5
-            # Label text — use proper width so it's visible
+            # Label text
             p.setPen(QPen(text_color))
             tw = (
                 fm.horizontalAdvance(label) if hasattr(fm, "horizontalAdvance") else fm.width(label)

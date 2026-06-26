@@ -2,7 +2,8 @@
 """Tests for background QThread workers (SSRS, CSV, Excel operations)."""
 
 from unittest.mock import MagicMock
-from gui.main_window import PullSSRSWorker, CSVDiffWorker, CSVImportWorker, ExcelExportWorker
+
+from gui.main_window import CSVDiffWorker, CSVImportWorker, ExcelExportWorker, PullSSRSWorker
 
 
 class TestBackgroundWorkers:
@@ -22,7 +23,7 @@ class TestBackgroundWorkers:
 
         with qtbot.wait_signal(worker.finished, timeout=1000):
             worker.start()
-        
+
         worker.wait()  # Ensure QThread is cleaned up
 
         assert len(received) == 1
@@ -49,7 +50,7 @@ class TestBackgroundWorkers:
 
         with qtbot.wait_signal(worker.error, timeout=1000):
             worker.start()
-        
+
         worker.wait()  # Ensure QThread is cleaned up
 
         assert len(errors) == 1
@@ -66,7 +67,7 @@ class TestBackgroundWorkers:
 
         with qtbot.wait_signal(worker.finished, timeout=1000):
             worker.start()
-        
+
         worker.wait()  # Ensure QThread is cleaned up
 
         assert len(received) == 1
@@ -84,7 +85,7 @@ class TestBackgroundWorkers:
 
         with qtbot.wait_signal(worker.finished, timeout=1000):
             worker.start()
-        
+
         worker.wait()  # Ensure QThread is cleaned up
 
         assert len(received) == 1
@@ -104,7 +105,7 @@ class TestBackgroundWorkers:
 
         with qtbot.wait_signal(worker.finished, timeout=1000):
             worker.start()
-        
+
         worker.wait()  # Ensure QThread is cleaned up
 
         assert len(received) == 1

@@ -9,8 +9,6 @@ import csv
 import logging
 from dataclasses import dataclass, field
 
-from data.db import get_db
-
 logger = logging.getLogger(__name__)
 
 
@@ -59,7 +57,8 @@ class ImportDiff:
 
 def parse_csv_rows(csv_path: str) -> list[dict]:
     """Parse a CSV file and return a list of row_data dicts."""
-    from automation.import_csv import CSV_TO_DB, SANITIZE_FUNCS as PARSE_FUNCS
+    from automation.import_csv import CSV_TO_DB
+    from automation.import_csv import SANITIZE_FUNCS as PARSE_FUNCS
     rows = []
     with open(csv_path, encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)

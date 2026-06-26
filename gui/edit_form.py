@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
 from data.models import Unit
 from services.validation import validate_unit
 
+
 # Theme-aware validation styles are set dynamically based on current theme
 def _get_invalid_style(theme_name: str = "light") -> str:
     from gui.theme import THEMES
@@ -48,8 +49,7 @@ class ClearableDateEdit(QDateEdit):
         self.calendarWidget().installEventFilter(self)
 
     def eventFilter(self, obj, event) -> bool:
-        if obj == self.calendarWidget() and event.type() == QEvent.Show:
-            if self.date() == self._UNSET:
+        if obj == self.calendarWidget() and event.type() == QEvent.Show and self.date() == self._UNSET:
                 today = QDate.currentDate()
                 self.calendarWidget().setCurrentPage(today.year(), today.month())
         return super().eventFilter(obj, event)

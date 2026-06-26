@@ -7,11 +7,13 @@ fails due to the bugs currently present in the codebase.
 
 from __future__ import annotations
 
-import pytest
 from datetime import date
-from data.models import Unit
+
+import pytest
+
 from data.loader import unit_fingerprint
-from services.validation import validate_input, FieldRule, ValidationError
+from data.models import Unit
+from services.validation import FieldRule, ValidationError, validate_input
 
 
 def test_fingerprint_caching_stale_value_bug():
@@ -31,16 +33,16 @@ def test_fingerprint_caching_stale_value_bug():
         detailer="Jackie H",
         checking_status="Unassigned",
     )
-    
+
     # Compute initial fingerprint
     fp_initial = unit_fingerprint(unit)
-    
+
     # Modify the job name
     unit.job_name = "Modified Job Name"
-    
+
     # Compute the fingerprint again
     fp_after_mod = unit_fingerprint(unit)
-    
+
     # Under correct behavior, the fingerprint should reflect the modification.
     # Currently, it returns the cached stale value, making this assertion fail.
     assert fp_initial != fp_after_mod, (
@@ -69,9 +71,9 @@ def test_capacity_due_today_bug():
         detailing_due_date=date.today(),
         working_days=[0, 1, 2, 3],  # Monday-Thursday schedule
     )
-    
+
     color = unit.calculated_status_color
-    
+
     # With 0 working days left and 40 remaining hours, this is overdue/potential miss (red).
     # Currently, it skips capacity checks and returns 'gray', making this assertion fail.
     assert color == "red", (
@@ -88,14 +90,14 @@ def test_decorator_validation_positional_arguments_bug():
     decorator currently only validates kwargs, no error is raised, making the
     assertion fail.
     """
-    
+
     class MockService:
         @validate_input(test_hours=FieldRule(nullable=False, min_value=0.0, max_value=200.0))
         def set_hours(self, test_hours: float) -> float:
             return test_hours
 
     service = MockService()
-    
+
     # Asserting that ValidationError is raised when invoking with invalid positional arguments.
     # Since the validation decorator currently ignores positional args, it will execute without
     # raising ValidationError, causing this test to fail.

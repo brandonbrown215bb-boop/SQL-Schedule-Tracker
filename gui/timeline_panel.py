@@ -148,7 +148,7 @@ class TimelineWidget(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.TextAntialiasing)
 
-        from gui.theme import THEMES, get_status_colors, STATUS_SHAPES
+        from gui.theme import STATUS_SHAPES, THEMES, get_status_colors
         tokens = THEMES.get(self._theme_name, THEMES["light"])
         colors = get_status_colors(self._theme_name, self._cvd_mode)
 

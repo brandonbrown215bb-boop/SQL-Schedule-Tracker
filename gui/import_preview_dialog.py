@@ -52,7 +52,7 @@ class ImportPreviewDialog(QDialog):
                 theme_name = "light"
         self._theme_name = theme_name
 
-        from gui.theme import apply_theme, get_status_colors, THEMES
+        from gui.theme import THEMES, apply_theme, get_status_colors
         self._status_colors = get_status_colors(theme_name)
         self._tokens = THEMES.get(theme_name, THEMES["light"])
 

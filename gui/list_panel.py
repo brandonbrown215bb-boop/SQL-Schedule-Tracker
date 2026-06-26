@@ -707,7 +707,7 @@ class ListPanel(QWidget):
         )
         self._model.sort_by(self._sort_column, self._sort_ascending)
 
-        new_units = self._model.filtered_units
+        # new_units unused, removed
 
         # Always do a full refresh after save to ensure changes are visible.
         # The incremental diff path had edge cases where changed rows were
@@ -874,7 +874,7 @@ class ListPanel(QWidget):
         main_win = self.window()
         high_contrast = getattr(main_win, "_current_hc", False) or getattr(self, "_current_hc", False)
 
-        def _compute_value_colors(key_fn) -> list["QColor | None"]:
+        def _compute_value_colors(key_fn) -> list[QColor | None]:
             """Return a QColor (or None) for each unit in `units`.
 
             Counts occurrences of each key across the visible rows first;
@@ -923,34 +923,34 @@ class ListPanel(QWidget):
                 if key == "detailing_due_date" and value and isinstance(value, date):
                     friday = value + timedelta(days=(4 - value.weekday()) % 7)
                     week_idx = get_week_of_month(friday)
-                    
+
                     from gui.theme import get_week_highlight_color
                     color = get_week_highlight_color(
                         self._theme_name, week_idx, self._cvd_mode, high_contrast
                     )
                     item.setBackground(QBrush(color))
-                    
+
                     # Ensure readable text color based on active theme
                     from gui.theme import THEMES, boost_contrast
                     tokens = THEMES[self._theme_name]
                     if high_contrast:
                         tokens = boost_contrast(self._theme_name)
                     item.setForeground(QBrush(QColor(tokens["text_primary"])))
-                    
+
                     item.setToolTip(f"Due in Week {week_idx} of the month")
 
                 if key == "com_number":
                     color = com_colors[row_idx]
                     if color is not None:
                         item.setBackground(QBrush(color))
-                        
+
                         # Ensure readable text color based on active theme
                         from gui.theme import THEMES, boost_contrast
                         tokens = THEMES[self._theme_name]
                         if high_contrast:
                             tokens = boost_contrast(self._theme_name)
                         item.setForeground(QBrush(QColor(tokens["text_primary"])))
-                        
+
                         # Set tooltip to indicate the shared top level number
                         item.setToolTip(f"Shared top level number: {unit.contract_number}")
 

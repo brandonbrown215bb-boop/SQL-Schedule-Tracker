@@ -252,7 +252,7 @@ class TestClearableDateEditCalendarPopup:
 
     def test_clearable_date_edit_displays_blank_when_unset(self, edit_form):
         date_edit = edit_form.start_date_edit
-        
+
         # When unset, value is _UNSET
         assert date_edit.date() == date_edit._UNSET
         # The specialValueText should be space to make it look blank

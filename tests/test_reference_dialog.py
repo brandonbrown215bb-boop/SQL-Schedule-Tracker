@@ -2,8 +2,7 @@
 """Tests for gui/reference_dialog.py — ReferenceDialog."""
 
 import pytest
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor
+
 from gui.reference_dialog import ReferenceDialog
 
 
@@ -50,7 +49,7 @@ class TestReferenceDialog:
         green_symbol_item = dialog.status_table.item(0, 0)
         assert green_symbol_item is not None
         assert green_symbol_item.text() == "✓"
-        
+
         # In protanopia dark mode, green is mapped to amber/yellow in CVD overrides:
         # CVD_OVERRIDES["protanopia"]["dark"]["green"] = "#fbbf24"
         from gui.theme import status_style

@@ -9,6 +9,7 @@ Emits unit_saved(Unit) on save, which routes through the existing SaveWorker pip
 from __future__ import annotations
 
 from datetime import date
+
 from PyQt5.QtCore import QDate, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -261,8 +262,7 @@ class InlineEditBar(QWidget):
     # ── Events ───────────────────────────────────────────────────────
 
     def _on_field_changed(self) -> None:
-        if not self._loading:
-            if not self._dirty:
+        if not self._loading and not self._dirty:
                 self._dirty = True
                 self.dirty_changed.emit(True)
 

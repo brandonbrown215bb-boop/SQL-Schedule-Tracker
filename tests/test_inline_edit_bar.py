@@ -2,8 +2,10 @@
 """Tests for gui/inline_edit_bar.py — InlineEditBar widget."""
 
 from datetime import date
+
 import pytest
 from PyQt5.QtCore import QDate
+
 from data.models import Unit
 from gui.inline_edit_bar import InlineEditBar
 

@@ -39,10 +39,10 @@ from PyQt5.QtWidgets import (
     QFrame,
     QGroupBox,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QTableWidget,
     QWidget,
-    QProgressBar,
 )
 
 # ─── Theme Token Dicts ───────────────────────────────────────────────
@@ -752,7 +752,7 @@ def get_week_highlight_color(
 ) -> QColor:
     """Return the theme-appropriate QColor for a 1-based week index (1 to 5)."""
     idx = max(1, min(5, week_index))
-    
+
     if high_contrast:
         palette = _WEEK_COLORS_HIGH_CONTRAST_DARK if theme_name == "dark" else _WEEK_COLORS_HIGH_CONTRAST_LIGHT
     elif cvd_mode in ("deuteranopia", "protanopia"):
@@ -761,6 +761,6 @@ def get_week_highlight_color(
         palette = _WEEK_COLORS_TRIT_DARK if theme_name == "dark" else _WEEK_COLORS_TRIT_LIGHT
     else:
         palette = _WEEK_COLORS_DARK if theme_name == "dark" else _WEEK_COLORS_LIGHT
-        
+
     return QColor(palette[idx])
 

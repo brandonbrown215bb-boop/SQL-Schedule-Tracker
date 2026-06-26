@@ -5,16 +5,16 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QDialog,
-    QTabWidget,
-    QWidget,
-    QVBoxLayout,
-    QLabel,
-    QTableWidget,
-    QTableWidgetItem,
-    QHeaderView,
     QDialogButtonBox,
     QGroupBox,
+    QHeaderView,
+    QLabel,
     QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 
@@ -86,7 +86,7 @@ class ReferenceDialog(QDialog):
         status_group = QGroupBox("Unit Status Indicators (Dots & Shapes)")
         status_layout = QVBoxLayout(status_group)
         status_layout.setContentsMargins(8, 12, 8, 8)
-        
+
         self.status_table = QTableWidget(6, 3)
         self.status_table.setHorizontalHeaderLabels(["Symbol", "Status", "Definition & Logic"])
         self.status_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -149,7 +149,7 @@ class ReferenceDialog(QDialog):
         self.glossary_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.glossary_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.glossary_table.setAlternatingRowColors(True)
-        
+
         terms = [
             ("COM #", "Customer Order Number. The read-only primary unique identifier of a scheduling unit."),
             ("Detailer", "The detailing resource or employee currently assigned to model and detail the unit."),
@@ -158,11 +158,11 @@ class ReferenceDialog(QDialog):
             ("Stale Unit", "A scheduling unit that is past its due date by more than 30 days. Stale units are filtered out of the active Calendar and List views automatically to keep the UI clean."),
             ("Pre-save Validation", "Automatic validation rules run before changes are written to SQLite. These prevent saving invalid data, such as negative hours or incorrect date orders (e.g. Detailing Start must be before complete).")
         ]
-        
+
         for idx, (term, definition) in enumerate(terms):
             self.glossary_table.setItem(idx, 0, QTableWidgetItem(term))
             self.glossary_table.setItem(idx, 1, QTableWidgetItem(definition))
-            
+
         layout.addWidget(self.glossary_table)
         return widget
 
@@ -205,7 +205,7 @@ class ReferenceDialog(QDialog):
         self._cvd_mode = cvd_mode
         self._high_contrast = high_contrast
 
-        from gui.theme import apply_theme, THEMES, boost_contrast, status_style
+        from gui.theme import THEMES, apply_theme, boost_contrast, status_style
 
         tokens = THEMES[theme_name]
         if high_contrast:
@@ -263,10 +263,10 @@ class ReferenceDialog(QDialog):
         # Clear tables content before populating
         self.status_table.setRowCount(0)
         self.status_table.setRowCount(len(status_keys))
-        
+
         for idx, key in enumerate(status_keys):
             hex_color, shape, label = status_style(theme_name, key, cvd_mode)
-            
+
             # Colored symbol item
             sym_item = QTableWidgetItem(shape)
             sym_item.setForeground(QColor(hex_color))
@@ -276,14 +276,14 @@ class ReferenceDialog(QDialog):
             font.setBold(True)
             sym_item.setFont(font)
             self.status_table.setItem(idx, 0, sym_item)
-            
+
             # Status label item
             label_item = QTableWidgetItem(label)
             label_font = label_item.font()
             label_font.setBold(True)
             label_item.setFont(label_font)
             self.status_table.setItem(idx, 1, label_item)
-            
+
             # Description item
             self.status_table.setItem(idx, 2, QTableWidgetItem(status_defs[key]))
 
@@ -320,7 +320,7 @@ class ReferenceDialog(QDialog):
         }
         for idx, key in enumerate(status_keys):
             hex_color, _, label = status_style(theme_name, key, cvd_mode)
-            
+
             # Color name / swatch text
             color_item = QTableWidgetItem("█ Fill Color")
             color_item.setForeground(QColor(hex_color))
@@ -328,14 +328,14 @@ class ReferenceDialog(QDialog):
             color_font.setBold(True)
             color_item.setFont(color_font)
             self.timeline_table.setItem(idx, 0, color_item)
-            
+
             # Status %
             pct_item = QTableWidgetItem(timeline_defs[key])
             pct_font = pct_item.font()
             pct_font.setBold(True)
             pct_item.setFont(pct_font)
             self.timeline_table.setItem(idx, 1, pct_item)
-            
+
             # Description
             self.timeline_table.setItem(idx, 2, QTableWidgetItem(f"Timeline bar fill matches the {label} status color."))
 

@@ -3,7 +3,7 @@
 
 import pytest
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget, QMainWindow
+from PyQt5.QtWidgets import QMainWindow, QWidget
 
 from gui.loading_overlay import LoadingOverlay
 from gui.notification_panel import NotificationPanel, ToastWidget
@@ -31,7 +31,7 @@ class TestToastWidget:
     def test_toast_widget_creation(self, qapp):
         toast = ToastWidget("Hello info", "info", "light", "none")
         assert toast.text_label.text() == "Hello info"
-        assert toast.icon_label.text() == "ℹ️"
+        assert toast.icon_label.text() == "ℹ️"  # noqa: RUF001
         toast.timer.stop()  # Clean up timer
         toast.deleteLater()
 

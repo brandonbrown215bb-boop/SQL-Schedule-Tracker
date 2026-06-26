@@ -184,7 +184,7 @@ class TestValidation:
         """Saving updates the week_ending_friday column in DB based on detailing_due_date."""
         unit_to_save.detailing_due_date = date(2026, 6, 24)  # Wednesday
         save_unit(db_with_units, unit_to_save)
-        
+
         conn = sqlite3.connect(db_with_units)
         cur = conn.execute("SELECT week_ending_friday FROM units WHERE com_number = '14201'")
         val = cur.fetchone()[0]
@@ -192,7 +192,7 @@ class TestValidation:
         # Wednesday June 24, 2026 -> Friday June 26, 2026
         assert val == "2026-06-26"
         assert unit_to_save.week_ending_friday == date(2026, 6, 26)
-        
+
         # Test None due date
         unit_to_save.detailing_due_date = None
         save_unit(db_with_units, unit_to_save)

@@ -120,8 +120,9 @@ class ConflictDialog(QDialog):
             item_local = QTableWidgetItem(local_val)
             item_remote = QTableWidgetItem(remote_val)
             if local_val != remote_val:
-                from gui.theme import THEMES
                 from PyQt5.QtGui import QBrush
+
+                from gui.theme import THEMES
                 tokens = THEMES.get(self._theme_name, THEMES["light"])
                 item_local.setBackground(QBrush(QColor(tokens["bg_selected"])))
                 item_remote.setBackground(QBrush(QColor(tokens["bg_selected"])))

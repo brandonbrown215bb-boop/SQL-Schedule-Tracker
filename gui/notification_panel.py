@@ -9,7 +9,8 @@ and ERROR levels with custom themed styling, slide/fade animations, stacking beh
 from __future__ import annotations
 
 import logging
-from PyQt5.QtCore import QPropertyAnimation, QTimer, Qt
+
+from PyQt5.QtCore import QPropertyAnimation, Qt, QTimer
 from PyQt5.QtWidgets import (
     QFrame,
     QGraphicsOpacityEffect,
@@ -19,6 +20,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from gui.theme import THEMES, get_status_colors
 
 logger = logging.getLogger(__name__)
@@ -36,12 +38,12 @@ class ToastWidget(QFrame):
         layout.setSpacing(8)
 
         symbols = {
-            "info": "ℹ️",
+            "info": "ℹ️",  # noqa: RUF001
             "success": "✅",
             "warning": "⚠️",
             "error": "❌",
         }
-        symbol = symbols.get(level.lower(), "ℹ️")
+        symbol = symbols.get(level.lower(), "ℹ️")  # noqa: RUF001
 
         self.icon_label = QLabel(symbol)
         self.icon_label.setStyleSheet("background: transparent;")

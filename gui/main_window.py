@@ -24,7 +24,6 @@ from PyQt5.QtWidgets import (
     QStackedWidget,
     QStatusBar,
     QToolBar,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -573,11 +572,11 @@ class MainWindow(QMainWindow):
         dashboard_action.setToolTip("Open the scheduling status chart (exportable as PNG)")
         dashboard_action.triggered.connect(self._open_dashboard)
         help_menu = menubar.addMenu("&Help")
-        
+
         legend_action = help_menu.addAction("&Legend & Reference Guide")
         legend_action.setToolTip("Show visual legend, glossary, and shortcuts (F1)")
         legend_action.triggered.connect(self._show_legend)
-        
+
         walkthrough_action = help_menu.addAction("&Show Walkthrough")
         walkthrough_action.setToolTip("Show the onboarding walkthrough")
         walkthrough_action.triggered.connect(lambda: show_onboarding(self, self._services.config))
@@ -961,8 +960,7 @@ class MainWindow(QMainWindow):
 
                     if hasattr(self.list_panel, "_inline_edit_bar"):
                         inline_bar = self.list_panel._inline_edit_bar
-                        if inline_bar.isVisible() and inline_bar._unit and inline_bar._unit.com_number == new_unit.com_number:
-                            if not inline_bar.is_dirty:
+                        if inline_bar.isVisible() and inline_bar._unit and inline_bar._unit.com_number == new_unit.com_number and not inline_bar.is_dirty:
                                 inline_bar.set_unit(new_unit)
                     break
 
