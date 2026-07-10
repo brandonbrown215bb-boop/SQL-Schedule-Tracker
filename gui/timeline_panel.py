@@ -182,10 +182,10 @@ class TimelineWidget(QWidget):
         bar_y = lc["bar_y"]
 
         # --- Status color bar ---
-        bar_color = QColor(colors.get(self.unit.calculated_status_color, colors["gray"]))
+        bar_color = QColor(colors.get(self.unit.status_color_name, colors["gray"]))
 
         # Add icon to bar text
-        icon = STATUS_SHAPES.get(self.unit.calculated_status_color, "")
+        icon = STATUS_SHAPES.get(self.unit.status_color_name, "")
 
         # Bar border
         painter.setPen(QPen(QColor(tokens.get("border_strong", "#cbd5e1")), 1))

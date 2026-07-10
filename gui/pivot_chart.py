@@ -413,7 +413,7 @@ class PivotChartWidget(QDialog):
     def _query_data(self) -> list:
         start = self.start_date.date().toPyDate().isoformat()
         end = self.end_date.date().toPyDate().isoformat()
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute(

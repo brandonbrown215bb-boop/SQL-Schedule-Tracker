@@ -33,10 +33,17 @@ class AuditDialog(QDialog):
         parent: Parent widget.
     """
 
-    def __init__(self, db_path: str, com_number: str | None = None, parent=None):
+    def __init__(self, db_path: str, com_number: str | None = None, parent=None, theme_name: str | None = None):
         super().__init__(parent)
         self._db_path = db_path
         self._com_number = com_number
+
+        # Resolve theme
+        if theme_name is None:
+            if parent is not None and hasattr(parent, "_current_theme_name"):
+                theme_name = parent._current_theme_name
+            else:
+                theme_name = "light"
 
         title = "Change History"
         if com_number:
@@ -44,6 +51,9 @@ class AuditDialog(QDialog):
         self.setWindowTitle(title)
         self.setMinimumSize(850, 500)
         self.resize(1000, 650)
+
+        from gui.theme import apply_theme
+        apply_theme(self, theme_name)
 
         layout = QVBoxLayout(self)
 

@@ -12,10 +12,12 @@ from services.migration_registry import Migration, SchemaMigrationRegistry
 from services.sanitizer import InputSanitizer
 from services.sync_service import SyncService
 from services.unit_service import UnitService
+from services.update_service import UpdateService
 from services.validation import (
     UNIT_FIELD_RULES,
     FieldRule,
     ValidationError,
+    update_allowed_detailers,
     validate_unit,
 )
 
@@ -30,6 +32,8 @@ __all__ = [
     "SchemaMigrationRegistry",
     "SyncService",
     "UnitService",
+    "UpdateService",
     "ValidationError",
+    "update_allowed_detailers",
     "validate_unit",
 ]

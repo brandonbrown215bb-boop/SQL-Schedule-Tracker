@@ -56,18 +56,6 @@ class ToastWidget(QFrame):
 
         self.close_btn = QPushButton("✕")
         self.close_btn.setFixedSize(16, 16)
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                color: palette(mid);
-                font-weight: bold;
-                font-size: 10px;
-            }
-            QPushButton:hover {
-                color: palette(text);
-            }
-        """)
         self.close_btn.clicked.connect(self.dismiss)
         layout.addWidget(self.close_btn)
 
@@ -84,6 +72,22 @@ class ToastWidget(QFrame):
         bg = tokens.get("bg_secondary", "#f8fafc")
         border = tokens.get("border", "#e2e8f0")
         text_color = tokens.get("text_primary", "#1e293b")
+
+        self.close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                color: {tokens.get('text_secondary', 'gray')};
+                font-weight: bold;
+                font-size: 10px;
+            }}
+            QPushButton:hover {{
+                color: {tokens.get('text_primary', 'black')};
+            }}
+        """)
+
+        self.icon_label.setStyleSheet(f"background: transparent; color: {text_color};")
+        self.text_label.setStyleSheet(f"background: transparent; color: {text_color};")
 
         self.setStyleSheet(f"""
             #ToastWidget {{

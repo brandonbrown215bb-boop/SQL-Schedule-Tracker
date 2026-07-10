@@ -24,6 +24,7 @@ class DueDateChangedDialog(QDialog):
         self,
         changed_units: list[tuple[Unit, date | None]],
         parent=None,
+        theme_name: str | None = None,
     ):
         """
         Args:
@@ -33,6 +34,15 @@ class DueDateChangedDialog(QDialog):
         self.setWindowTitle("⚠ Due Dates Changed")
         self.setMinimumSize(650, 400)
         self.resize(700, 450)
+
+        # Resolve theme
+        if theme_name is None:
+            if parent is not None and hasattr(parent, "_current_theme_name"):
+                theme_name = parent._current_theme_name
+            else:
+                theme_name = "light"
+        from gui.theme import apply_theme
+        apply_theme(self, theme_name)
 
         layout = QVBoxLayout(self)
 

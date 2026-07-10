@@ -28,20 +28,26 @@ Usage:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QCalendarWidget,
+    QCheckBox,
     QComboBox,
     QDateEdit,
     QDoubleSpinBox,
     QFrame,
     QGroupBox,
+    QLabel,
     QLineEdit,
+    QListView,
+    QListWidget,
     QProgressBar,
     QPushButton,
     QTableWidget,
+    QTextEdit,
     QWidget,
 )
 
@@ -97,16 +103,18 @@ THEMES: dict[str, dict[str, str]] = {
 # respective backgrounds. Values verified with the APCA contrast tool.
 
 _STATUS_COLORS_LIGHT: dict[str, str] = {
-    "gray": "#6f6f6f",  # unassigned   — was #767676, darkened for 4.5:1 on bg_tertiary ✓
-    "yellow": "#92600a",  # in progress  — already passed ✓
-    "purple": "#7e3fb0",  # ready check  — already passed ✓
-    "orange": "#b24e00",  # returned     — was #c05c00, darkened for 4.5:1 on bg_primary ✓
-    "green": "#1a7a4a",  # released     — already passed ✓
-    "red": "#c0392b",  # overdue      — already passed ✓
+    "unassigned": "#6f6f6f",  # unassigned — same as gray
+    "gray": "#6f6f6f",  # not started — was #767676, darkened for 4.5:1 on bg_tertiary ✓
+    "yellow": "#92600a",  # in progress — already passed ✓
+    "purple": "#7e3fb0",  # ready check — already passed ✓
+    "orange": "#b24e00",  # returned — was #c05c00, darkened for 4.5:1 on bg_primary ✓
+    "green": "#1a7a4a",  # released — already passed ✓
+    "red": "#c0392b",  # overdue — already passed ✓
 }
 
 _STATUS_COLORS_DARK: dict[str, str] = {
-    "gray": "#9faec3",  # was #94a3b8, lightened for 4.5:1 on bg_tertiary ✓
+    "unassigned": "#9faec3",  # unassigned — same as gray
+    "gray": "#9faec3",  # not started — was #94a3b8, lightened for 4.5:1 on bg_tertiary ✓
     "yellow": "#facc15",  # already passed ✓
     "purple": "#d69aff",  # was #c084fc, lightened for 4.5:1 on bg_tertiary ✓
     "orange": "#fb923c",  # already passed ✓
@@ -123,6 +131,7 @@ STATUS_COLORS: dict[str, dict[str, str]] = {
 # ─── Status Shape Icons ───────────────────────────────────────────────
 
 STATUS_SHAPES: dict[str, str] = {
+    "unassigned": "⚠",
     "gray": "●",
     "yellow": "◆",
     "purple": "▲",
@@ -138,7 +147,8 @@ STATUS_SHAPES: dict[str, str] = {
 # Falls back to sensible defaults if the config key is absent.
 
 STATUS_LABELS: dict[str, str] = {
-    "gray": "Unassigned",
+    "unassigned": "Unassigned",
+    "gray": "Not Started",
     "yellow": "In Progress",
     "purple": "Ready for Check",
     "orange": "Checked & Returned",
@@ -282,7 +292,7 @@ _TABLE = """\
 """
 
 _INPUT = """\
-    QLineEdit, QDateEdit, QDoubleSpinBox {{
+    QLineEdit, QDateEdit, QDoubleSpinBox, QTextEdit {{
         background: {bg_primary};
         color: {text_primary};
         border: 1px solid {border};
@@ -292,7 +302,7 @@ _INPUT = """\
         font-size: 12px;
         selection-background-color: {bg_selected};
     }}
-    QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus {{
+    QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus, QTextEdit:focus {{
         border-color: {accent};
     }}
     QComboBox {{
@@ -330,10 +340,36 @@ _INPUT = """\
 """
 
 _CARD = """\
-    QFrame, QGroupBox {{
+    QFrame {{
         background: {bg_secondary};
         border: 1px solid {border};
         border-radius: 6px;
+    }}
+"""
+
+_GROUPBOX = """\
+    QGroupBox {{
+        background: {bg_secondary};
+        border: 1px solid {border};
+        border-radius: 6px;
+        margin-top: 16px;
+        font-weight: bold;
+    }}
+    QGroupBox::title {{
+        subcontrol-origin: margin;
+        subcontrol-position: top left;
+        padding: 0 3px;
+        color: {text_primary};
+    }}
+"""
+
+_LIST_VIEW = """\
+    QListWidget, QListView {{
+        background-color: {bg_primary};
+        color: {text_primary};
+        border: 1px solid {border};
+        border-radius: 6px;
+        font-size: 12px;
     }}
 """
 
@@ -403,6 +439,94 @@ def status_style(theme_name: str, status: str, cvd_mode: str = "none") -> tuple[
     icon = STATUS_SHAPES.get(status, "?")
     label = STATUS_LABELS.get(status, status)
     return (hex_color, icon, label)
+
+
+def get_dept_hours_color(
+    theme_name: str,
+    value: float,
+    min_val: float,
+    max_val: float,
+    cvd_mode: str = "none",
+    high_contrast: bool = False,
+) -> tuple[QColor, QColor]:
+    """Calculate theme-aware and CVD-aware sliding gradient colors for Department Hours.
+
+    Returns:
+        (background_qcolor, foreground_qcolor)
+    """
+    # 1. Choose color anchors based on theme and CVD mode
+    if theme_name == "dark":
+        if cvd_mode == "deuteranopia":
+            # Teal -> Yellow -> Red
+            c1 = QColor("#004d40")  # Dark Teal
+            c2 = QColor("#5c3d0c")  # Dark Yellow/Gold
+            c3 = QColor("#7f1d1d")  # Dark Red
+        elif cvd_mode == "protanopia":
+            # Blue -> Yellow -> Orange/Amber
+            c1 = QColor("#0d47a1")  # Dark Blue
+            c2 = QColor("#5c3d0c")  # Dark Yellow/Gold
+            c3 = QColor("#7f2d12")  # Dark Orange
+        elif cvd_mode == "tritanopia":
+            # Green -> Pink -> Raspberry
+            c1 = QColor("#1b4d3e")  # Dark Green
+            c2 = QColor("#6a1b4d")  # Dark Pink/Purple
+            c3 = QColor("#880e4f")  # Dark Raspberry
+        else:
+            # Normal: Green -> Yellow/Orange -> Red
+            c1 = QColor("#163f25")  # Dark Green
+            c2 = QColor("#5c3d0c")  # Dark Gold/Yellow
+            c3 = QColor("#7f1d1d")  # Dark Red
+    else:  # light theme
+        if cvd_mode == "deuteranopia":
+            # Teal -> Yellow -> Red
+            c1 = QColor("#e0f2f1")  # Light Teal
+            c2 = QColor("#fff59d")  # Light Yellow
+            c3 = QColor("#c62828")  # Dark Red
+        elif cvd_mode == "protanopia":
+            # Blue -> Yellow -> Orange/Amber
+            c1 = QColor("#e3f2fd")  # Light Blue
+            c2 = QColor("#fff59d")  # Light Yellow
+            c3 = QColor("#e65100")  # Dark Orange/Amber
+        elif cvd_mode == "tritanopia":
+            # Green -> Pink -> Raspberry
+            c1 = QColor("#e8f5e9")  # Light Green
+            c2 = QColor("#fce4ec")  # Light Pink
+            c3 = QColor("#880e4f")  # Dark Magenta/Raspberry
+        else:
+            # Normal: Green -> Yellow/Orange -> Red
+            c1 = QColor("#e2f0d9")  # Soft Green
+            c2 = QColor("#ffeb9c")  # Soft Yellow
+            c3 = QColor("#c73838")  # Soft Dark Red
+
+    if max_val <= min_val:
+        t = 0.0
+    else:
+        # Clamp value between min and max
+        val = max(min_val, min(max_val, value))
+        t = (val - min_val) / (max_val - min_val)
+
+    if t <= 0.5:
+        p = t * 2.0
+        r = int((1.0 - p) * c1.red() + p * c2.red())
+        g = int((1.0 - p) * c1.green() + p * c2.green())
+        b = int((1.0 - p) * c1.blue() + p * c2.blue())
+    else:
+        p = (t - 0.5) * 2.0
+        r = int((1.0 - p) * c2.red() + p * c3.red())
+        g = int((1.0 - p) * c2.green() + p * c3.green())
+        b = int((1.0 - p) * c2.blue() + p * c3.blue())
+
+    bg_color = QColor(r, g, b)
+
+    # Calculate brightness to choose readable text color
+    # Using relative luminance weight formula:
+    brightness = (r * 299 + g * 587 + b * 114) / 1000
+    if brightness < 150:
+        fg_color = QColor("#ffffff")
+    else:
+        fg_color = QColor("#0f172a") if theme_name == "light" else QColor("#1e293b")
+
+    return bg_color, fg_color
 
 
 # ─── Theme Application ───────────────────────────────────────────────
@@ -493,6 +617,28 @@ def _style_calendar(widget: QWidget, tokens: dict[str, str]) -> None:
     """)
 
 
+def _apply_text_color_to_widget(widget: QWidget, color: str) -> None:
+    current_ss = widget.styleSheet().strip()
+    was_applied = widget.property("theme_color_applied")
+    
+    if not current_ss:
+        widget.setStyleSheet(f"color: {color};")
+        widget.setProperty("theme_color_applied", True)
+    else:
+        color_regex = r"(?<![a-zA-Z-])color\s*:\s*([^;]+)"
+        match = re.search(color_regex, current_ss, re.IGNORECASE)
+        
+        if match:
+            if was_applied:
+                new_ss = re.sub(color_regex, f"color: {color}", current_ss, flags=re.IGNORECASE)
+                widget.setStyleSheet(new_ss)
+        else:
+            if not current_ss.endswith(";"):
+                current_ss += ";"
+            widget.setStyleSheet(current_ss + f" color: {color};")
+            widget.setProperty("theme_color_applied", True)
+
+
 def _style_progress(widget: QWidget, tokens: dict[str, str]) -> None:
     t = tokens
     widget.setStyleSheet(f"""
@@ -510,6 +656,22 @@ def _style_progress(widget: QWidget, tokens: dict[str, str]) -> None:
     """)
 
 
+def _style_groupbox(widget: QWidget, tokens: dict[str, str]) -> None:
+    widget.setStyleSheet(_stylesheet(tokens, _GROUPBOX))
+
+
+def _style_list_view(widget: QWidget, tokens: dict[str, str]) -> None:
+    widget.setStyleSheet(_stylesheet(tokens, _LIST_VIEW))
+
+
+def _style_label(widget: QWidget, tokens: dict[str, str]) -> None:
+    _apply_text_color_to_widget(widget, tokens["text_primary"])
+
+
+def _style_checkbox(widget: QWidget, tokens: dict[str, str]) -> None:
+    _apply_text_color_to_widget(widget, tokens["text_primary"])
+
+
 _THEME_HANDLERS: dict[type, Callable] = {
     QPushButton: _style_button,
     QTableWidget: _style_table,
@@ -517,8 +679,13 @@ _THEME_HANDLERS: dict[type, Callable] = {
     QComboBox: _style_input,
     QDateEdit: _style_input,
     QDoubleSpinBox: _style_input,
+    QTextEdit: _style_input,
     QFrame: _style_card,
-    QGroupBox: _style_card,
+    QGroupBox: _style_groupbox,
+    QLabel: _style_label,
+    QCheckBox: _style_checkbox,
+    QListWidget: _style_list_view,
+    QListView: _style_list_view,
     QCalendarWidget: _style_calendar,
     QProgressBar: _style_progress,
 }
@@ -564,14 +731,93 @@ def apply_theme(
     if high_contrast:
         tokens = boost_contrast(theme_name)
 
+    # Set palette colors to propagate correct text colors for rich text/fallback rendering
+    from PyQt5.QtGui import QPalette
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance()
+    
+    if theme_name == "dark":
+        pal = widget.palette()
+        text_color = QColor(tokens["text_primary"])
+        sec_text_color = QColor(tokens["text_secondary"])
+        
+        pal.setColor(QPalette.WindowText, text_color)
+        pal.setColor(QPalette.Text, text_color)
+        pal.setColor(QPalette.ButtonText, text_color)
+        pal.setColor(QPalette.PlaceholderText, sec_text_color)
+        
+        # Also set window background color in the palette
+        pal.setColor(QPalette.Window, QColor(tokens["bg_primary"]))
+        pal.setColor(QPalette.Base, QColor(tokens["bg_primary"]))
+        pal.setColor(QPalette.AlternateBase, QColor(tokens["bg_tertiary"]))
+        pal.setColor(QPalette.Button, QColor(tokens["bg_tertiary"]))
+        
+        # Selection colors
+        pal.setColor(QPalette.Highlight, QColor(tokens["accent"]))
+        pal.setColor(QPalette.HighlightedText, QColor(tokens["text_on_accent"]))
+        
+        widget.setPalette(pal)
+        if app is not None:
+            app.setPalette(pal)
+    else:
+        if app is not None:
+            app.setPalette(app.style().standardPalette())
+        widget.setPalette(widget.style().standardPalette())
+
     # Set backgrounds on plain QWidget panels that have no type-specific handler.
     for name in ("left_panel", "right_panel"):
         panel = widget.findChild(QWidget, name)
         if panel is not None:
-            panel.setStyleSheet(f"background: {tokens['bg_secondary']};")
+            panel.setStyleSheet(f"background: {tokens['bg_secondary']}; color: {tokens['text_primary']};")
+
+    # Global scrollbar styles (applied to scrollbars inside scroll areas, tables, lists, etc.)
+    global_scrollbar_styles = f"""
+        QScrollBar:vertical {{
+            border: none;
+            background: {tokens['bg_primary']};
+            width: 10px;
+            margin: 0px;
+        }}
+        QScrollBar::handle:vertical {{
+            background: {tokens['border_strong']};
+            min-height: 20px;
+            border-radius: 5px;
+        }}
+        QScrollBar::handle:vertical:hover {{
+            background: {tokens['bg_hover']};
+        }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+            height: 0px;
+            background: none;
+        }}
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+            background: none;
+        }}
+        QScrollBar:horizontal {{
+            border: none;
+            background: {tokens['bg_primary']};
+            height: 10px;
+            margin: 0px;
+        }}
+        QScrollBar::handle:horizontal {{
+            background: {tokens['border_strong']};
+            min-width: 20px;
+            border-radius: 5px;
+        }}
+        QScrollBar::handle:horizontal:hover {{
+            background: {tokens['bg_hover']};
+        }}
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+            width: 0px;
+            background: none;
+        }}
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+            background: none;
+        }}
+    """
 
     # Global UI container stylesheets if root widget is QMainWindow
-    from PyQt5.QtWidgets import QMainWindow
+    from PyQt5.QtWidgets import QMainWindow, QDialog
     if isinstance(widget, QMainWindow):
         widget.setStyleSheet(f"""
             QMainWindow {{
@@ -606,7 +852,41 @@ def apply_theme(
             QSplitter::handle {{
                 background: {tokens['border']};
             }}
-        """)
+            QToolBar {{
+                background: {tokens['bg_secondary']};
+                border-bottom: 1px solid {tokens['border']};
+                spacing: 4px;
+                padding: 4px;
+            }}
+            QToolButton {{
+                background: transparent;
+                color: {tokens['text_primary']};
+                border: 1px solid transparent;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }}
+            QToolButton:hover {{
+                background: {tokens['bg_hover']};
+                border: 1px solid {tokens['border']};
+            }}
+            QToolButton:pressed {{
+                background: {tokens['bg_selected']};
+            }}
+            QToolBar::separator {{
+                background: {tokens['border']};
+                width: 1px;
+                margin: 4px;
+            }}
+        """ + global_scrollbar_styles)
+    elif isinstance(widget, QDialog):
+        widget.setStyleSheet(f"""
+            QDialog {{
+                background: {tokens['bg_primary']};
+            }}
+        """ + global_scrollbar_styles)
+    else:
+        # Generic root container fallback
+        widget.setStyleSheet(global_scrollbar_styles)
 
     _style_widget(widget, tokens)
     for child in widget.findChildren(QWidget):
@@ -616,6 +896,11 @@ def apply_theme(
     blame = widget.findChild(QWidget, "blame_label")
     if blame is not None:
         blame.setStyleSheet(f"color: {tokens['text_secondary']}; font-size: 11px; padding-left: 4px;")
+
+    # Style view_title to override hardcoded palette(mid) color
+    view_title = widget.findChild(QWidget, "view_title")
+    if view_title is not None:
+        view_title.setStyleSheet(f"font-size: 11px; padding: 2px 0 4px 0; color: {tokens['text_secondary']};")
 
 
 def style_alerts_btn(

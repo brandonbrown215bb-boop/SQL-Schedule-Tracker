@@ -41,6 +41,7 @@ class BatchEditDialog(QDialog):
         default_detailers: list[str],
         tag_repo=None,
         parent=None,
+        theme_name: str | None = None,
     ):
         super().__init__(parent)
         self._units = units
@@ -50,6 +51,15 @@ class BatchEditDialog(QDialog):
         self.setWindowTitle(f"Batch Edit — {len(units)} units")
         self.setMinimumWidth(420)
         self.setModal(True)
+
+        # Resolve theme
+        if theme_name is None:
+            if parent is not None and hasattr(parent, "_current_theme_name"):
+                theme_name = parent._current_theme_name
+            else:
+                theme_name = "light"
+        from gui.theme import apply_theme
+        apply_theme(self, theme_name)
 
         layout = QVBoxLayout(self)
 

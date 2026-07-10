@@ -90,7 +90,7 @@ def compute_diff(csv_path: str, db_path: str) -> ImportDiff:
     # Load existing units keyed by com_number
     # Use a separate connection to avoid mutating the app's shared connection
     import sqlite3 as _sqlite3
-    conn = _sqlite3.connect(db_path)
+    conn = _sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = _sqlite3.Row
     existing = {}
     for row in conn.execute("SELECT * FROM units").fetchall():

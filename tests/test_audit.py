@@ -52,6 +52,7 @@ class TestAuditLog:
         }
 
         changes = log_field_changes(conn, "TEST001", old_row, new_values)
+        conn.close()
         assert changes == 2
 
         # Check the audit log has entries
@@ -74,12 +75,14 @@ class TestAuditLog:
 
         new_values = {"detailer": "Carl M"}
         changes = log_field_changes(conn, "TEST002", old_row, new_values)
+        conn.close()
         assert changes == 0
 
     def test_log_field_changes_none_old_row(self, audit_db):
         """log_field_changes should record creation changes when old_row is None."""
         conn = sqlite3.connect(audit_db)
         changes = log_field_changes(conn, "TEST003", None, {"detailer": "X"})
+        conn.close()
         assert changes == 1
         # Check audit trail has the entry
         entries = get_audit_trail(audit_db, com_number="TEST003")

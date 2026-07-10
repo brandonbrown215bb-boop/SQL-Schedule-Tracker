@@ -87,6 +87,7 @@ COLUMN_DEFS: list[tuple[str, str, int, bool]] = [
 # ─── Status Color Map ───────────────────────────────────────────────
 
 STATUS_COLORS_FALLBACK: dict[str, QColor] = {
+    "unassigned": QColor(148, 163, 184),
     "gray": QColor(148, 163, 184),
     "yellow": QColor(234, 179, 8),
     "purple": QColor(168, 85, 247),
@@ -97,7 +98,8 @@ STATUS_COLORS_FALLBACK: dict[str, QColor] = {
 
 STATUS_LABELS: dict[str, str] = {
     "All": "All Statuses",
-    "gray": "Unassigned",
+    "unassigned": "Unassigned",
+    "gray": "Not Started",
     "yellow": "In Progress",
     "purple": "Ready for Checking",
     "orange": "Checked & Returned",
@@ -110,8 +112,9 @@ SEVERITY_ORDER: dict[str, int] = {
     "orange": 1,
     "purple": 2,
     "yellow": 3,
-    "gray": 4,
-    "green": 5,
+    "unassigned": 4,
+    "gray": 5,
+    "green": 6,
 }
 
 
@@ -196,7 +199,7 @@ class UnitListModel:
             result = [u for u in result if not u.is_stale]
 
         if status != "All":
-            result = [u for u in result if u.calculated_status_color == status]
+            result = [u for u in result if u.status_color_name == status]
 
         if detailer != "All":
             result = [u for u in result if u.detailer == detailer]
@@ -324,7 +327,7 @@ class UnitListModel:
         if column_key == "status_color":
 
             def key_func(unit: Unit) -> int:
-                return SEVERITY_ORDER.get(unit.calculated_status_color, 99)
+                return SEVERITY_ORDER.get(unit.status_color_name, 99)
         elif column_key == "detailing_due_date":
 
             def key_func(unit: Unit):
@@ -758,6 +761,11 @@ class ListPanel(QWidget):
         if key in ("department_hours", "actual_hours", "target_department_hours"):
             return f"{value:.2f}"
 
+        if key == "detailer":
+            if not value or value in ("— Unassigned —", "Unassigned"):
+                return "⚠ — Unassigned —"
+            return str(value)
+
         if key == "status_color":
             return ""  # Color block — no text
 
@@ -824,6 +832,16 @@ class ListPanel(QWidget):
 
         units = self._model.filtered_units
         visible = self._model.visible_columns
+
+        # Pre-compute min/max department hours for visible units to use in conditional formatting.
+        # Only consider units with department_hours > 0.0.
+        visible_dept_hours = [
+            u.department_hours
+            for u in units
+            if u.department_hours is not None and u.department_hours > 0.0
+        ]
+        min_dept_hours = min(visible_dept_hours) if visible_dept_hours else 0.0
+        max_dept_hours = max(visible_dept_hours) if visible_dept_hours else 0.0
 
         # Pre-compute description_tags for all visible units.
         # Uses a persistent cache keyed by com_number — only re-parses
@@ -954,6 +972,19 @@ class ListPanel(QWidget):
                         # Set tooltip to indicate the shared top level number
                         item.setToolTip(f"Shared top level number: {unit.contract_number}")
 
+                if key == "department_hours" and value is not None and value > 0 and max_dept_hours > min_dept_hours:
+                    from gui.theme import get_dept_hours_color
+                    bg_color, fg_color = get_dept_hours_color(
+                        self._theme_name,
+                        value,
+                        min_dept_hours,
+                        max_dept_hours,
+                        self._cvd_mode,
+                        high_contrast,
+                    )
+                    item.setBackground(QBrush(bg_color))
+                    item.setForeground(QBrush(fg_color))
+
                 if key in (
                     "percent_complete",
                     "department_hours",
@@ -967,10 +998,14 @@ class ListPanel(QWidget):
                 else:
                     item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
+                if key == "detailer" and not unit.is_assigned:
+                    item.setFont(bold_font)
+                    item.setForeground(QBrush(QColor("#dc2626")))
+
                 if key == "status_color":
                     from gui.theme import status_style as _theme_status_style
 
-                    computed_status = unit.calculated_status_color
+                    computed_status = unit.status_color_name
                     hex_color, icon, label = _theme_status_style(
                         self._theme_name, computed_status, self._cvd_mode
                     )

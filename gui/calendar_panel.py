@@ -103,8 +103,8 @@ class EventCalendarWidget(QCalendarWidget):
             # Assign each unit its own dot color based on calculated status
             # (status_color field is always "gray" for DB-loaded units;
             #  calculated_status_color computes the real status)
-            severity = {"red": 0, "orange": 1, "purple": 2, "yellow": 3, "gray": 4, "green": 5}
-            sorted_units = sorted(units, key=lambda u: severity.get(u.calculated_status_color, 99))
+            severity = {"red": 0, "orange": 1, "purple": 2, "yellow": 3, "unassigned": 4, "gray": 5, "green": 6}
+            sorted_units = sorted(units, key=lambda u: severity.get(u.status_color_name, 99))
 
             painter.save()
             try:
@@ -112,7 +112,7 @@ class EventCalendarWidget(QCalendarWidget):
                 painter.setPen(Qt.NoPen)  # type: ignore[reportAttributeAccessIssue]
                 # Default dot color for badge (will be updated per-unit below)
                 dot_color = hex_to_qcolor.get(
-                    sorted_units[0].calculated_status_color, QColor("#94a3b8")
+                    sorted_units[0].status_color_name, QColor("#94a3b8")
                 )
                 painter.setBrush(QBrush(dot_color))
 
@@ -127,7 +127,7 @@ class EventCalendarWidget(QCalendarWidget):
                 for i in range(num_dots):
                     unit = sorted_units[i]
                     unit_dot_color = hex_to_qcolor.get(
-                        unit.calculated_status_color, QColor("#94a3b8")
+                        unit.status_color_name, QColor("#94a3b8")
                     )
                     painter.setBrush(QBrush(unit_dot_color))
                     px = int(start_x + i * (dot_diameter + spacing))
@@ -241,7 +241,7 @@ class CalendarPanel(QWidget):
         from gui.theme import status_style
 
         hex_color, icon, _label = status_style(
-            self._theme_name, unit.calculated_status_color, self._cvd_mode
+            self._theme_name, unit.status_color_name, self._cvd_mode
         )
         suffix = " ⚠ Due changed" if unit.due_date_changed else ""
         item = QListWidgetItem(f"{icon} COM {unit.com_number} — {unit.job_name}{suffix}")

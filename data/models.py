@@ -122,10 +122,24 @@ class Unit:
             ]
         return self._milestones_cache
 
+    @property
+    def is_assigned(self) -> bool:
+        """True if a valid detailer is assigned (not blank, Unassigned, or — Unassigned —)."""
+        return bool(self.detailer and self.detailer.strip() not in ("— Unassigned —", "Unassigned", ""))
+
+    @property
+    def status_color_name(self) -> str:
+        """Get the virtual status color, which handles 'unassigned' as distinct from 'gray'."""
+        color = self.calculated_status_color
+        if color == "gray" and not self.is_assigned:
+            return "unassigned"
+        return color
+
     @staticmethod
     def status_label(color: str) -> str:
         labels = {
-            "gray": "Unassigned (0%)",
+            "unassigned": "Unassigned (0%)",
+            "gray": "Not Started (0%)",
             "yellow": "In Progress (1-89%)",
             "purple": "Ready for Checking (90-94%)",
             "orange": "Checked & Returned (95-99%)",
@@ -136,7 +150,12 @@ class Unit:
 
     @property
     def is_stale(self) -> bool:
-        """True if due date is more than STALE_THRESHOLD_DAYS in the past."""
+        """True if due date is more than STALE_THRESHOLD_DAYS in the past.
+
+        Unassigned units are never marked stale to prevent them from being hidden.
+        """
+        if not self.is_assigned:
+            return False
         if self.detailing_due_date:
             return self.detailing_due_date < date.today() - timedelta(days=STALE_THRESHOLD_DAYS)
         return False

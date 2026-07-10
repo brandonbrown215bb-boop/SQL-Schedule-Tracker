@@ -419,10 +419,10 @@ class TestListPanelWidget:
         assert panel._search_debounce.isSingleShot()
 
     def test_status_combo_has_all_options(self, qapp):
-        """Filter combo has All + 6 status colors = 7 options."""
+        """Filter combo has All + 7 status options = 8 options."""
         panel = ListPanel(self.units)
         count = panel.status_combo.count()
-        assert count == 7  # "All" + 6 status colors
+        assert count == 8  # "All" + 7 status options
 
     def test_date_combo_has_presets(self, qapp):
         panel = ListPanel(self.units)
@@ -430,12 +430,12 @@ class TestListPanelWidget:
         assert count == len(DATE_FILTER_PRESETS)
 
     def test_status_colors_complete(self, qapp):
-        """Verify all 6 status levels have color definitions."""
-        for color_key in ["gray", "yellow", "purple", "orange", "green", "red"]:
+        """Verify all status levels have color definitions."""
+        for color_key in ["unassigned", "gray", "yellow", "purple", "orange", "green", "red"]:
             assert color_key in STATUS_COLORS_FALLBACK
 
     def test_severity_order_complete(self, qapp):
-        for color_key in ["gray", "yellow", "purple", "orange", "green", "red"]:
+        for color_key in ["unassigned", "gray", "yellow", "purple", "orange", "green", "red"]:
             assert color_key in SEVERITY_ORDER
 
     def test_grouping_cell_highlighting(self, qapp):

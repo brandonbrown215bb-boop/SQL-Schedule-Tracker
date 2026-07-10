@@ -55,6 +55,9 @@ class A11yDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+        from gui.theme import apply_theme
+        apply_theme(self, theme, cvd_mode=cvd_mode, high_contrast=high_contrast)
+
     @property
     def cvd_mode(self) -> str:
         return self._cvd_combo.currentData()

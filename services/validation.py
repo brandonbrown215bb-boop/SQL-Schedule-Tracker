@@ -51,7 +51,9 @@ class FieldRule:
 
 # Canonical detailer names (matches config.yaml default_detailers)
 _DEFAULT_DETAILERS: list[str] = [
+    "",
     "— Unassigned —",
+    "Unassigned",
     "Jackie H",
     "Tommy N",
     "Matthew S",
@@ -377,10 +379,17 @@ def validate_output(rules: dict[str, FieldRule] | None = None):
                         raise ValidationError(errs)
             elif result is not None:
                 valid, errs = validate_unit(result, rules)
-                if not valid:
-                    raise ValidationError(errs)
-            return result
-
-        return wrapper
-
     return decorator
+
+
+def update_allowed_detailers(detailers: list[str]) -> None:
+    """Update the allowed detailer names in validation rules."""
+    allowed = ["", "— Unassigned —", "Unassigned"]
+    for d in detailers:
+        if d not in allowed:
+            allowed.append(d)
+    _DEFAULT_DETAILERS.clear()
+    _DEFAULT_DETAILERS.extend(allowed)
+    if "detailer" in UNIT_FIELD_RULES:
+        UNIT_FIELD_RULES["detailer"].enum_values = _DEFAULT_DETAILERS
+

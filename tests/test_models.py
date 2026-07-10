@@ -145,7 +145,8 @@ class TestMilestones:
 
 class TestStatusLabel:
     def test_all_colors(self):
-        assert Unit.status_label("gray") == "Unassigned (0%)"
+        assert Unit.status_label("unassigned") == "Unassigned (0%)"
+        assert Unit.status_label("gray") == "Not Started (0%)"
         assert Unit.status_label("yellow") == "In Progress (1-89%)"
         assert Unit.status_label("purple") == "Ready for Checking (90-94%)"
         assert Unit.status_label("orange") == "Checked & Returned (95-99%)"
@@ -162,6 +163,35 @@ class TestStatusLabel:
 class TestCalculatedStatusColor:
     def test_100_percent_is_green(self, completed_unit):
         assert completed_unit.calculated_status_color == "green"
+
+    def test_unassigned_and_assigned_virtual_color(self):
+        """0% unit with no detailer is unassigned virtual color; with detailer is gray."""
+        # Unassigned (no detailer, empty string)
+        unit1 = Unit(
+            com_number="X",
+            job_name="Y",
+            contract_number="Z",
+            description="D",
+            detailer="",
+            checking_status="F",
+            percent_complete=0.0,
+        )
+        assert unit1.status_color_name == "unassigned"
+        assert not unit1.is_assigned
+        assert not unit1.is_stale  # Should never be stale when unassigned
+
+        # Assigned (has detailer)
+        unit2 = Unit(
+            com_number="X",
+            job_name="Y",
+            contract_number="Z",
+            description="D",
+            detailer="Carl M",
+            checking_status="F",
+            percent_complete=0.0,
+        )
+        assert unit2.status_color_name == "gray"
+        assert unit2.is_assigned
 
     def test_zero_percent_no_due_date_is_gray(self):
         unit = Unit(

@@ -42,7 +42,7 @@ def _format_seconds(seconds: float) -> str:
 class CloseProgressDialog(QDialog):
     """Modal "Saving updates…" dialog with a live progress bar."""
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent: QWidget | None = None, theme_name: str | None = None):
         super().__init__(parent)
         self.setObjectName("close_progress_dialog")
         self.setWindowTitle("Saving updates…")
@@ -50,6 +50,15 @@ class CloseProgressDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(420)
         self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
+
+        # Resolve theme
+        if theme_name is None:
+            if parent is not None and hasattr(parent, "_current_theme_name"):
+                theme_name = parent._current_theme_name
+            else:
+                theme_name = "light"
+        from gui.theme import apply_theme
+        apply_theme(self, theme_name)
 
         outer = QVBoxLayout(self)
         outer.setSpacing(10)

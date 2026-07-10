@@ -39,6 +39,7 @@ from data.models import Unit
 # Same mapping as list_panel.py STATUS_COLORS_FALLBACK
 
 STATUS_COLORS: dict[str, QColor] = {
+    "unassigned": QColor(148, 163, 184),
     "gray": QColor(148, 163, 184),
     "yellow": QColor(234, 179, 8),
     "purple": QColor(168, 85, 247),
@@ -55,14 +56,16 @@ CAPACITY_HOURS_THRESHOLD: float = 160.0  # 4 weeks x 40 hrs/week
 # ─── Helpers ──────────────────────────────────────────────────────────
 
 
-def _alert_badge_stylesheet(color_name: str) -> str:
+def _alert_badge_stylesheet(color_name: str, theme_name: str = "light", cvd_mode: str = "none") -> str:
     """Return a stylesheet string for an alert-level badge."""
-    c = STATUS_COLORS.get(color_name, STATUS_COLORS["gray"])
-    # Use a slightly darker text color for readability
-    text_color = "#ffffff" if color_name in ("red", "orange", "purple", "gray") else "#1e293b"
+    from gui.theme import get_status_colors
+    theme_colors = get_status_colors(theme_name, cvd_mode)
+    hex_color = theme_colors.get(color_name, "#9faec3" if theme_name == "dark" else "#6f6f6f")
+    # In dark theme, status colors are light pastel so text should be dark; in light theme status colors are dark so text is white
+    text_color = "#0f172a" if theme_name == "dark" else "#ffffff"
     return (
         f"QLabel {{"
-        f"  background-color: {c.name()};"
+        f"  background-color: {hex_color};"
         f"  color: {text_color};"
         f"  border-radius: 8px;"
         f"  padding: 2px 8px;"
@@ -73,8 +76,8 @@ def _alert_badge_stylesheet(color_name: str) -> str:
 
 
 def _status_color_name(unit: Unit) -> str:
-    """Return the color name for a unit, preferring calculated_status_color."""
-    color = unit.calculated_status_color
+    """Return the color name for a unit, preferring status_color_name."""
+    color = unit.status_color_name
     if isinstance(color, tuple):
         color = color[0] if color else "gray"
     return color
@@ -99,7 +102,8 @@ CRITICALITY_LABELS: dict[str, str] = {
     "orange": "CHECKED",
     "purple": "CHECKING",
     "yellow": "IN PROGRESS",
-    "gray": "UNASSIGNED",
+    "unassigned": "UNASSIGNED",
+    "gray": "NOT STARTED",
     "green": "COMPLETE",
 }
 
@@ -110,8 +114,9 @@ CRITICALITY_ORDER: dict[str, int] = {
     "orange": 1,
     "purple": 2,
     "yellow": 3,
-    "gray": 4,
-    "green": 5,
+    "unassigned": 4,
+    "gray": 5,
+    "green": 6,
 }
 
 
@@ -174,12 +179,23 @@ class AlertPanel(QWidget):
         self._current_detailer: str = "All Detailers"
         self._surge_coms: set[str] = set()
         self._needs_rebuild: bool = False
+        self._theme_name: str = "light"
+        self._cvd_mode: str = "none"
         self._build_ui()
 
         if units:
             self.set_units(units)
 
     # ── Public API ───────────────────────────────────────────────────
+
+    def set_theme(self, theme_name: str, cvd_mode: str = "none") -> None:
+        """Apply theme updates and trigger list rebuild."""
+        self._theme_name = theme_name
+        self._cvd_mode = cvd_mode
+        if self.isVisible():
+            self._rebuild()
+        else:
+            self._needs_rebuild = True
 
     def set_units(self, units: list[Unit]) -> None:
         """Load units into the panel (initial load)."""
@@ -314,9 +330,14 @@ class AlertPanel(QWidget):
         """Populate the QListWidget from self._filtered_units."""
         self.list_widget.clear()
 
+        from gui.theme import THEMES, get_status_colors
+        theme_colors = get_status_colors(self._theme_name, self._cvd_mode)
+        tokens = THEMES.get(self._theme_name, THEMES["light"])
+
         for unit in self._filtered_units:
             color_name = _status_color_name(unit)
-            qcolor = STATUS_COLORS.get(color_name, STATUS_COLORS["gray"])
+            hex_color = theme_colors.get(color_name, "#9faec3" if self._theme_name == "dark" else "#6f6f6f")
+            qcolor = QColor(hex_color)
 
             # Build display text parts
             com = unit.com_number or "—"
@@ -345,25 +366,28 @@ class AlertPanel(QWidget):
             com_label = QLabel(com)
             com_label.setFont(QFont("Sans", 10, QFont.Bold))
             com_label.setMinimumWidth(60)
+            com_label.setStyleSheet(f"color: {tokens['text_primary']};")
             row_layout.addWidget(com_label)
 
             # Description (stretches)
             desc_label = QLabel(desc)
             desc_label.setFont(QFont("Sans", 10))
             desc_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-            desc_label.setStyleSheet("color: palette(text);")
+            desc_label.setStyleSheet(f"color: {tokens['text_primary']};")
             row_layout.addWidget(desc_label, stretch=1)
 
             # Due date
             due_label = QLabel(due_str)
             due_label.setFont(QFont("Sans", 10))
             due_label.setMinimumWidth(55)
+            due_label.setStyleSheet(f"color: {tokens['text_primary']};")
             row_layout.addWidget(due_label)
 
             # % complete
             pct_display = QLabel(pct_str)
             pct_display.setFont(QFont("Sans", 10))
             pct_display.setMinimumWidth(35)
+            pct_display.setStyleSheet(f"color: {tokens['text_primary']};")
             row_layout.addWidget(pct_display)
 
             # Alert badge — text reflects criticality (computed status color)
@@ -375,7 +399,7 @@ class AlertPanel(QWidget):
             else:
                 badge_text = CRITICALITY_LABELS.get(color_name, alert)
             badge = QLabel(badge_text)
-            badge.setStyleSheet(_alert_badge_stylesheet(badge_color))
+            badge.setStyleSheet(_alert_badge_stylesheet(badge_color, self._theme_name, self._cvd_mode))
             badge.setFont(QFont("Sans", 9, QFont.Bold))
             if is_surge and unit.detailing_due_date:
                 badge.setToolTip(
@@ -400,6 +424,7 @@ class AlertPanel(QWidget):
             "CHECKING": 0,
             "IN PROGRESS": 0,
             "UNASSIGNED": 0,
+            "NOT STARTED": 0,
             "COMPLETE": 0,
         }
         for u in self._filtered_units:
@@ -415,7 +440,7 @@ class AlertPanel(QWidget):
             self.summary_label.setText("No actionable alerts")
         else:
             parts = []
-            for key in ("CRITICAL", "CHECKED", "CHECKING", "IN PROGRESS", "UNASSIGNED", "COMPLETE"):
+            for key in ("CRITICAL", "CHECKED", "CHECKING", "IN PROGRESS", "UNASSIGNED", "NOT STARTED", "COMPLETE"):
                 if counts[key] > 0:
                     parts.append(f"{key}: {counts[key]}")
             if surge_count > 0:

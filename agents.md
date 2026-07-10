@@ -425,6 +425,8 @@ Run tests: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ -v`
 
 12. **MainWindow constructor changed**: Takes `ServiceRegistry`, not raw `config`/`db_path`. All service access via `self._services.<service>`.
 
+13. **SQLite locks in tests**: Tests writing to the database and reading the audit trail (or using `get_audit_trail()`) must ensure that all cursors/connections used during unit saves are closed/committed *before* querying the audit table, otherwise SQLite will raise `OperationalError: database is locked`.
+
 ---
 
 ## 14. Quick Start for Development
@@ -469,6 +471,65 @@ Full schema in `automation/create_db.py` → `SCHEMA_SQL`.
 
 ---
 
-*Last updated: 2026-06-24*
-*Architecture: Sprints 1-8 complete. Service layer + validation layer + bulk ops + audit UI. 398 tests passing. Lint clean.*
-*Fixes applied 2026-06-16: PARSE_FUNCS→SANITIZE_FUNCS import in import_preview.py (broke 7 test files), batch_edit_dialog test fixture missing "Brandon B" detailer, inline_edit_bar nested-if SIM102, import_service E402 mid-file import.*
+## 16. PyQt5 UI Theming & Styling Guidelines
+
+When modifying or adding widgets, follow these rules to ensure correct dark/light mode rendering:
+
+### 16.1 Global Palettes vs. Stylesheets
+- **Dark Mode Palette**: When in dark theme, a dark-themed `QPalette` must be set on the global `QApplication` instance (`QApplication.instance().setPalette(...)`). This guarantees that rich text / HTML tags (`<b>`, `<span>`) inside `QLabel` widgets draw their text in the theme's text color rather than falling back to native Windows black.
+- **Light Mode Palette Cleanup**: When switching to light theme, always restore the native system palette using `app.setPalette(app.style().standardPalette())` and `widget.setPalette(widget.style().standardPalette())`. Do not apply custom light palettes globally, as it overrides Windows default gradients/shadows and flat-colors buttons and panels white.
+
+### 16.2 Sticky Stylesheet Prevention
+- When applying theme colors to individual label or checkbox stylesheets (to avoid overriding their custom inline paddings/fonts), tag the widget with a custom property:
+  ```python
+  widget.setProperty("theme_color_applied", True)
+  ```
+- Before applying a theme color, check if `widget.property("theme_color_applied")` is set. If so, overwrite the existing color using regex replacement. If the color rule exists but was not applied by the theme (hardcoded status or alert colors), do not modify it.
+
+### 16.3 Style Inheritance & Overrides
+- In Qt, setting any explicit style (like `background: transparent;`) on a child widget prevents it from inheriting parent stylesheet properties (like `color`).
+- For dynamically created child widgets (such as toast notifications in `NotificationPanel` or overlays), set both background and text color explicitly:
+  ```python
+  widget.setStyleSheet(f"background: transparent; color: {text_color};")
+  ```
+
+### 16.4 List Widget Sizing & Spacing
+- Do not style `QListWidget::item` or `QListView::item` border or padding in the global stylesheet if custom row widgets are loaded via `setItemWidget()`. This interferes with `setSizeHint` row height calculations and squishes the layout. Only style container-level properties (background, border, border-radius) of `QListWidget`.
+
+---
+
+## 17. Detailer Unassigned States & Validation Rules
+
+To prevent data loss and highlight unassigned, incomplete work, the application enforces the following rules for unassigned detailers:
+
+### 17.1 Acceptable Sentinels
+- The validation layer (`services/validation.py`) explicitly accepts `""`, `"Unassigned"`, and `"— Unassigned —"` as valid detailer values.
+- Dynamically configured detailers from `config.yaml` are registered at runtime using `update_allowed_detailers()`.
+
+### 17.2 Virtual "Unassigned" Status Color
+- Incomplete units (0% progress) without an assigned detailer are given a virtual status color `status_color_name` of `"unassigned"`.
+- In the UI, `"unassigned"` units show a warning triangle (`⚠`) and the text `⚠ — Unassigned —` in bold warning red (`#dc2626`).
+- `"unassigned"` units must be excluded from the `is_stale` logic so that they are never hidden from the scheduling dashboard, regardless of how old their due dates are.
+- In sorting (e.g. list, calendar, alerts), `"unassigned"` units sort immediately above standard gray `"NOT STARTED"` units.
+
+---
+
+## 18. Dynamic Cell Formatting & Contrast Safeties
+
+When implementing dynamic conditional formatting or cell highlights:
+
+### 18.1 Range Bounds
+- Background gradients must be normalized based on the active dataset's minimum and maximum values of the column being formatted (e.g., dynamically computed over visible `department_hours > 0.0` units).
+
+### 18.2 Theme & CVD Awareness
+- Colors must adjust to Light vs. Dark modes and follow the active Color Vision Deficiency (CVD) mode (Deuteranopia, Protanopia, Tritanopia) configured in settings. Use the helper `get_dept_hours_color()` in `gui/theme.py`.
+
+### 18.3 Contrast Verification (Luminance)
+- Before painting cell text over a custom background color, compute the luminance of the background:
+  \[ L = 0.299 \times R + 0.587 \times G + 0.114 \times B \]
+- Automatically toggle the cell's foreground text color to ensure sufficient contrast (e.g. white text for dark/saturated cells, dark slate text for light/pastel cells).
+
+---
+
+*Last updated: 2026-07-10*
+*Architecture: Theme-aware dark mode + dynamic conditional formatting + unassigned unit visual safety. 438 tests passing. Lint clean.*

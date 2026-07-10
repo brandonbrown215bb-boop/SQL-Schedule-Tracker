@@ -70,19 +70,54 @@ def main():
         )
         sys.exit(1)
 
-    with open(config_path, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
+    from services.config_service import ConfigService
 
-    if not isinstance(config, dict):
-        _safe_print("Error: config.yaml did not parse as a mapping.")
+    try:
+        config = ConfigService.load(config_path)
+    except Exception as e:
+        _safe_print(f"Error loading config.yaml: {e}")
         QMessageBox.critical(
             None,
             "Configuration Error",
-            "config.yaml did not parse as a valid mapping (dict).",
+            f"Failed to load config.yaml:\n{e}",
         )
         sys.exit(1)
 
-    _safe_print("config.yaml loaded successfully.")
+    _safe_print("config.yaml loaded and merged with defaults.")
+
+    # ── Multi-user configuration and username check ───────────────────
+    if "multi_user" not in config or not isinstance(config["multi_user"], dict):
+        config["multi_user"] = {"enabled": True, "fallback_mode": "block"}
+    else:
+        config["multi_user"]["enabled"] = True
+
+    username = config["multi_user"].get("username", "").strip()
+
+    if not username:
+        from PyQt5.QtWidgets import QInputDialog
+        import getpass
+
+        sys_username = getpass.getuser()
+
+        username, ok = QInputDialog.getText(
+            None,
+            "Username Required",
+            "Please enter your name/username for multi-user sync:",
+            text=sys_username,
+        )
+
+        username = username.strip()
+        if not ok or not username:
+            username = sys_username or "User"
+
+        config["multi_user"]["username"] = username
+
+    # Always save back on startup to ensure config.yaml contains all keys
+    try:
+        ConfigService.save(config_path, config)
+        _safe_print("config.yaml successfully validated and saved.")
+    except Exception as e:
+        _safe_print(f"Warning: Failed to save config.yaml: {e}")
 
     # Validate paths
     _validate_config_paths(config, application_path)

@@ -49,7 +49,7 @@ class ExportService:
         import csv
         import sqlite3
 
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM units ORDER BY detailing_due_date").fetchall()
         conn.close()

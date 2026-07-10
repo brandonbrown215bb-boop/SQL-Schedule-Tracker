@@ -19,6 +19,7 @@ DEFAULTS: dict = {
     "excel_path": "",
     "unedited_reports_dir": "",
     "ssrs_url": "",
+    "update_source_dir": "",
     "ssrs_lookback_days": 30,
     "ssrs_lookahead_days": 365,
     "default_detailers": [],
@@ -94,6 +95,12 @@ class ConfigService:
         # Deep merge with defaults
         config = deepcopy(DEFAULTS)
         ConfigService._deep_merge(config, raw)
+
+        try:
+            from services.validation import update_allowed_detailers
+            update_allowed_detailers(config.get("default_detailers", []))
+        except Exception as e:
+            logger.warning(f"Failed to update allowed detailers in validation rules: {e}")
 
         return config
 

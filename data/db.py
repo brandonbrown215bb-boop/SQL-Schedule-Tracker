@@ -16,11 +16,34 @@ _local = threading.local()
 
 
 def _safe_journal_mode(conn: sqlite3.Connection, db_path: str) -> None:
-    """Set WAL mode only if the database is on a local filesystem."""
+    """Set WAL mode only if the database is on a local filesystem and multi-user is disabled."""
     import os
+    import sys
+    import yaml
+
+    # Set generous busy timeout to prevent immediate lock crashes on network shares
+    conn.execute("PRAGMA busy_timeout = 30000")
+
     path = os.path.abspath(db_path)
     # UNC paths (\\server\share) or mapped drives on Windows network shares
-    if path.startswith("\\\\") or (os.name == "nt" and _is_network_drive(path)):
+    is_net = path.startswith("\\\\") or (os.name == "nt" and _is_network_drive(path))
+
+    # Detect if multi-user is enabled in config.yaml
+    multi_user_enabled = False
+    if getattr(sys, "frozen", False):
+        app_path = os.path.dirname(sys.executable)
+    else:
+        app_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    config_path = os.path.join(app_path, "config.yaml")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+                multi_user_enabled = config.get("multi_user", {}).get("enabled", False)
+        except Exception:
+            pass
+
+    if is_net or multi_user_enabled:
         conn.execute("PRAGMA journal_mode=DELETE")
     else:
         conn.execute("PRAGMA journal_mode=WAL")
@@ -52,7 +75,7 @@ def get_db(db_path: str | None = None) -> sqlite3.Connection:
     conn = getattr(_local, "conn", None)
     # Recreate connection if path changed or doesn't exist
     if conn is None or getattr(_local, "db_path", None) != _db_path:
-        conn = sqlite3.connect(_db_path)
+        conn = sqlite3.connect(_db_path, timeout=30.0)
         _safe_journal_mode(conn, _db_path)
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.row_factory = sqlite3.Row
@@ -350,8 +373,8 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         detailer=row["detailer"] or "",
         checking_status=row["checking_status"] or "",
         notes=row["notes"] or "",
-        dr_checks=row["dr_checks"] or "" if "dr_checks" in row else "",
-        dvl_checks=row["dvl_checks"] or "" if "dvl_checks" in row else "",
+        dr_checks=row["dr_checks"] or "" if "dr_checks" in row.keys() else "",
+        dvl_checks=row["dvl_checks"] or "" if "dvl_checks" in row.keys() else "",
         status_color=row["status_color"] or "gray",  # persisted from last computed value
         department_hours=row["department_hours"] or 0.0,
         target_department_hours=row["target_dept_hours"]

@@ -48,6 +48,7 @@ from services.export_service import ExportService
 from services.import_service import ImportService
 from services.sync_service import SyncService
 from services.unit_service import UnitService
+from services.update_service import UpdateService
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +177,25 @@ class ExcelExportWorker(QThread):
             self.error.emit(str(e))
 
 
+class UpdateCheckWorker(QThread):
+    """Background worker for checking updates."""
+
+    finished = pyqtSignal(bool, str, str)  # update_available, local_version, remote_version
+    error = pyqtSignal(str)
+
+    def __init__(self, update_service: UpdateService, update_source_dir: str):
+        super().__init__()
+        self._update_service = update_service
+        self._update_source_dir = update_source_dir
+
+    def run(self):
+        try:
+            available, local_v, remote_v = self._update_service.check_for_update(self._update_source_dir)
+            self.finished.emit(available, local_v, remote_v)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class ServiceRegistry:
     """Holds all service instances. Created by main(), injected into MainWindow."""
 
@@ -194,6 +214,7 @@ class ServiceRegistry:
         self.export_service = ExportService()
         self.sync_service = SyncService(db_path, config.get("multi_user", {}))
         self.config_service = ConfigService  # static methods only
+        self.update_service = UpdateService(os.path.dirname(config_path))
 
     @staticmethod
     def _build_hook_registry():
@@ -276,6 +297,7 @@ class MainWindow(QMainWindow):
         self._init_theme()
         self._check_onboarding()
         self._load_data_async()
+        self._check_for_updates_silently()
 
     def _init_theme(self) -> None:
         """Initialize theme from config and apply to widget tree."""
@@ -581,6 +603,10 @@ class MainWindow(QMainWindow):
         walkthrough_action.setToolTip("Show the onboarding walkthrough")
         walkthrough_action.triggered.connect(lambda: show_onboarding(self, self._services.config))
         help_menu.addSeparator()
+        update_action = help_menu.addAction("Check for &Updates...")
+        update_action.setToolTip("Check if a newer version of the application is available")
+        update_action.triggered.connect(self._check_for_updates_interactively)
+        help_menu.addSeparator()
         about_action = help_menu.addAction("&About Unit Tracker")
         about_action.triggered.connect(self._show_about)
 
@@ -594,11 +620,13 @@ class MainWindow(QMainWindow):
         dlg.exec_()
 
     def _show_about(self):
+        local_version = self._services.update_service.get_local_version()
         QMessageBox.about(
             self,
             "About Unit Tracker",
             "<b>Unit Tracker</b><br><br>"
-            f"A desktop viewer/editor for detailing schedules.<br>"
+            f"Version: {local_version}<br><br>"
+            "A desktop viewer/editor for detailing schedules.<br>"
             f"Python {sys.version.split()[0]} | PyQt5 | SQLite<br><br>"
             "© 2026",
         )
@@ -652,7 +680,7 @@ class MainWindow(QMainWindow):
     def _update_alert_badge(self) -> None:
         """Update alert badge count on the Alerts view button (P10)."""
         self._alert_critical_count = sum(
-            1 for u in self.units if u.calculated_status_color == "red" and not u.is_stale
+            1 for u in self.units if u.status_color_name == "red" and not u.is_stale
         )
         if self._alert_critical_count > 0:
             self.alerts_view_btn.setText(
@@ -1475,7 +1503,7 @@ class MainWindow(QMainWindow):
         apply_theme(self, theme_name, cvd_mode=self._current_cvd, high_contrast=self._current_hc)
         self._current_theme_name = theme_name
         self._update_theme_button()
-        for panel in (self.calendar_panel, self.list_panel, self.timeline_panel, self.edit_form):
+        for panel in (self.calendar_panel, self.list_panel, self.timeline_panel, self.edit_form, self.alert_panel):
             if hasattr(panel, "set_theme"):
                 panel.set_theme(theme_name, self._current_cvd)
         if hasattr(self, "notification_panel") and self.notification_panel is not None:
@@ -1606,6 +1634,120 @@ class MainWindow(QMainWindow):
                 self._close_progress = None
             self._close_waiting = False
             QTimer.singleShot(0, self._real_close)
+
+    def _check_for_updates_silently(self):
+        update_source_dir = self._services.config.get("update_source_dir", "")
+        if not update_source_dir:
+            logger.info("No update_source_dir configured. Skipping update check.")
+            return
+
+        self._update_worker = UpdateCheckWorker(self._services.update_service, update_source_dir)
+        self._update_worker.finished.connect(self._on_silent_update_check_finished)
+        self._update_worker.error.connect(self._on_silent_update_check_error)
+        self._update_worker.start()
+
+    def _on_silent_update_check_finished(self, update_available: bool, local_v: str, remote_v: str):
+        if update_available:
+            reply = QMessageBox.question(
+                self,
+                "Update Available",
+                f"A new version (v{remote_v}) of the application is available (local: v{local_v}).\n\n"
+                "Would you like to close the app and update now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                self._run_update_process(remote_v)
+
+    def _on_silent_update_check_error(self, err_msg: str):
+        logger.info("Background update check failed (non-fatal): %s", err_msg)
+
+    def _check_for_updates_interactively(self):
+        update_source_dir = self._services.config.get("update_source_dir", "")
+        if not update_source_dir:
+            QMessageBox.warning(
+                self,
+                "Check for Updates",
+                "No 'update_source_dir' setting configured in config.yaml.\n\n"
+                "Please configure a network directory path to check for updates."
+            )
+            return
+
+        self.status_bar.showMessage("Checking for updates...")
+        self._interactive_worker = UpdateCheckWorker(self._services.update_service, update_source_dir)
+        self._interactive_worker.finished.connect(self._on_interactive_update_check_finished)
+        self._interactive_worker.error.connect(self._on_interactive_update_check_error)
+        self._interactive_worker.start()
+
+    def _on_interactive_update_check_finished(self, update_available: bool, local_v: str, remote_v: str):
+        self.status_bar.showMessage("Update check complete.", 2000)
+        if update_available:
+            reply = QMessageBox.question(
+                self,
+                "Update Available",
+                f"A new version (v{remote_v}) of the application is available (local: v{local_v}).\n\n"
+                "Would you like to close the app and update now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply == QMessageBox.Yes:
+                self._run_update_process(remote_v)
+        else:
+            QMessageBox.information(
+                self,
+                "Check for Updates",
+                f"You are up to date!\n\n"
+                f"Local Version: v{local_v}\n"
+                f"Latest Version: v{remote_v}"
+            )
+
+    def _on_interactive_update_check_error(self, err_msg: str):
+        self.status_bar.showMessage("Update check failed.", 2000)
+        QMessageBox.warning(
+            self,
+            "Check for Updates Failed",
+            f"Could not connect to update directory or read version info:\n\n{err_msg}"
+        )
+
+    def _run_update_process(self, remote_version: str):
+        if not self._confirm_discard():
+            return
+
+        update_source_dir = self._services.config.get("update_source_dir", "")
+        if not update_source_dir:
+            return
+
+        remote_config_path = os.path.join(update_source_dir, "config.yaml")
+        local_config_path = self._services.config_path
+
+        # Perform smart config merge
+        self._services.update_service.smart_merge_config(remote_config_path, local_config_path)
+
+        # Write new version locally to version.txt
+        local_version_path = os.path.join(os.path.dirname(local_config_path), "version.txt")
+        try:
+            with open(local_version_path, "w", encoding="utf-8") as f:
+                f.write(remote_version + "\n")
+        except Exception as e:
+            logger.error("Failed to write local version.txt during update: %s", e)
+
+        # Generate batch file
+        local_app_dir = os.path.dirname(local_config_path)
+        try:
+            batch_path = self._services.update_service.generate_updater_script(update_source_dir, local_app_dir)
+        except Exception as e:
+            QMessageBox.critical(self, "Update Error", f"Failed to generate update script:\n{e}")
+            return
+
+        # Launch batch file detached
+        import subprocess
+        try:
+            subprocess.Popen(f'start "" "{batch_path}"', shell=True)
+        except Exception as e:
+            QMessageBox.critical(self, "Update Error", f"Failed to launch update script:\n{e}")
+            return
+
+        self._real_close()
 
     def _cleanup_before_close(self) -> None:
         self._services.sync_service.stop_heartbeat()

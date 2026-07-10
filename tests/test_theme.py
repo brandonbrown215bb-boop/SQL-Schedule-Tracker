@@ -14,6 +14,7 @@ from gui.theme import get_status_colors, status_style
 # ── Expected color values from theme.py ──────────────────────────────
 
 EXPECTED_LIGHT = {
+    "unassigned": "#6f6f6f",
     "gray": "#6f6f6f",  # darkened for WCAG AA 4.5:1 on bg_tertiary
     "yellow": "#92600a",
     "purple": "#7e3fb0",
@@ -23,6 +24,7 @@ EXPECTED_LIGHT = {
 }
 
 EXPECTED_DARK = {
+    "unassigned": "#9faec3",
     "gray": "#9faec3",  # lightened for WCAG AA 4.5:1 on bg_tertiary
     "yellow": "#facc15",
     "purple": "#d69aff",  # lightened for WCAG AA 4.5:1 on bg_tertiary
@@ -31,7 +33,7 @@ EXPECTED_DARK = {
     "red": "#ff9999",  # lightened for WCAG AA 4.5:1 on bg_tertiary
 }
 
-ALL_STATUSES = ["gray", "yellow", "purple", "orange", "green", "red"]
+ALL_STATUSES = ["unassigned", "gray", "yellow", "purple", "orange", "green", "red"]
 
 
 class TestStatusColorsLight:
@@ -75,6 +77,12 @@ class TestStatusStyleReturnsCorrectTuple:
         hex_color, icon, label = status_style("light", "gray")
         assert hex_color == "#6f6f6f"
         assert icon == "●"
+        assert label == "Not Started"
+
+    def test_unassigned_light(self):
+        hex_color, icon, label = status_style("light", "unassigned")
+        assert hex_color == "#6f6f6f"
+        assert icon == "⚠"
         assert label == "Unassigned"
 
     def test_all_statuses_return_three_tuple(self):
@@ -174,4 +182,94 @@ class TestStyleAlertsBtn:
         assert "color: #f1f5f9" in stylesheet
         assert "font-weight: 500" in stylesheet
         assert "background: #334155" in stylesheet
+
+
+class TestGetDeptHoursColor:
+    """Tests for get_dept_hours_color — dynamic conditional formatting."""
+
+    def test_min_max_identical(self):
+        from gui.theme import get_dept_hours_color
+        from PyQt5.QtGui import QColor
+
+        # When min_val == max_val, it should return the low hours color (c1)
+        bg, fg = get_dept_hours_color("light", 50.0, 100.0, 100.0, cvd_mode="none")
+        # For light theme normal, c1 is #e2f0d9 (226, 240, 217)
+        assert bg == QColor("#e2f0d9")
+        # Brightness is high, so foreground should be dark (#0f172a)
+        assert fg == QColor("#0f172a")
+
+    def test_interpolation_bounds(self):
+        from gui.theme import get_dept_hours_color
+        from PyQt5.QtGui import QColor
+
+        # Min value
+        bg_min, _ = get_dept_hours_color("light", 10.0, 10.0, 100.0, cvd_mode="none")
+        assert bg_min == QColor("#e2f0d9")
+
+        # Max value
+        bg_max, _ = get_dept_hours_color("light", 100.0, 10.0, 100.0, cvd_mode="none")
+        assert bg_max == QColor("#c73838")
+
+    def test_interpolation_midpoint(self):
+        from gui.theme import get_dept_hours_color
+        from PyQt5.QtGui import QColor
+
+        # Midpoint value (55.0 is exactly halfway between 10.0 and 100.0)
+        bg_mid, _ = get_dept_hours_color("light", 55.0, 10.0, 100.0, cvd_mode="none")
+        # Mid point for light theme normal is #ffeb9c
+        assert bg_mid == QColor("#ffeb9c")
+
+    def test_clamping_out_of_bounds(self):
+        from gui.theme import get_dept_hours_color
+        from PyQt5.QtGui import QColor
+
+        # Below min
+        bg_low, _ = get_dept_hours_color("light", 5.0, 10.0, 100.0, cvd_mode="none")
+        assert bg_low == QColor("#e2f0d9")
+
+        # Above max
+        bg_high, _ = get_dept_hours_color("light", 150.0, 10.0, 100.0, cvd_mode="none")
+        assert bg_high == QColor("#c73838")
+
+    def test_cvd_overrides_light(self):
+        from gui.theme import get_dept_hours_color
+        from PyQt5.QtGui import QColor
+
+        # Deuteranopia min color in light mode: #e0f2f1 (Teal)
+        bg, _ = get_dept_hours_color("light", 10.0, 10.0, 100.0, cvd_mode="deuteranopia")
+        assert bg == QColor("#e0f2f1")
+
+        # Protanopia min color in light mode: #e3f2fd (Blue)
+        bg, _ = get_dept_hours_color("light", 10.0, 10.0, 100.0, cvd_mode="protanopia")
+        assert bg == QColor("#e3f2fd")
+
+        # Tritanopia max color in light mode: #880e4f (Dark Raspberry)
+        bg, _ = get_dept_hours_color("light", 100.0, 10.0, 100.0, cvd_mode="tritanopia")
+        assert bg == QColor("#880e4f")
+
+    def test_cvd_overrides_dark(self):
+        from gui.theme import get_dept_hours_color
+        from PyQt5.QtGui import QColor
+
+        # Deuteranopia min color in dark mode: #004d40
+        bg, _ = get_dept_hours_color("dark", 10.0, 10.0, 100.0, cvd_mode="deuteranopia")
+        assert bg == QColor("#004d40")
+
+        # Protanopia max color in dark mode: #7f2d12
+        bg, _ = get_dept_hours_color("dark", 100.0, 10.0, 100.0, cvd_mode="protanopia")
+        assert bg == QColor("#7f2d12")
+
+    def test_foreground_contrast(self):
+        from gui.theme import get_dept_hours_color
+        from PyQt5.QtGui import QColor
+
+        # Verify dark background results in white text
+        # Dark theme normal c3 is #7f1d1d (Ruby Red) which is dark -> text should be white
+        _, fg_dark = get_dept_hours_color("dark", 100.0, 10.0, 100.0, cvd_mode="none")
+        assert fg_dark == QColor("#ffffff")
+
+        # Light theme normal c1 is #e2f0d9 (Soft Green) which is light -> text should be dark slate
+        _, fg_light = get_dept_hours_color("light", 10.0, 10.0, 100.0, cvd_mode="none")
+        assert fg_light == QColor("#0f172a")
+
 

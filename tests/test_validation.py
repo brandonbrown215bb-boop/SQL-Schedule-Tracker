@@ -102,6 +102,31 @@ class TestValidateUnit:
         valid, _errors = validate_unit(valid_unit)
         assert valid is True
 
+    def test_empty_detailer_is_valid(self, valid_unit):
+        valid_unit.detailer = ""
+        valid, _errors = validate_unit(valid_unit)
+        assert valid is True
+
+    def test_unassigned_detailer_is_valid(self, valid_unit):
+        valid_unit.detailer = "Unassigned"
+        valid, _errors = validate_unit(valid_unit)
+        assert valid is True
+
+    def test_update_allowed_detailers(self, valid_unit):
+        from services.validation import update_allowed_detailers, _DEFAULT_DETAILERS
+        
+        original_allowed = list(_DEFAULT_DETAILERS)
+        try:
+            valid_unit.detailer = "New Custom Detailer"
+            valid, _errors = validate_unit(valid_unit)
+            assert valid is False
+            
+            update_allowed_detailers(["New Custom Detailer"])
+            valid, _errors = validate_unit(valid_unit)
+            assert valid is True
+        finally:
+            update_allowed_detailers(original_allowed)
+
     def test_invalid_status_color(self, valid_unit):
         valid_unit.status_color = "neon"
         valid, errors = validate_unit(valid_unit)
