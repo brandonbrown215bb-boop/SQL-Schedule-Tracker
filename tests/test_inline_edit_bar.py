@@ -26,6 +26,7 @@ def sample_unit():
         description="Test",
         detailer="Carl M",
         checking_status="In Progress",
+        unit_state="Fab-Lock",
         dr_checks="Pending",
         dvl_checks="N/A",
         department_hours=40.0,
@@ -148,6 +149,7 @@ class TestInlineEditBarSave:
         emitted_unit = received[0]
         assert emitted_unit.com_number == "14201"
         assert emitted_unit.job_name == "Test Job"
+        assert emitted_unit.unit_state == "Fab-Lock"
         assert emitted_unit.percent_complete == 75.0
         assert emitted_unit.checking_status == "Reviewed"
 

@@ -139,7 +139,11 @@ def save_unit(
             unit.percent_complete / 100,
             unit.actual_hours,
             # restore original target_dept_hours for non-primary identicals
-            getattr(unit, '_original_target_department_hours', unit.target_department_hours),
+            (
+                unit._original_target_department_hours
+                if unit._original_target_department_hours is not None
+                else unit.target_department_hours
+            ),
             unit.iec_internal_hours,
             unit.dept_due_date_previous.isoformat() if unit.dept_due_date_previous else None,
             unit.detailing_due_date.isoformat() if unit.detailing_due_date else None,

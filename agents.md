@@ -512,7 +512,13 @@ When modifying or adding widgets, follow these rules to ensure correct dark/ligh
 ### 16.4 List Widget Sizing & Spacing
 - Do not style `QListWidget::item` or `QListView::item` border or padding in the global stylesheet if custom row widgets are loaded via `setItemWidget()`. This interferes with `setSizeHint` row height calculations and squishes the layout. Only style container-level properties (background, border, border-radius) of `QListWidget`.
 
+### 16.5 Horizontal Layout Capacity, Date Geometry & Status Labels
+- **Horizontal Layout Capacity Invariant**: In PyQt5 `QHBoxLayout`, never pack >1,000px worth of child widgets into a single horizontal row. On small or non-maximized screen resolutions (<1,200px), Qt's layout engine will proportionally compress child widgets below their `minimumWidth`, reducing date boxes to ~60px and truncating 10-character dates like `06/24/2026` into `06/24/20`. Always balance input fields across multiple rows so that non-stretch width per row stays under ~950px–1,000px.
+- **Inner `QLineEdit` Alignment in `QDateEdit`**: Setting alignment on a `QDateEdit` instance (`date_edit.setAlignment(...)`) only sets alignment on the outer container shell. To align the actual displayed date text left horizontally and centered top-to-bottom ("up and down"), call `date_edit.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)`. Because `QWindowsStyle::polish(widget)` resets inner line-edit alignment, this MUST be re-applied in validation methods post-polish.
+- **Hidden Empty Labels**: Empty `QLabel` widgets inside a horizontal layout will render as blank input box artifacts (`[   ]`) if global QSS input rules apply backgrounds or borders to `QLabel`. Always toggle `label.setVisible(bool(text.strip()))` when updating text so empty labels take 0 horizontal/vertical space.
+
 ---
+
 
 ## 17. Detailer Unassigned States & Validation Rules
 
@@ -547,5 +553,6 @@ When implementing dynamic conditional formatting or cell highlights:
 
 ---
 
-*Last updated: 2026-07-10*
-*Architecture: Theme-aware dark mode + dynamic conditional formatting + unassigned unit visual safety. 438 tests passing. Lint clean.*
+*Last updated: 2026-07-23*
+*Architecture: Theme-aware dark mode + dynamic conditional formatting + unassigned unit visual safety + layout capacity invariants. 473 tests passing. Lint clean.*
+

@@ -44,6 +44,7 @@ def sample_unit():
         description="A sample unit",
         detailer="Carl M",
         checking_status="In Progress",
+        unit_state="Fab-Eng",
         status_color="yellow",
         department_hours=40.0,
         target_department_hours=36.0,
@@ -168,6 +169,7 @@ class TestOnSaveEmitsCorrectData:
         assert emitted.job_name == "Test Job Alpha"
         assert emitted.com_number == "123456"
         assert emitted.detailer == "Carl M"
+        assert emitted.unit_state == "Fab-Eng"
         assert emitted.department_hours == 40.0
         assert emitted.percent_complete == 50.0
 

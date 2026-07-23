@@ -33,6 +33,8 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QSizePolicy,
     QStyle,
@@ -153,7 +155,8 @@ class UnitListModel:
     def __init__(self, units: list[Unit], show_stale: bool = False):
         self._all_units: list[Unit] = list(units)
         self._filtered_units: list[Unit] = list(units)
-        self._visible_columns: list[str] = [key for key, _, _, visible in COLUMN_DEFS if visible]
+        self._column_order: list[str] = [key for key, _, _, _ in COLUMN_DEFS]
+        self._visible_columns_set: set[str] = {key for key, _, _, visible in COLUMN_DEFS if visible}
         self._show_stale: bool = show_stale
         # Current filter state for re-application
         self._current_status: str = "All"
@@ -173,12 +176,25 @@ class UnitListModel:
         return self._filtered_units
 
     @property
+    def column_order(self) -> list[str]:
+        return list(self._column_order)
+
+    def set_column_order(self, order: list[str]) -> None:
+        if not order:
+            return
+        all_keys = [key for key, _, _, _ in COLUMN_DEFS]
+        clean = [k for k in order if k in all_keys]
+        missing = [k for k in all_keys if k not in clean]
+        self._column_order = clean + missing
+
+    @property
     def visible_columns(self) -> list[str]:
-        return self._visible_columns
+        return [key for key in self._column_order if key in self._visible_columns_set]
 
     def set_visible_columns(self, keys: list[str]) -> None:
         if keys:
-            self._visible_columns = keys
+            all_keys = {key for key, _, _, _ in COLUMN_DEFS}
+            self._visible_columns_set = {k for k in keys if k in all_keys}
 
     # ── Filtering ───────────────────────────────────────────────────
 
@@ -421,6 +437,106 @@ class HighlightDelegate(QStyledItemDelegate):
         super().paint(painter, opt, index)
 
 
+# ─── Column Chooser Dialog ──────────────────────────────────────────
+
+
+class ColumnChooserDialog(QDialog):
+    """Dialog to toggle visible columns and reorder them with drag-and-drop or Move Up/Down buttons."""
+
+    def __init__(self, column_order: list[str], visible_columns: list[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Choose & Reorder Columns")
+        self.resize(380, 480)
+
+        self._reset_requested: bool = False
+        self._column_defs_map = {key: header for key, header, _, _ in COLUMN_DEFS}
+
+        layout = QVBoxLayout(self)
+
+        hint_label = QLabel("Drag items or use buttons to reorder columns.\nCheck boxes to show/hide columns.")
+        hint_label.setWordWrap(True)
+        hint_label.setStyleSheet("color: palette(placeholder-text); font-size: 11px;")
+        layout.addWidget(hint_label)
+
+        content_layout = QHBoxLayout()
+
+        self.list_widget = QListWidget()
+        self.list_widget.setDragDropMode(QAbstractItemView.InternalMove)
+        self.list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
+
+        visible_set = set(visible_columns)
+        for key in column_order:
+            header = self._column_defs_map.get(key, key)
+            item = QListWidgetItem(header)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            item.setCheckState(Qt.Checked if key in visible_set else Qt.Unchecked)
+            item.setData(Qt.UserRole, key)
+            self.list_widget.addItem(item)
+
+        content_layout.addWidget(self.list_widget, 1)
+
+        btn_layout = QVBoxLayout()
+        self.btn_up = QPushButton("Move Up")
+        self.btn_up.clicked.connect(self._move_up)
+        self.btn_down = QPushButton("Move Down")
+        self.btn_down.clicked.connect(self._move_down)
+        self.btn_reset = QPushButton("Reset Defaults")
+        self.btn_reset.clicked.connect(self._reset_defaults)
+
+        btn_layout.addWidget(self.btn_up)
+        btn_layout.addWidget(self.btn_down)
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_reset)
+
+        content_layout.addLayout(btn_layout)
+        layout.addLayout(content_layout)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _move_up(self) -> None:
+        row = self.list_widget.currentRow()
+        if row > 0:
+            item = self.list_widget.takeItem(row)
+            self.list_widget.insertItem(row - 1, item)
+            self.list_widget.setCurrentRow(row - 1)
+
+    def _move_down(self) -> None:
+        row = self.list_widget.currentRow()
+        if row >= 0 and row < self.list_widget.count() - 1:
+            item = self.list_widget.takeItem(row)
+            self.list_widget.insertItem(row + 1, item)
+            self.list_widget.setCurrentRow(row + 1)
+
+    def _reset_defaults(self) -> None:
+        self._reset_requested = True
+        self.list_widget.clear()
+        for key, header, _, default_visible in COLUMN_DEFS:
+            item = QListWidgetItem(header)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            item.setCheckState(Qt.Checked if default_visible else Qt.Unchecked)
+            item.setData(Qt.UserRole, key)
+            self.list_widget.addItem(item)
+
+    @property
+    def is_reset_requested(self) -> bool:
+        return self._reset_requested
+
+    def get_result(self) -> tuple[list[str], list[str]]:
+        """Return (column_order, visible_columns) from dialog list widget."""
+        ordered_keys: list[str] = []
+        visible_keys: list[str] = []
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            key = item.data(Qt.UserRole)
+            ordered_keys.append(key)
+            if item.checkState() == Qt.Checked:
+                visible_keys.append(key)
+        return ordered_keys, visible_keys
+
+
 # ─── ListPanel Widget ───────────────────────────────────────────────
 
 
@@ -434,6 +550,7 @@ class ListPanel(QWidget):
     unit_saved = pyqtSignal(object)  # Unit (from inline edit bar)
     inline_dirty_changed = pyqtSignal(bool)
     stale_changed = pyqtSignal(bool)  # show_stale
+    column_order_changed = pyqtSignal(list)  # list of column keys in full order
     column_widths_changed = pyqtSignal(dict)  # {key: width}
     column_visibility_changed = pyqtSignal(list)  # list of visible column keys
     batch_mode_changed = pyqtSignal(int)  # count of selected units (0 = no batch)
@@ -457,7 +574,9 @@ class ListPanel(QWidget):
         self._tag_repo: UnitTagRepository | None = None
         self._saved_widths: dict[str, int] = {}
         self._saved_visible_columns: list[str] = []
+        self._saved_column_order: list[str] = []
         self._emitting_widths: bool = False
+        self._emitting_order: bool = False
         self._default_detailers: list[str] = default_detailers or []
         self._db_path: str = db_path
         self._show_inline_edit: bool = show_inline_edit
@@ -661,8 +780,10 @@ class ListPanel(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionsClickable(True)
+        self.table.horizontalHeader().setSectionsMovable(True)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
         self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
+        self.table.horizontalHeader().sectionMoved.connect(self._on_section_moved)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.doubleClicked.connect(self._on_double_clicked)
@@ -724,10 +845,24 @@ class ListPanel(QWidget):
         if self._model is not None:
             self._model.set_visible_columns(keys)
 
+    def load_column_order(self, order: list[str]) -> None:
+        """Load saved column order from config (list of column keys)."""
+        if not order:
+            return
+        self._saved_column_order = list(order)
+        if self._model is not None:
+            self._model.set_column_order(order)
+
     def set_units(self, units: list[Unit]) -> None:
         """Load units into the model (initial load)."""
         old_visible = self._model.visible_columns if self._model else None
+        old_order = self._model.column_order if self._model else None
         self._model = UnitListModel(units)
+        if old_order:
+            self._model.set_column_order(old_order)
+        elif self._saved_column_order:
+            self._model.set_column_order(self._saved_column_order)
+
         if old_visible:
             self._model.set_visible_columns(old_visible)
         elif self._saved_visible_columns:
@@ -748,12 +883,14 @@ class ListPanel(QWidget):
             self.set_units(units)
             return
 
-        # Save current selection, scroll position, and visible columns
+        # Save current selection, scroll position, visible columns, and column order
         selected_com = self._get_selected_com()
         scroll_pos = self.table.verticalScrollBar().value()
         old_visible = self._model.visible_columns
+        old_order = self._model.column_order
 
         self._model = UnitListModel(units)
+        self._model.set_column_order(old_order)
         self._model.set_visible_columns(old_visible)
         self._tag_strings_cache.clear()
         self._populate_detailer_combo()
@@ -907,39 +1044,42 @@ class ListPanel(QWidget):
         if self._model is None:
             return
 
-        units = self._model.filtered_units
-        visible = self._model.visible_columns
+        self._emitting_order = True
+        try:
+            units = self._model.filtered_units
+            visible = self._model.visible_columns
 
-        # Pre-compute min/max department hours for visible units to use in conditional formatting.
-        # Only consider units with department_hours > 0.0.
-        visible_dept_hours = [
-            u.department_hours
-            for u in units
-            if u.department_hours is not None and u.department_hours > 0.0
-        ]
-        min_dept_hours = min(visible_dept_hours) if visible_dept_hours else 0.0
-        max_dept_hours = max(visible_dept_hours) if visible_dept_hours else 0.0
+            # Pre-compute min/max department hours for visible units to use in conditional formatting.
+            # Only consider units with department_hours > 0.0.
+            visible_dept_hours = [
+                u.department_hours
+                for u in units
+                if u.department_hours is not None and u.department_hours > 0.0
+            ]
+            min_dept_hours = min(visible_dept_hours) if visible_dept_hours else 0.0
+            max_dept_hours = max(visible_dept_hours) if visible_dept_hours else 0.0
 
-        # Pre-compute description_tags for all visible units.
-        # Uses a persistent cache keyed by com_number — only re-parses
-        # when the unit tag repo changes or a new com_number appears.
-        show_tags = "description_tags" in visible
-        tag_cache: list[str] = []
-        if show_tags:
-            cache = self._tag_strings_cache
-            for _unit in units:
-                com = _unit.com_number
-                if com in cache:
-                    tag_cache.append(cache[com])
-                else:
-                    tag_str = self._compute_tags_display(_unit)
-                    cache[com] = tag_str
-                    tag_cache.append(tag_str)
+            # Pre-compute description_tags for all visible units.
+            # Uses a persistent cache keyed by com_number — only re-parses
+            # when the unit tag repo changes or a new com_number appears.
+            show_tags = "description_tags" in visible
+            tag_cache: list[str] = []
+            if show_tags:
+                cache = self._tag_strings_cache
+                for _unit in units:
+                    com = _unit.com_number
+                    if com in cache:
+                        tag_cache.append(cache[com])
+                    else:
+                        tag_str = self._compute_tags_display(_unit)
+                        cache[com] = tag_str
+                        tag_cache.append(tag_str)
 
-        col_headers: list[str] = []
-        col_keys: list[str] = []
-        for key, header, _width, _ in COLUMN_DEFS:
-            if key in visible:
+            header_map = {d[0]: d[1] for d in COLUMN_DEFS}
+            col_headers: list[str] = []
+            col_keys: list[str] = []
+            for key in visible:
+                header = header_map.get(key, key)
                 if key == self._sort_column:
                     arrow = " \u25b2" if self._sort_ascending else " \u25bc"
                     col_headers.append(header + arrow)
@@ -947,210 +1087,195 @@ class ListPanel(QWidget):
                     col_headers.append(header)
                 col_keys.append(key)
 
-        self.table.setColumnCount(len(col_headers))
-        self.table.setHorizontalHeaderLabels(col_headers)
-        self.table.setRowCount(len(units))
+            self.table.setColumnCount(len(col_headers))
+            self.table.setHorizontalHeaderLabels(col_headers)
+            self.table.setRowCount(len(units))
 
-        width_map = {d[0]: d[2] for d in COLUMN_DEFS}
-        self._emitting_widths = True
-        for col_idx, key in enumerate(col_keys):
-            w = self._saved_widths.get(key, width_map.get(key, 80))
-            self.table.setColumnWidth(col_idx, w)
-        self._emitting_widths = False
+            # Reset QHeaderView visual-to-logical section mapping so
+            # logical index == visual index after every rebuild.
+            header = self.table.horizontalHeader()
+            for i in range(len(col_headers)):
+                vi = header.visualIndex(i)
+                if vi != i:
+                    header.moveSection(vi, i)
 
-        # Pre-compute value-based group highlight colors for due date and contract number.
-        #
-        # Strategy: "paint by value" — each unique grouping key is assigned one of
-        # five palette colors via (hash(str(value)) % 5) + 1. The same value always maps
-        # to the same color regardless of sort order, so groups are visually
-        # consistent even when the list is re-sorted. Singletons (values that
-        # appear only once across the visible rows) receive no highlight.
-
-        main_win = self.window()
-        high_contrast = getattr(main_win, "_current_hc", False) or getattr(self, "_current_hc", False)
-
-        def _compute_value_colors(key_fn) -> list[QColor | None]:
-            """Return a QColor (or None) for each unit in `units`.
-
-            Counts occurrences of each key across the visible rows first;
-            only values with 2+ occurrences receive a color.
-            """
-            keys = [key_fn(u) for u in units]
-            # Count occurrences
-            freq: dict = {}
-            for k in keys:
-                freq[k] = freq.get(k, 0) + 1
-            # Assign colors
-            result: list = []
-            for k in keys:
-                if k is None or k == "" or freq[k] < 2:
-                    result.append(None)
-                else:
-                    from gui.theme import get_week_highlight_color
-                    # 5 groups, mapped to week colors 1-5
-                    week_idx = (hash(str(k)) % 5) + 1
-                    color = get_week_highlight_color(
-                        self._theme_name, week_idx, self._cvd_mode, high_contrast
-                    )
-                    result.append(color)
-            return result
-
-        com_colors = _compute_value_colors(
-            lambda u: u.contract_number or None  # None = no contract = singleton
-        )
-
-        bold_font = QFont()
-        bold_font.setBold(True)
-
-        for row_idx, unit in enumerate(units):
+            width_map = {d[0]: d[2] for d in COLUMN_DEFS}
+            self._emitting_widths = True
             for col_idx, key in enumerate(col_keys):
-                # Use pre-computed tag string from batch cache
-                if key == "description_tags" and show_tags:
-                    value = tag_cache[row_idx]
-                else:
-                    value = getattr(unit, key, None)
-                display = self._format_cell(key, value)
-                item = QTableWidgetItem(display)
+                w = self._saved_widths.get(key, width_map.get(key, 80))
+                self.table.setColumnWidth(col_idx, w)
+            self._emitting_widths = False
 
-                # Week-of-the-month highlight & suffix for Detailing Due Date
-                if key == "detailing_due_date":
-                    print(f"[DEBUG] key={key}, value={value}, type={type(value)}, display={display}")
-                if key == "detailing_due_date" and value and isinstance(value, date):
-                    friday = value + timedelta(days=(4 - value.weekday()) % 7)
-                    week_idx = get_week_of_month(friday)
+            # Pre-compute value-based group highlight colors for due date and contract number.
+            main_win = self.window()
+            high_contrast = getattr(main_win, "_current_hc", False) or getattr(self, "_current_hc", False)
 
-                    from gui.theme import get_week_highlight_color
-                    color = get_week_highlight_color(
-                        self._theme_name, week_idx, self._cvd_mode, high_contrast
-                    )
-                    item.setBackground(QBrush(color))
+            def _compute_value_colors(key_fn) -> list[QColor | None]:
+                keys = [key_fn(u) for u in units]
+                freq: dict = {}
+                for k in keys:
+                    freq[k] = freq.get(k, 0) + 1
+                result: list = []
+                for k in keys:
+                    if k is None or k == "" or freq[k] < 2:
+                        result.append(None)
+                    else:
+                        from gui.theme import get_week_highlight_color
+                        week_idx = (hash(str(k)) % 5) + 1
+                        color = get_week_highlight_color(
+                            self._theme_name, week_idx, self._cvd_mode, high_contrast
+                        )
+                        result.append(color)
+                return result
 
-                    # Ensure readable text color based on active theme
-                    from gui.theme import THEMES, boost_contrast
-                    tokens = THEMES[self._theme_name]
-                    if high_contrast:
-                        tokens = boost_contrast(self._theme_name)
-                    item.setForeground(QBrush(QColor(tokens["text_primary"])))
+            com_colors = _compute_value_colors(
+                lambda u: u.contract_number or None
+            )
 
-                    item.setToolTip(f"Due in Week {week_idx} of the month")
+            bold_font = QFont()
+            bold_font.setBold(True)
 
-                if key == "com_number":
-                    color = com_colors[row_idx]
-                    if color is not None:
+            for row_idx, unit in enumerate(units):
+                for col_idx, key in enumerate(col_keys):
+                    if key == "description_tags" and show_tags:
+                        value = tag_cache[row_idx]
+                    else:
+                        value = getattr(unit, key, None)
+                    display = self._format_cell(key, value)
+                    item = QTableWidgetItem(display)
+
+                    if key == "detailing_due_date" and value and isinstance(value, date):
+                        friday = value + timedelta(days=(4 - value.weekday()) % 7)
+                        week_idx = get_week_of_month(friday)
+
+                        from gui.theme import get_week_highlight_color
+                        color = get_week_highlight_color(
+                            self._theme_name, week_idx, self._cvd_mode, high_contrast
+                        )
                         item.setBackground(QBrush(color))
 
-                        # Ensure readable text color based on active theme
                         from gui.theme import THEMES, boost_contrast
                         tokens = THEMES[self._theme_name]
                         if high_contrast:
                             tokens = boost_contrast(self._theme_name)
                         item.setForeground(QBrush(QColor(tokens["text_primary"])))
+                        item.setToolTip(f"Due in Week {week_idx} of the month")
 
-                        # Set tooltip to indicate the shared top level number
-                        item.setToolTip(f"Shared top level number: {unit.contract_number}")
+                    if key == "com_number":
+                        color = com_colors[row_idx]
+                        if color is not None:
+                            item.setBackground(QBrush(color))
+                            from gui.theme import THEMES, boost_contrast
+                            tokens = THEMES[self._theme_name]
+                            if high_contrast:
+                                tokens = boost_contrast(self._theme_name)
+                            item.setForeground(QBrush(QColor(tokens["text_primary"])))
+                            item.setToolTip(f"Shared top level number: {unit.contract_number}")
 
-                if key == "department_hours" and value is not None and value > 0 and max_dept_hours > min_dept_hours:
-                    from gui.theme import get_dept_hours_color
-                    bg_color, fg_color = get_dept_hours_color(
-                        self._theme_name,
-                        value,
-                        min_dept_hours,
-                        max_dept_hours,
-                        self._cvd_mode,
-                        high_contrast,
-                    )
-                    item.setBackground(QBrush(bg_color))
-                    item.setForeground(QBrush(fg_color))
+                    if key == "department_hours" and value is not None and value > 0 and max_dept_hours > min_dept_hours:
+                        from gui.theme import get_dept_hours_color
+                        bg_color, fg_color = get_dept_hours_color(
+                            self._theme_name,
+                            value,
+                            min_dept_hours,
+                            max_dept_hours,
+                            self._cvd_mode,
+                            high_contrast,
+                        )
+                        item.setBackground(QBrush(bg_color))
+                        item.setForeground(QBrush(fg_color))
 
-                if key in (
-                    "percent_complete",
-                    "department_hours",
-                    "actual_hours",
-                    "target_department_hours",
-                    "working_days_in_checking",
-                ):
-                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                elif key == "status_color":
-                    item.setTextAlignment(Qt.AlignCenter)
-                else:
-                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                    if key in (
+                        "percent_complete",
+                        "department_hours",
+                        "actual_hours",
+                        "target_department_hours",
+                        "working_days_in_checking",
+                    ):
+                        item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    elif key == "status_color":
+                        item.setTextAlignment(Qt.AlignCenter)
+                    else:
+                        item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-                if key == "detailer" and not unit.is_assigned:
-                    item.setFont(bold_font)
-                    item.setForeground(QBrush(QColor("#dc2626")))
-
-                if key == "status_color":
-                    from gui.theme import status_style as _theme_status_style
-
-                    computed_status = unit.status_color_name
-                    hex_color, icon, label = _theme_status_style(
-                        self._theme_name, computed_status, self._cvd_mode
-                    )
-                    color = QColor(hex_color)
-                    item.setBackground(QBrush(color))
-                    brightness = (
-                        color.red() * 299 + color.green() * 587 + color.blue() * 114
-                    ) / 1000
-                    text_color = QColor("white") if brightness < 160 else QColor("#1e293b")
-                    item.setForeground(QBrush(text_color))
-                    item.setFont(bold_font)
-                    item.setText(icon)
-                    item.setToolTip(f"{icon} {label}")
-
-                if key == "unit_state" and value:
-                    state_str = str(value).strip()
-                    color = UNIT_STATE_COLORS.get(state_str, QColor(100, 116, 139))
-                    item.setBackground(QBrush(color))
-                    item.setForeground(QBrush(QColor("white")))
-                    item.setFont(bold_font)
-                    item.setTextAlignment(Qt.AlignCenter)
-                    item.setToolTip(f"Manufacturing Order State: {state_str}")
-
-                if (
-                    key == "detailing_due_date"
-                    and value
-                    and isinstance(value, date)
-                    and value < date.today()
-                ):
-                    item.setForeground(QBrush(QColor("#dc2626")))
-                    item.setFont(bold_font)
-
-                # Due date changed indicator
-                if key == "detailing_due_date" and unit.due_date_changed:
-                    item.setText("⚠ " + item.text())
-                    item.setBackground(QBrush(QColor(255, 200, 50, 80)))
-                    prev = unit.previous_detailing_due_date
-                    prev_str = prev.strftime("%m/%d/%Y") if prev else "—"
-                    item.setToolTip(f"Due date changed from {prev_str}")
-
-                if key == "dept_due_date_previous" and value:
-                    item.setFont(bold_font)
-
-                if unit.is_cancelled:
-                    if key == "detailer":
-                        item.setText("🚫 Cancelled")
+                    if key == "detailer" and not unit.is_assigned:
                         item.setFont(bold_font)
-                        item.setForeground(QBrush(QColor("#64748b")))
-                    elif key != "status_color":
-                        item.setForeground(QBrush(QColor("#64748b")))
+                        item.setForeground(QBrush(QColor("#dc2626")))
 
-                item.setData(Qt.UserRole, unit)
-                self.table.setItem(row_idx, col_idx, item)
+                    if key == "status_color":
+                        from gui.theme import status_style as _theme_status_style
 
-        total = len(self._model.all_units)
-        showing = len(units)
-        stale_count = sum(1 for u in self._model.all_units if u.is_stale and u not in units)
-        if self._model._show_stale:
-            stale_note = ""
-        elif stale_count > 0:
-            stale_note = f" ({stale_count} stale hidden)"
-        else:
-            stale_note = ""
-        self.status_label.setText(
-            f"Showing {showing} of {total} units{stale_note}"
-            f" | sorted by {self._sort_column}"
-            f" {'asc' if self._sort_ascending else 'desc'}"
-        )
+                        computed_status = unit.status_color_name
+                        hex_color, icon, label = _theme_status_style(
+                            self._theme_name, computed_status, self._cvd_mode
+                        )
+                        color = QColor(hex_color)
+                        item.setBackground(QBrush(color))
+                        brightness = (
+                            color.red() * 299 + color.green() * 587 + color.blue() * 114
+                        ) / 1000
+                        text_color = QColor("white") if brightness < 160 else QColor("#1e293b")
+                        item.setForeground(QBrush(text_color))
+                        item.setFont(bold_font)
+                        item.setText(icon)
+                        item.setToolTip(f"{icon} {label}")
+
+                    if key == "unit_state" and value:
+                        state_str = str(value).strip()
+                        color = UNIT_STATE_COLORS.get(state_str, QColor(100, 116, 139))
+                        item.setBackground(QBrush(color))
+                        item.setForeground(QBrush(QColor("white")))
+                        item.setFont(bold_font)
+                        item.setTextAlignment(Qt.AlignCenter)
+                        item.setToolTip(f"Manufacturing Order State: {state_str}")
+
+                    if (
+                        key == "detailing_due_date"
+                        and value
+                        and isinstance(value, date)
+                        and value < date.today()
+                    ):
+                        item.setForeground(QBrush(QColor("#dc2626")))
+                        item.setFont(bold_font)
+
+                    # Due date changed indicator
+                    if key == "detailing_due_date" and unit.due_date_changed:
+                        item.setText("⚠ " + item.text())
+                        item.setBackground(QBrush(QColor(255, 200, 50, 80)))
+                        prev = unit.previous_detailing_due_date
+                        prev_str = prev.strftime("%m/%d/%Y") if prev else "—"
+                        item.setToolTip(f"Due date changed from {prev_str}")
+
+                    if key == "dept_due_date_previous" and value:
+                        item.setFont(bold_font)
+
+                    if unit.is_cancelled:
+                        if key == "detailer":
+                            item.setText("🚫 Cancelled")
+                            item.setFont(bold_font)
+                            item.setForeground(QBrush(QColor("#64748b")))
+                        elif key != "status_color":
+                            item.setForeground(QBrush(QColor("#64748b")))
+
+                    item.setData(Qt.UserRole, unit)
+                    self.table.setItem(row_idx, col_idx, item)
+
+            total = len(self._model.all_units)
+            showing = len(units)
+            stale_count = sum(1 for u in self._model.all_units if u.is_stale and u not in units)
+            if self._model._show_stale:
+                stale_note = ""
+            elif stale_count > 0:
+                stale_note = f" ({stale_count} stale hidden)"
+            else:
+                stale_note = ""
+            self.status_label.setText(
+                f"Showing {showing} of {total} units{stale_note}"
+                f" | sorted by {self._sort_column}"
+                f" {'asc' if self._sort_ascending else 'desc'}"
+            )
+        finally:
+            self._emitting_order = False
 
     def _clear_filters(self) -> None:
         """Reset all filter widgets to defaults."""
@@ -1192,6 +1317,43 @@ class ListPanel(QWidget):
         key = visible[column_index]
         self._saved_widths[key] = new_width
         self.column_widths_changed.emit(dict(self._saved_widths))
+
+    def _on_section_moved(self, logical_index: int, old_visual_index: int, new_visual_index: int) -> None:
+        """Handle user dragging a column header section.
+
+        QHeaderView emits sectionMoved with visual positions.  We read the
+        *actual* visual-to-logical mapping from the header to build the new
+        visible order, then derive the full column order from that.
+        """
+        if self._emitting_order or self._model is None:
+            return
+
+        header = self.table.horizontalHeader()
+        col_count = header.count()
+        visible = self._model.visible_columns
+        if col_count != len(visible):
+            return  # header and model out of sync — skip
+
+        # Build the new visible order by reading the header's actual
+        # visual-to-logical mapping (after the drag has been applied).
+        new_visible: list[str] = []
+        for vi in range(col_count):
+            li = header.logicalIndex(vi)
+            if 0 <= li < len(visible):
+                new_visible.append(visible[li])
+
+        # Full column order = new visible order + hidden keys in their
+        # previous relative order.
+        visible_set = set(new_visible)
+        current_order = self._model.column_order
+        remaining = [k for k in current_order if k not in visible_set]
+        updated_order = new_visible + remaining
+
+        self._model.set_column_order(updated_order)
+        self._saved_column_order = list(updated_order)
+
+        self._refresh_table_full()
+        self.column_order_changed.emit(list(updated_order))
 
     # ── Sorting ─────────────────────────────────────────────────────
 
@@ -1469,32 +1631,29 @@ class ListPanel(QWidget):
         if self._model is None:
             return
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Choose Columns")
-        layout = QVBoxLayout(dialog)
-
-        all_checkboxes: list[tuple[str, QCheckBox]] = []
-
-        # Show checkboxes in the order they currently appear
-        current_visible = set(self._model.visible_columns)
-
-        for key, header, _, _ in COLUMN_DEFS:
-            cb = QCheckBox(header)
-            cb.setChecked(key in current_visible)
-            cb.setProperty("key", key)
-            layout.addWidget(cb)
-            all_checkboxes.append((key, cb))
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
+        dialog = ColumnChooserDialog(
+            column_order=self._model.column_order,
+            visible_columns=self._model.visible_columns,
+            parent=self,
+        )
 
         if dialog.exec_() == QDialog.Accepted:
-            new_visible = [key for key, cb in all_checkboxes if cb.isChecked()]
-            if new_visible:
-                self._model.set_visible_columns(new_visible)
-                self._refresh_table_full()
-                self.column_visibility_changed.emit(list(new_visible))
+            new_order, new_visible = dialog.get_result()
+            if not new_visible:
+                new_visible = ["com_number"]
+
+            if dialog.is_reset_requested:
+                width_map = {d[0]: d[2] for d in COLUMN_DEFS}
+                self._saved_widths = dict(width_map)
+                self.column_widths_changed.emit(dict(self._saved_widths))
+
+            self._model.set_column_order(new_order)
+            self._model.set_visible_columns(new_visible)
+            self._saved_column_order = list(new_order)
+            self._saved_visible_columns = list(new_visible)
+
+            self._refresh_table_full()
+            self.column_order_changed.emit(list(new_order))
+            self.column_visibility_changed.emit(list(new_visible))
 
 

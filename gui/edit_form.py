@@ -22,7 +22,9 @@ from PyQt5.QtWidgets import (
 
 from data.models import Unit
 from gui.no_scroll_filter import install_no_scroll_filter
+from gui.theme import reset_input_style
 from services.validation import validate_unit
+
 
 
 # Theme-aware validation styles are set dynamically based on current theme
@@ -45,10 +47,14 @@ class ClearableDateEdit(QDateEdit):
         super().__init__(parent)
         self.setFocusPolicy(Qt.ClickFocus)
         self.setCalendarPopup(True)
+        self.setDisplayFormat("M/d/yyyy")
         self.setMinimumDate(self._UNSET)
         self.setSpecialValueText(" ")
         self.setDate(self._UNSET)
+        if self.lineEdit() is not None:
+            self.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.calendarWidget().installEventFilter(self)
+
 
     def eventFilter(self, obj, event) -> bool:
         if obj == self.calendarWidget() and event.type() == QEvent.Show and self.date() == self._UNSET:
@@ -146,6 +152,7 @@ class EditForm(QWidget):
         self.dept_hours_spin.setMaximum(99999.0)
         self.dept_hours_spin.setDecimals(2)
         self.dept_hours_spin.setSingleStep(0.25)
+        self.dept_hours_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form.addRow(QLabel("Dept Hours:"), self.dept_hours_spin)
 
         self.target_hours_spin = QDoubleSpinBox()
@@ -156,6 +163,7 @@ class EditForm(QWidget):
         self.target_hours_spin.setSingleStep(0.25)
         self.target_hours_spin.setReadOnly(False)
         self.target_hours_spin.setToolTip("Target Hours (Auto-calculated: Dept Hours - IEC Internal Hours, or manually editable)")
+        self.target_hours_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form.addRow(QLabel("Target Hours:"), self.target_hours_spin)
 
         self.iec_hours_spin = QDoubleSpinBox()
@@ -164,6 +172,7 @@ class EditForm(QWidget):
         self.iec_hours_spin.setMaximum(99999.0)
         self.iec_hours_spin.setDecimals(2)
         self.iec_hours_spin.setSingleStep(0.25)
+        self.iec_hours_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form.addRow(QLabel("IEC Internal Hours:"), self.iec_hours_spin)
 
         self.percent_spin = QDoubleSpinBox()
@@ -172,6 +181,7 @@ class EditForm(QWidget):
         self.percent_spin.setMaximum(100.0)
         self.percent_spin.setDecimals(1)
         self.percent_spin.setSuffix("%")
+        self.percent_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form.addRow(QLabel("% Complete:"), self.percent_spin)
 
         self.actual_hours_spin = QDoubleSpinBox()
@@ -180,6 +190,7 @@ class EditForm(QWidget):
         self.actual_hours_spin.setMaximum(99999.0)
         self.actual_hours_spin.setDecimals(2)
         self.actual_hours_spin.setSingleStep(0.25)
+        self.actual_hours_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form.addRow(QLabel("Actual Hours:"), self.actual_hours_spin)
 
         # --- Date fields ---
@@ -188,27 +199,37 @@ class EditForm(QWidget):
         self.form.addRow(self._create_h_line())
 
         self.start_date_edit = ClearableDateEdit()
+        self.start_date_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form.addRow(QLabel("Detailing Start:"), self.start_date_edit)
 
         self.checking_date_edit = ClearableDateEdit()
+        self.checking_date_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form.addRow(QLabel("Moved to Checking:"), self.checking_date_edit)
 
         self.completion_date_edit = ClearableDateEdit()
+        self.completion_date_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form.addRow(QLabel("Detailing Complete:"), self.completion_date_edit)
 
         self.due_prev_date_edit = ClearableDateEdit()
+        self.due_prev_date_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form.addRow(QLabel("Dept Due (prev):"), self.due_prev_date_edit)
 
         self.due_date_edit = ClearableDateEdit()
+        self.due_date_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form.addRow(QLabel("Detailing Due:"), self.due_date_edit)
 
         self.build_date_edit = ClearableDateEdit()
+        self.build_date_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.form.addRow(QLabel("Build Date:"), self.build_date_edit)
+
+
 
         # ── Dirty tracking ──
         self.current_unit: Unit | None = None
         self._dirty = False
         self._loading = False
+        self._updating_target_hours = False
+        self._target_hours_manually_edited = False
         _fields = (
             self.job_name_edit,
             self.contract_edit,
@@ -219,6 +240,7 @@ class EditForm(QWidget):
             self.dvl_checks_edit,
             self.notes_edit,
             self.dept_hours_spin,
+            self.target_hours_spin,
             self.iec_hours_spin,
             self.percent_spin,
             self.actual_hours_spin,
@@ -246,6 +268,7 @@ class EditForm(QWidget):
         self.dept_hours_spin.valueChanged.connect(self._update_target_hours)
         self.iec_hours_spin.valueChanged.connect(self._update_target_hours)
         self.detailer_edit.currentIndexChanged.connect(self._update_target_hours)
+        self.target_hours_spin.valueChanged.connect(self._on_target_hours_changed)
 
         # --- Buttons ---
         button_row = QHBoxLayout()
@@ -344,6 +367,13 @@ class EditForm(QWidget):
                 return
 
             self.current_unit = unit
+            self._target_hours_manually_edited = False
+            if unit is not None and not unit.is_non_primary_identical and unit.detailer != "Cancelled":
+                dept = unit.department_hours or 0.0
+                iec = unit.iec_internal_hours or 0.0
+                expected = max(0.0, dept - iec)
+                if abs(unit.target_department_hours - expected) > 0.001:
+                    self._target_hours_manually_edited = True
             self.status_label.setText("")
 
             self.com_number_edit.setText(unit.com_number)
@@ -385,12 +415,29 @@ class EditForm(QWidget):
         """
         errors: list[str] = []
 
-        # Remove inline validation styles (theme stylesheet takes over)
-        for widget in (self.percent_spin, self.dept_hours_spin, self.actual_hours_spin, self.target_hours_spin, self.due_date_edit):
-            widget.setStyleSheet("")
+        # Reset input styles back to base theme styling
+        for widget in (
+            self.percent_spin,
+            self.dept_hours_spin,
+            self.target_hours_spin,
+            self.iec_hours_spin,
+            self.actual_hours_spin,
+            self.start_date_edit,
+            self.checking_date_edit,
+            self.completion_date_edit,
+            self.due_prev_date_edit,
+            self.due_date_edit,
+            self.build_date_edit,
+        ):
+            reset_input_style(widget, self._theme_name)
             widget.setProperty("invalid", False)
             widget.style().unpolish(widget)
             widget.style().polish(widget)
+            if hasattr(widget, "lineEdit") and widget.lineEdit() is not None:
+                widget.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            elif hasattr(widget, "setAlignment"):
+                widget.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
 
         # Use the validation layer for field-level checks
         valid, validation_errors = validate_unit(unit)
@@ -417,6 +464,9 @@ class EditForm(QWidget):
             self.percent_spin.setToolTip("")
             self.dept_hours_spin.setToolTip("")
             self.actual_hours_spin.setToolTip("")
+            self.target_hours_spin.setToolTip("")
+            self.iec_hours_spin.setToolTip("")
+
 
         # Date order validation (warning, not fatal)
         dates = [
@@ -459,6 +509,7 @@ class EditForm(QWidget):
             description=self.description_edit.text(),
             detailer=detailer,
             checking_status=self.checking_status_edit.text(),
+            unit_state=self.unit_state_edit.text().strip(),
             dr_checks=self.dr_checks_edit.text(),
             dvl_checks=self.dvl_checks_edit.text(),
             notes=self.notes_edit.toPlainText(),
@@ -511,19 +562,35 @@ class EditForm(QWidget):
         self._dirty = True
         self.dirty_changed.emit(True)
 
+    def _on_target_hours_changed(self) -> None:
+        if self._loading or self._updating_target_hours:
+            return
+        dept = self.dept_hours_spin.value()
+        iec = self.iec_hours_spin.value()
+        expected = max(0.0, dept - iec)
+        if abs(self.target_hours_spin.value() - expected) > 0.001:
+            self._target_hours_manually_edited = True
+        else:
+            self._target_hours_manually_edited = False
+
     def _update_target_hours(self) -> None:
-        """Auto-calculate target hours = dept hours - IEC hours.
+        """Auto-calculate target hours = dept hours - IEC hours if not manually edited.
 
         For non-primary identicals or cancelled units the target must stay at 0 regardless
         of what is typed into Dept Hours or IEC Internal Hours.
         """
         detailer = self.detailer_edit.currentText().strip()
         if (self.current_unit and self.current_unit.is_non_primary_identical) or detailer == "Cancelled":
+            self._updating_target_hours = True
             self.target_hours_spin.setValue(0.0)
+            self._updating_target_hours = False
             return
-        dept = self.dept_hours_spin.value()
-        iec = self.iec_hours_spin.value()
-        self.target_hours_spin.setValue(max(0.0, dept - iec))
+        if not self._target_hours_manually_edited:
+            dept = self.dept_hours_spin.value()
+            iec = self.iec_hours_spin.value()
+            self._updating_target_hours = True
+            self.target_hours_spin.setValue(max(0.0, dept - iec))
+            self._updating_target_hours = False
 
     def _set_date(self, widget: QDateEdit, d: date | None):
         if d is not None:

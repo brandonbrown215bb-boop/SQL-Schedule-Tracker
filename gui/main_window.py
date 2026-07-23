@@ -513,6 +513,7 @@ class MainWindow(QMainWindow):
         self.list_panel.stale_changed.connect(self._on_stale_changed)
         self.list_panel.column_widths_changed.connect(self._on_column_widths_changed)
         self.list_panel.column_visibility_changed.connect(self._on_column_visibility_changed)
+        self.list_panel.column_order_changed.connect(self._on_column_order_changed)
         self.list_panel.batch_mode_changed.connect(self._on_batch_mode_changed)
         self.view_stack.addWidget(self.list_panel)
         self.alert_panel = AlertPanel(self.units)
@@ -527,6 +528,9 @@ class MainWindow(QMainWindow):
         saved_widths = self._services.config.get("ui", {}).get("list_column_widths", {})
         if saved_widths:
             self.list_panel.load_column_widths(saved_widths)
+        saved_order = self._services.config.get("ui", {}).get("list_column_order", [])
+        if saved_order:
+            self.list_panel.load_column_order(saved_order)
         saved_visible = self._services.config.get("ui", {}).get("list_visible_columns", [])
         if saved_visible:
             self.list_panel.load_visible_columns(saved_visible)
@@ -1652,6 +1656,10 @@ class MainWindow(QMainWindow):
 
     def _on_column_visibility_changed(self, keys: list) -> None:
         self._services.config.setdefault("ui", {})["list_visible_columns"] = keys
+        self._save_ui_config()
+
+    def _on_column_order_changed(self, order: list) -> None:
+        self._services.config.setdefault("ui", {})["list_column_order"] = order
         self._save_ui_config()
 
     def _save_ui_config(self) -> None:

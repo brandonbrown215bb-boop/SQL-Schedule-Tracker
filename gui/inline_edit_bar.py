@@ -21,15 +21,21 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
+
+
 from data.models import Unit
 from gui.edit_form import ClearableDateEdit, _get_invalid_style
 from gui.no_scroll_filter import install_no_scroll_filter
+from gui.theme import reset_input_style
 from services.validation import validate_unit
+
 
 
 class EnterKeySaveFilter(QObject):
@@ -68,6 +74,8 @@ class InlineEditBar(QWidget):
         self._notes: str = ""
         self._dirty = False
         self._loading = False
+        self._updating_target_hours = False
+        self._target_hours_manually_edited = False
         self._theme_name = "light"
 
         self._enter_filter = EnterKeySaveFilter(self._on_save, self)
@@ -84,12 +92,11 @@ class InlineEditBar(QWidget):
 
         # COM (read-only)
         row1_layout.addWidget(QLabel("COM:"))
+
         self.com_label = QLabel("")
-        self.com_label.setMinimumWidth(60)
+        self.com_label.setMinimumWidth(55)
         self.com_label.setStyleSheet("font-weight: bold;")
         row1_layout.addWidget(self.com_label)
-
-        row1_layout.addWidget(QLabel("|"))
 
         # Detailer
         row1_layout.addWidget(QLabel("Detailer:"))
@@ -107,48 +114,95 @@ class InlineEditBar(QWidget):
         self.pct_spin.setRange(0.0, 100.0)
         self.pct_spin.setSuffix("%")
         self.pct_spin.setDecimals(1)
-        self.pct_spin.setMinimumWidth(65)
+        self.pct_spin.setMinimumWidth(60)
+        self.pct_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.pct_spin.valueChanged.connect(self._on_field_changed)
         self.pct_spin.valueChanged.connect(self._on_pct_changed)
         self.pct_spin.installEventFilter(self._enter_filter)
         row1_layout.addWidget(self.pct_spin)
 
-        # Checking Status
-        row1_layout.addWidget(QLabel("Checking Status:"))
-        self.checking_status_edit = QLineEdit()
-        self.checking_status_edit.setMinimumWidth(100)
-        self.checking_status_edit.textChanged.connect(self._on_field_changed)
-        self.checking_status_edit.returnPressed.connect(self._on_save)
-        row1_layout.addWidget(self.checking_status_edit)
+        # Target Dept. Hours
+        row1_layout.addWidget(QLabel("Target Hours:"))
+        self.target_hours_spin = QDoubleSpinBox()
+        self.target_hours_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.target_hours_spin.setRange(0.0, 99999.0)
+        self.target_hours_spin.setDecimals(2)
+        self.target_hours_spin.setMinimumWidth(65)
+        self.target_hours_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.target_hours_spin.setToolTip("Target Hours (Auto-calculated from Dept Hours - IEC Hours, or manually editable)")
+        self.target_hours_spin.valueChanged.connect(self._on_field_changed)
+        self.target_hours_spin.valueChanged.connect(self._on_target_hours_changed)
+        self.target_hours_spin.installEventFilter(self._enter_filter)
+        row1_layout.addWidget(self.target_hours_spin)
 
-        # DR Checks
-        row1_layout.addWidget(QLabel("DR Check:"))
-        self.dr_checks_edit = QLineEdit()
-        self.dr_checks_edit.setMinimumWidth(80)
-        self.dr_checks_edit.textChanged.connect(self._on_field_changed)
-        self.dr_checks_edit.returnPressed.connect(self._on_save)
-        row1_layout.addWidget(self.dr_checks_edit)
+        # IEC Hours
+        row1_layout.addWidget(QLabel("IEC Hours:"))
+        self.iec_hours_spin = QDoubleSpinBox()
+        self.iec_hours_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.iec_hours_spin.setRange(0.0, 99999.0)
+        self.iec_hours_spin.setDecimals(2)
+        self.iec_hours_spin.setMinimumWidth(65)
+        self.iec_hours_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.iec_hours_spin.valueChanged.connect(self._on_field_changed)
+        self.iec_hours_spin.valueChanged.connect(self._on_iec_changed)
+        self.iec_hours_spin.installEventFilter(self._enter_filter)
+        row1_layout.addWidget(self.iec_hours_spin)
 
-        # DVL Checks
-        row1_layout.addWidget(QLabel("DVL Check:"))
-        self.dvl_checks_edit = QLineEdit()
-        self.dvl_checks_edit.setMinimumWidth(80)
-        self.dvl_checks_edit.textChanged.connect(self._on_field_changed)
-        self.dvl_checks_edit.returnPressed.connect(self._on_save)
-        row1_layout.addWidget(self.dvl_checks_edit)
+        # Actual Hours to Detail
+        row1_layout.addWidget(QLabel("Actual Hours:"))
+        self.actual_hours_to_detail_spin = QDoubleSpinBox()
+        self.actual_hours_to_detail_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.actual_hours_to_detail_spin.setRange(0.0, 99999.0)
+        self.actual_hours_to_detail_spin.setDecimals(2)
+        self.actual_hours_to_detail_spin.setMinimumWidth(65)
+        self.actual_hours_to_detail_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.actual_hours_to_detail_spin.valueChanged.connect(self._on_field_changed)
+        self.actual_hours_to_detail_spin.valueChanged.connect(self._on_actual_detail_changed)
+        self.actual_hours_to_detail_spin.installEventFilter(self._enter_filter)
+        row1_layout.addWidget(self.actual_hours_to_detail_spin)
 
-        # Notes inline text edit (stretches to fill remaining space)
-        row1_layout.addWidget(QLabel("Notes:"))
-        self.notes_edit = QLineEdit()
-        self.notes_edit.setPlaceholderText("Notes...")
-        self.notes_edit.textChanged.connect(self._on_field_changed)
-        self.notes_edit.returnPressed.connect(self._on_save)
-        row1_layout.addWidget(self.notes_edit, 1)
+        # Hour Variance
+        row1_layout.addWidget(QLabel("Variance:"))
+        self.hour_variance_spin = QDoubleSpinBox()
+        self.hour_variance_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.hour_variance_spin.setRange(-99999.0, 99999.0)
+        self.hour_variance_spin.setDecimals(2)
+        self.hour_variance_spin.setMinimumWidth(65)
+        self.hour_variance_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.hour_variance_spin.valueChanged.connect(self._on_field_changed)
+        self.hour_variance_spin.installEventFilter(self._enter_filter)
+        row1_layout.addWidget(self.hour_variance_spin)
+
+        # Remaining Demand
+        row1_layout.addWidget(QLabel("Remaining Demand:"))
+        self.remaining_demand_spin = QDoubleSpinBox()
+        self.remaining_demand_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.remaining_demand_spin.setRange(0.0, 99999.0)
+        self.remaining_demand_spin.setDecimals(2)
+        self.remaining_demand_spin.setMinimumWidth(65)
+        self.remaining_demand_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.remaining_demand_spin.valueChanged.connect(self._on_field_changed)
+        self.remaining_demand_spin.installEventFilter(self._enter_filter)
+        row1_layout.addWidget(self.remaining_demand_spin)
+
+        # Hours Checking
+        row1_layout.addWidget(QLabel("Hours Checking:"))
+        self.hours_checking_spin = QDoubleSpinBox()
+        self.hours_checking_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.hours_checking_spin.setRange(0.0, 99999.0)
+        self.hours_checking_spin.setDecimals(2)
+        self.hours_checking_spin.setMinimumWidth(65)
+        self.hours_checking_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.hours_checking_spin.valueChanged.connect(self._on_field_changed)
+        self.hours_checking_spin.installEventFilter(self._enter_filter)
+        row1_layout.addWidget(self.hours_checking_spin)
 
         # Status feedback label
         self.status_label = QLabel("")
         self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setVisible(False)
         row1_layout.addWidget(self.status_label)
+
 
         # Save button
         self.save_btn = QPushButton("Save")
@@ -165,7 +219,7 @@ class InlineEditBar(QWidget):
         self.revert_btn.clicked.connect(self._on_revert)
         row1_layout.addWidget(self.revert_btn)
 
-        # ─── Row 2: Dates & Hours ────────────────────────────────────
+        # ─── Row 2: Dates, Status Checks & Wide Notes ──────────────────
         row2_widget = QWidget()
         row2_layout = QHBoxLayout(row2_widget)
         row2_layout.setContentsMargins(0, 0, 0, 0)
@@ -174,7 +228,10 @@ class InlineEditBar(QWidget):
         # Detailing Start Date
         row2_layout.addWidget(QLabel("Start Date:"))
         self.start_date_edit = ClearableDateEdit()
-        self.start_date_edit.setMinimumWidth(90)
+        self.start_date_edit.setMinimumWidth(125)
+        self.start_date_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        if self.start_date_edit.lineEdit() is not None:
+            self.start_date_edit.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.start_date_edit.dateChanged.connect(self._on_field_changed)
         self.start_date_edit.installEventFilter(self._enter_filter)
         row2_layout.addWidget(self.start_date_edit)
@@ -182,7 +239,10 @@ class InlineEditBar(QWidget):
         # Moved to Checking Date
         row2_layout.addWidget(QLabel("Checking Date:"))
         self.checking_date_edit = ClearableDateEdit()
-        self.checking_date_edit.setMinimumWidth(90)
+        self.checking_date_edit.setMinimumWidth(125)
+        self.checking_date_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        if self.checking_date_edit.lineEdit() is not None:
+            self.checking_date_edit.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.checking_date_edit.dateChanged.connect(self._on_field_changed)
         self.checking_date_edit.installEventFilter(self._enter_filter)
         row2_layout.addWidget(self.checking_date_edit)
@@ -190,7 +250,10 @@ class InlineEditBar(QWidget):
         # Detailing Completion Date
         row2_layout.addWidget(QLabel("Completion Date:"))
         self.completion_date_edit = ClearableDateEdit()
-        self.completion_date_edit.setMinimumWidth(90)
+        self.completion_date_edit.setMinimumWidth(125)
+        self.completion_date_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        if self.completion_date_edit.lineEdit() is not None:
+            self.completion_date_edit.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.completion_date_edit.dateChanged.connect(self._on_field_changed)
         self.completion_date_edit.installEventFilter(self._enter_filter)
         row2_layout.addWidget(self.completion_date_edit)
@@ -198,88 +261,55 @@ class InlineEditBar(QWidget):
         # Detailing Due Date
         row2_layout.addWidget(QLabel("Due Date:"))
         self.due_date_edit = ClearableDateEdit()
-        self.due_date_edit.setMinimumWidth(90)
+        self.due_date_edit.setMinimumWidth(125)
+        self.due_date_edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        if self.due_date_edit.lineEdit() is not None:
+            self.due_date_edit.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.due_date_edit.setToolTip("Detailing Due Date")
         self.due_date_edit.dateChanged.connect(self._on_field_changed)
         self.due_date_edit.installEventFilter(self._enter_filter)
         row2_layout.addWidget(self.due_date_edit)
 
-        row2_layout.addWidget(QLabel("|"))
+        # Checking Status
+        row2_layout.addWidget(QLabel("Checking Status:"))
+        self.checking_status_edit = QLineEdit()
+        self.checking_status_edit.setMinimumWidth(95)
+        self.checking_status_edit.textChanged.connect(self._on_field_changed)
+        self.checking_status_edit.returnPressed.connect(self._on_save)
+        row2_layout.addWidget(self.checking_status_edit)
 
-        # Target Dept. Hours
-        row2_layout.addWidget(QLabel("Target Hours:"))
-        self.target_hours_spin = QDoubleSpinBox()
-        self.target_hours_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.target_hours_spin.setRange(0.0, 99999.0)
-        self.target_hours_spin.setDecimals(2)
-        self.target_hours_spin.setMinimumWidth(70)
-        self.target_hours_spin.setToolTip("Target Hours (Auto-calculated from Dept Hours - IEC Hours, or manually editable)")
-        self.target_hours_spin.valueChanged.connect(self._on_field_changed)
-        self.target_hours_spin.installEventFilter(self._enter_filter)
-        row2_layout.addWidget(self.target_hours_spin)
+        # DR Checks
+        row2_layout.addWidget(QLabel("DR Check:"))
+        self.dr_checks_edit = QLineEdit()
+        self.dr_checks_edit.setMinimumWidth(50)
+        self.dr_checks_edit.textChanged.connect(self._on_field_changed)
+        self.dr_checks_edit.returnPressed.connect(self._on_save)
+        row2_layout.addWidget(self.dr_checks_edit)
 
-        # IEC Hours
-        row2_layout.addWidget(QLabel("IEC Hours:"))
-        self.iec_hours_spin = QDoubleSpinBox()
-        self.iec_hours_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.iec_hours_spin.setRange(0.0, 99999.0)
-        self.iec_hours_spin.setDecimals(2)
-        self.iec_hours_spin.setMinimumWidth(70)
-        self.iec_hours_spin.valueChanged.connect(self._on_field_changed)
-        self.iec_hours_spin.valueChanged.connect(self._on_iec_changed)
-        self.iec_hours_spin.installEventFilter(self._enter_filter)
-        row2_layout.addWidget(self.iec_hours_spin)
+        # DVL Checks
+        row2_layout.addWidget(QLabel("DVL Check:"))
+        self.dvl_checks_edit = QLineEdit()
+        self.dvl_checks_edit.setMinimumWidth(50)
+        self.dvl_checks_edit.textChanged.connect(self._on_field_changed)
+        self.dvl_checks_edit.returnPressed.connect(self._on_save)
+        row2_layout.addWidget(self.dvl_checks_edit)
 
-        # Actual Hours to Detail
-        row2_layout.addWidget(QLabel("Actual Hours:"))
-        self.actual_hours_to_detail_spin = QDoubleSpinBox()
-        self.actual_hours_to_detail_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.actual_hours_to_detail_spin.setRange(0.0, 99999.0)
-        self.actual_hours_to_detail_spin.setDecimals(2)
-        self.actual_hours_to_detail_spin.setMinimumWidth(70)
-        self.actual_hours_to_detail_spin.valueChanged.connect(self._on_field_changed)
-        self.actual_hours_to_detail_spin.valueChanged.connect(self._on_actual_detail_changed)
-        self.actual_hours_to_detail_spin.installEventFilter(self._enter_filter)
-        row2_layout.addWidget(self.actual_hours_to_detail_spin)
-
-        # Hour Variance
-        row2_layout.addWidget(QLabel("Variance:"))
-        self.hour_variance_spin = QDoubleSpinBox()
-        self.hour_variance_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.hour_variance_spin.setRange(-99999.0, 99999.0)
-        self.hour_variance_spin.setDecimals(2)
-        self.hour_variance_spin.setMinimumWidth(70)
-        self.hour_variance_spin.valueChanged.connect(self._on_field_changed)
-        self.hour_variance_spin.installEventFilter(self._enter_filter)
-        row2_layout.addWidget(self.hour_variance_spin)
-
-        # Remaining Demand
-        row2_layout.addWidget(QLabel("Remaining Demand:"))
-        self.remaining_demand_spin = QDoubleSpinBox()
-        self.remaining_demand_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.remaining_demand_spin.setRange(0.0, 99999.0)
-        self.remaining_demand_spin.setDecimals(2)
-        self.remaining_demand_spin.setMinimumWidth(70)
-        self.remaining_demand_spin.valueChanged.connect(self._on_field_changed)
-        self.remaining_demand_spin.installEventFilter(self._enter_filter)
-        row2_layout.addWidget(self.remaining_demand_spin)
-
-        # Hours Checking
-        row2_layout.addWidget(QLabel("Hours Checking:"))
-        self.hours_checking_spin = QDoubleSpinBox()
-        self.hours_checking_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.hours_checking_spin.setRange(0.0, 99999.0)
-        self.hours_checking_spin.setDecimals(2)
-        self.hours_checking_spin.setMinimumWidth(70)
-        self.hours_checking_spin.valueChanged.connect(self._on_field_changed)
-        self.hours_checking_spin.installEventFilter(self._enter_filter)
-        row2_layout.addWidget(self.hours_checking_spin)
+        # Notes inline text edit (stretches to fill all remaining horizontal space on Row 2)
+        row2_layout.addWidget(QLabel("Notes:"))
+        self.notes_edit = QLineEdit()
+        self.notes_edit.setPlaceholderText("Notes...")
+        self.notes_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.notes_edit.textChanged.connect(self._on_field_changed)
+        self.notes_edit.returnPressed.connect(self._on_save)
+        row2_layout.addWidget(self.notes_edit, 1)
 
         main_layout.addWidget(row1_widget)
         main_layout.addWidget(row2_widget)
 
         install_no_scroll_filter(self)
         self.setVisible(False)
+
+
 
     # ── Public API ───────────────────────────────────────────────────
 
@@ -296,7 +326,8 @@ class InlineEditBar(QWidget):
 
         self._unit = unit
         self._loading = True
-        self.status_label.setText("")
+        self._set_status_text("")
+
         try:
             if unit is None:
                 self._clear_fields()
@@ -324,6 +355,14 @@ class InlineEditBar(QWidget):
             self.remaining_demand_spin.setValue(unit.remaining_demand)
             self.hours_checking_spin.setValue(unit.hours_checking)
 
+            self._target_hours_manually_edited = False
+            if not unit.is_non_primary_identical and unit.detailer != "Cancelled":
+                dept = unit.department_hours or 0.0
+                iec = unit.iec_internal_hours or 0.0
+                expected = max(0.0, dept - iec)
+                if abs(unit.target_department_hours - expected) > 0.001:
+                    self._target_hours_manually_edited = True
+
             self.setVisible(True)
         finally:
             self._loading = False
@@ -341,22 +380,38 @@ class InlineEditBar(QWidget):
     def _on_field_changed(self) -> None:
         if not self._loading:
             if self.detailer_combo.currentText().strip() == "Cancelled":
+                self._updating_target_hours = True
                 self.target_hours_spin.setValue(0.0)
+                self._updating_target_hours = False
             if not self._dirty:
                 self._dirty = True
                 self.dirty_changed.emit(True)
 
-
+    def _on_target_hours_changed(self) -> None:
+        if self._loading or self._updating_target_hours or self._unit is None:
+            return
+        dept = self._unit.department_hours or 0.0
+        iec = self.iec_hours_spin.value()
+        expected = max(0.0, dept - iec)
+        if abs(self.target_hours_spin.value() - expected) > 0.001:
+            self._target_hours_manually_edited = True
+        else:
+            self._target_hours_manually_edited = False
 
     def _on_iec_changed(self) -> None:
         if self._loading or self._unit is None:
             return
-        if self._unit.is_non_primary_identical:
+        if self._unit.is_non_primary_identical or self.detailer_combo.currentText().strip() == "Cancelled":
+            self._updating_target_hours = True
             self.target_hours_spin.setValue(0.0)
+            self._updating_target_hours = False
             return
-        dept = self._unit.department_hours or 0.0
-        iec = self.iec_hours_spin.value()
-        self.target_hours_spin.setValue(max(0.0, dept - iec))
+        if not self._target_hours_manually_edited:
+            dept = self._unit.department_hours or 0.0
+            iec = self.iec_hours_spin.value()
+            self._updating_target_hours = True
+            self.target_hours_spin.setValue(max(0.0, dept - iec))
+            self._updating_target_hours = False
 
     def _on_actual_detail_changed(self) -> None:
         if self._loading or self._unit is None:
@@ -376,20 +431,30 @@ class InlineEditBar(QWidget):
         """Validate unit fields and set visual error indicators."""
         errors: list[str] = []
 
-        # Reset widget styles
+        # Reset widget styles back to base theme styling
         for widget in (
             self.pct_spin,
             self.target_hours_spin,
+            self.iec_hours_spin,
             self.actual_hours_to_detail_spin,
+            self.hour_variance_spin,
+            self.remaining_demand_spin,
+            self.hours_checking_spin,
             self.due_date_edit,
             self.start_date_edit,
             self.checking_date_edit,
             self.completion_date_edit,
         ):
-            widget.setStyleSheet("")
+            reset_input_style(widget, self._theme_name)
             widget.setProperty("invalid", False)
             widget.style().unpolish(widget)
             widget.style().polish(widget)
+            if hasattr(widget, "lineEdit") and widget.lineEdit() is not None:
+                widget.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            elif hasattr(widget, "setAlignment"):
+                widget.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+
 
         valid, validation_errors = validate_unit(unit)
         if not valid:
@@ -437,6 +502,7 @@ class InlineEditBar(QWidget):
             description=self._unit.description,
             detailer=detailer,
             checking_status=self.checking_status_edit.text(),
+            unit_state=self._unit.unit_state,
             dr_checks=self.dr_checks_edit.text(),
             dvl_checks=self.dvl_checks_edit.text(),
             department_hours=self._unit.department_hours,
@@ -468,7 +534,7 @@ class InlineEditBar(QWidget):
 
         errors = self._validate_fields(unit)
         if errors:
-            self.status_label.setText('<span style="color: red;">⚠ ' + "; ".join(errors) + "</span>")
+            self._set_status_text('<span style="color: red;">⚠ ' + "; ".join(errors) + "</span>")
             hard_errors = [e for e in errors if not e.startswith("Date order warning")]
             if hard_errors:
                 return
@@ -478,8 +544,9 @@ class InlineEditBar(QWidget):
         if was_dirty:
             self.dirty_changed.emit(False)
 
-        self.status_label.setText('<span style="color: green;">✓ Saved</span>')
+        self._set_status_text('<span style="color: green;">✓ Saved</span>')
         self.unit_saved.emit(unit)
+
 
     def _on_revert(self) -> None:
         if self._unit is not None:
@@ -512,14 +579,19 @@ class InlineEditBar(QWidget):
         self.hour_variance_spin.setValue(0.0)
         self.remaining_demand_spin.setValue(0.0)
         self.hours_checking_spin.setValue(0.0)
-        self.status_label.setText("")
+        self._set_status_text("")
 
         was_dirty = self._dirty
         self._dirty = False
         if was_dirty:
             self.dirty_changed.emit(False)
 
+    def _set_status_text(self, text: str) -> None:
+        self.status_label.setText(text)
+        self.status_label.setVisible(bool(text.strip()))
+
     def _set_date(self, widget: ClearableDateEdit, d: date | None) -> None:
+
         if d is not None:
             widget.setDate(QDate(d.year, d.month, d.day))
         else:

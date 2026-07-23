@@ -384,9 +384,11 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         dvl_checks=(row["dvl_checks"] or "") if "dvl_checks" in row.keys() else "",  # noqa: SIM118
         status_color=row["status_color"] or "gray",  # persisted from last computed value
         department_hours=row["department_hours"] or 0.0,
-        target_department_hours=row["target_dept_hours"]
-        if "target_dept_hours" in row and row["target_dept_hours"] is not None
-        else 0.0,
+        target_department_hours=(
+            row["target_dept_hours"]
+            if "target_dept_hours" in row.keys() and row["target_dept_hours"] is not None
+            else max(0.0, (row["department_hours"] or 0.0) - (row["iec_internal_hours"] or 0.0))
+        ),
         iec_internal_hours=row["iec_internal_hours"] or 0.0,
         percent_complete=(row["percent_complete"] or 0.0) * 100,
         actual_hours=row["actual_hours"] or 0.0,

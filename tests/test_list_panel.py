@@ -790,3 +790,76 @@ class TestShowInlineEdit:
         assert panel._inline_edit_bar.isHidden() is True
         assert panel._inline_edit_bar._unit is None
 
+
+# ─── Column Ordering Tests ──────────────────────────────────────────
+
+
+class TestColumnOrdering:
+    def test_unit_list_model_custom_column_order(self):
+        u = _make_unit(com="COM-101")
+        model = UnitListModel([u])
+        default_order = model.column_order
+        assert default_order[0] == "com_number"
+
+        custom_order = ["job_name", "com_number", "detailing_due_date"]
+        model.set_column_order(custom_order)
+        new_order = model.column_order
+        assert new_order[:3] == custom_order
+        assert set(new_order) == set(default_order)
+
+    def test_unit_list_model_visible_columns_respects_order(self):
+        u = _make_unit(com="COM-101")
+        model = UnitListModel([u])
+        model.set_visible_columns(["com_number", "job_name", "detailer"])
+        model.set_column_order(["detailer", "com_number", "job_name"])
+
+        visible = model.visible_columns
+        assert visible == ["detailer", "com_number", "job_name"]
+
+    def test_list_panel_column_order_signal_on_header_move(self, qapp):
+        u1 = _make_unit(com="COM-101", job="Alpha")
+        panel = ListPanel([u1])
+        panel.show()
+
+        order_signals = []
+        panel.column_order_changed.connect(lambda order: order_signals.append(order))
+
+        # Perform an actual header move so _on_section_moved can read the
+        # real visual-to-logical mapping from QHeaderView.
+        header = panel.table.horizontalHeader()
+        header.moveSection(0, 1)  # move logical 0 to visual position 1
+
+        assert len(order_signals) == 1
+        new_visible = panel._model.visible_columns
+        assert new_visible[0] != "com_number"
+
+    def test_column_chooser_dialog_move_up_down(self, qapp):
+        from gui.list_panel import ColumnChooserDialog, COLUMN_DEFS
+        all_keys = [d[0] for d in COLUMN_DEFS]
+        visible = ["com_number", "unit_state", "job_name"]
+
+        dialog = ColumnChooserDialog(all_keys, visible)
+        dialog.list_widget.setCurrentRow(1)
+
+        dialog._move_up()
+        ordered, vis = dialog.get_result()
+        assert ordered[0] == "unit_state"
+        assert ordered[1] == "com_number"
+
+        dialog._move_down()
+        ordered2, vis2 = dialog.get_result()
+        assert ordered2[0] == "com_number"
+        assert ordered2[1] == "unit_state"
+
+    def test_column_chooser_dialog_reset_defaults(self, qapp):
+        from gui.list_panel import ColumnChooserDialog, COLUMN_DEFS
+        all_keys = [d[0] for d in COLUMN_DEFS]
+        custom_order = list(reversed(all_keys))
+
+        dialog = ColumnChooserDialog(custom_order, ["com_number"])
+        dialog._reset_defaults()
+
+        assert dialog.is_reset_requested is True
+        ordered, vis = dialog.get_result()
+        assert ordered[0] == COLUMN_DEFS[0][0]
+

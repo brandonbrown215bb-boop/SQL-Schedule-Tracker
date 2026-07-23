@@ -292,15 +292,31 @@ _TABLE = """\
 """
 
 _INPUT = """\
-    QLineEdit, QDateEdit, QDoubleSpinBox, QTextEdit {{
+    QLineEdit, QDoubleSpinBox, QTextEdit {{
         background: {bg_primary};
         color: {text_primary};
         border: 1px solid {border};
         border-radius: 5px;
-        padding: 4px 8px;
+        padding: 3px 8px;
         min-height: 22px;
         font-size: 12px;
         selection-background-color: {bg_selected};
+    }}
+    QDateEdit {{
+        background: {bg_primary};
+        color: {text_primary};
+        border: 1px solid {border};
+        border-radius: 5px;
+        padding: 3px 20px 3px 6px;
+        min-height: 22px;
+        font-size: 12px;
+        selection-background-color: {bg_selected};
+    }}
+    QDateEdit QLineEdit {{
+        background: transparent;
+        border: none;
+        padding: 0px 2px;
+        margin: 0px;
     }}
     QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus, QTextEdit:focus {{
         border-color: {accent};
@@ -310,7 +326,7 @@ _INPUT = """\
         color: {text_primary};
         border: 1px solid {border};
         border-radius: 5px;
-        padding: 4px 8px;
+        padding: 3px 8px;
         min-height: 22px;
         font-size: 12px;
         selection-background-color: {bg_selected};
@@ -318,13 +334,18 @@ _INPUT = """\
     QComboBox:focus {{
         border-color: {accent};
     }}
-    QComboBox::drop-down {{
+    QComboBox::drop-down, QDateEdit::drop-down {{
         subcontrol-origin: padding;
         subcontrol-position: center right;
-        width: 20px;
+        width: 18px;
         border: none;
         border-left: 1px solid {border};
     }}
+
+
+
+
+
     QComboBox QAbstractItemView {{
         background: {bg_primary};
         color: {text_primary};
@@ -552,6 +573,12 @@ def _style_table(widget: QWidget, tokens: dict[str, str]) -> None:
 
 def _style_input(widget: QWidget, tokens: dict[str, str]) -> None:
     widget.setStyleSheet(_stylesheet(tokens, _INPUT))
+
+
+def reset_input_style(widget: QWidget, theme_name: str = "light") -> None:
+    """Reset an input widget's stylesheet back to its base theme style."""
+    tokens = THEMES.get(theme_name, THEMES["light"])
+    _style_input(widget, tokens)
 
 
 def _style_card(widget: QWidget, tokens: dict[str, str]) -> None:

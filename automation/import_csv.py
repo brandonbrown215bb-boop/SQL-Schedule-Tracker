@@ -83,7 +83,7 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
 
     # Check if row exists
     cursor.execute(
-        "SELECT detailing_due_date, percent_complete FROM units WHERE com_number = ?", (com,)
+        "SELECT detailing_due_date, percent_complete, target_dept_hours, iec_internal_hours, department_hours FROM units WHERE com_number = ?", (com,)
     )
     existing = cursor.fetchone()
 
@@ -91,8 +91,9 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
     dept_hrs = row_data.get("department_hours") or 0
 
     if existing:
-        current_due_date = existing[0]
-        current_pct = existing[1]
+        current_due_date, current_pct, current_target, current_iec, old_dept = existing
+        current_iec = current_iec or 0.0
+        old_dept = old_dept or 0.0
 
         # Column B: if due date changed, push old date to dept_due_date_previous
         if new_due_date and current_due_date and str(current_due_date) != str(new_due_date):
@@ -107,6 +108,13 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
         # percent_complete: only set from CSV if currently NULL
         if current_pct is None:
             update_cols.append("percent_complete")
+
+        # target_dept_hours: only update if not manually overridden
+        expected_target = max(0.0, old_dept - current_iec)
+        if current_target is None or current_target == 0.0 or abs(current_target - expected_target) <= 0.01:
+            row_data["target_dept_hours"] = max(0.0, dept_hrs - current_iec)
+            if "target_dept_hours" not in update_cols:
+                update_cols.append("target_dept_hours")
 
         # Compute remaining_hours from effective percent_complete
         effective_pct = current_pct if current_pct is not None else csv_pct
@@ -136,6 +144,9 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
 
         insert_cols.append("percent_complete")
         insert_values.append(csv_pct)
+
+        insert_cols.append("target_dept_hours")
+        insert_values.append(max(0.0, dept_hrs))
 
         remaining = (row_data.get("department_hours") or 0) * (1 - csv_pct)
         insert_cols.append("remaining_hours")

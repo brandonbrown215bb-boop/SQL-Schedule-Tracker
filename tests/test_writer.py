@@ -180,6 +180,17 @@ class TestValidation:
         with pytest.raises(ValidationError, match="target_department_hours: minimum 0"):
             save_unit(db_with_units, unit)
 
+    def test_manual_target_hours_override_persists_across_reload(self, db_with_units):
+        from data.loader import load_units
+        units = load_units(db_with_units)
+        unit = units[0]
+        unit.target_department_hours = 55.0
+        save_unit(db_with_units, unit)
+
+        reloaded = load_units(db_with_units)
+        reloaded_target = next(u for u in reloaded if u.com_number == unit.com_number).target_department_hours
+        assert reloaded_target == 55.0
+
     def test_week_ending_friday_calculated_on_save(self, db_with_units, unit_to_save):
         """Saving updates the week_ending_friday column in DB based on detailing_due_date."""
         unit_to_save.detailing_due_date = date(2026, 6, 24)  # Wednesday

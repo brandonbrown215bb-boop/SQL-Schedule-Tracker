@@ -154,25 +154,25 @@ class TestNonPrimaryIdenticalHook:
 
 
 class TestTargetHoursHook:
-    def test_auto_calculates(self, base_unit):
+    def test_preserves_manual_override(self, base_unit):
         base_unit.department_hours = 100.0
         base_unit.iec_internal_hours = 30.0
-        base_unit.target_department_hours = 0.0
+        base_unit.target_department_hours = 85.0
+        target_hours_hook(base_unit, {})
+        assert base_unit.target_department_hours == 85.0
+
+    def test_non_primary_zeros_out(self, base_unit):
+        base_unit.is_non_primary_identical = True
+        base_unit.target_department_hours = 50.0
+        target_hours_hook(base_unit, {})
+        assert base_unit.target_department_hours == 0.0
+
+    def test_none_defaults_to_formula(self, base_unit):
+        base_unit.department_hours = 100.0
+        base_unit.iec_internal_hours = 30.0
+        base_unit.target_department_hours = None
         target_hours_hook(base_unit, {})
         assert base_unit.target_department_hours == 70.0
-
-    def test_non_primary_unchanged(self, base_unit):
-        base_unit.is_non_primary_identical = True
-        base_unit.target_department_hours = 0.0
-        target_hours_hook(base_unit, {})
-        assert base_unit.target_department_hours == 0.0
-
-    def test_non_negative(self, base_unit):
-        base_unit.department_hours = 10.0
-        base_unit.iec_internal_hours = 50.0
-        base_unit.target_department_hours = 5.0
-        target_hours_hook(base_unit, {})
-        assert base_unit.target_department_hours == 0.0
 
 
 class TestPercentCompleteRangeHook:
