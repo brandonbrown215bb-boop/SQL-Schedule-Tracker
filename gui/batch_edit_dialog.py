@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from PyQt5.QtCore import QDate, pyqtSignal
 from PyQt5.QtWidgets import (
+    QAbstractSpinBox,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -24,6 +25,7 @@ from PyQt5.QtWidgets import (
 
 from data.models import Unit
 from gui.edit_form import ClearableDateEdit
+from gui.no_scroll_filter import install_no_scroll_filter
 
 
 class BatchEditDialog(QDialog):
@@ -91,6 +93,7 @@ class BatchEditDialog(QDialog):
         # Percent complete
         self.pct_check = QCheckBox("Change % complete")
         self.pct_spin = QDoubleSpinBox()
+        self.pct_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.pct_spin.setEnabled(False)
         self.pct_spin.setRange(0.0, 100.0)
         self.pct_spin.setSuffix("%")
@@ -136,6 +139,8 @@ class BatchEditDialog(QDialog):
 
             if self.detailer_check.isChecked():
                 unit.detailer = self.detailer_combo.currentText()
+                if unit.detailer == "Cancelled":
+                    unit.target_department_hours = 0.0
                 changed = True
             if self.due_date_check.isChecked():
                 qdate = self.due_date_edit.date()

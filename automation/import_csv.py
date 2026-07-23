@@ -33,10 +33,11 @@ CSV_TO_DB = {
     "DepartmentHours": "department_hours",
     "PercentComplete": "percent_complete",
     "WeekEndingFriday": "week_ending_friday",
+    "LineItemStateDesc": "unit_state",
+    "UnitState": "unit_state",
 }
 
-VALUE_COLUMNS = [v for v in CSV_TO_DB.values() if v != "com_number"]
-
+VALUE_COLUMNS = list(dict.fromkeys(v for v in CSV_TO_DB.values() if v != "com_number"))
 
 def _parse_week_ending(raw: str):
     raw = raw.strip()
@@ -60,6 +61,7 @@ SANITIZE_FUNCS = {
     "percent_complete": lambda v: InputSanitizer.clean_percent(v) / 100.0,
     "week_ending_friday": _parse_week_ending,
     "com_number": InputSanitizer.clean_com_number,
+    "unit_state": lambda v: InputSanitizer.clean_string(v, max_length=50),
 }
 
 
@@ -174,9 +176,11 @@ def run_import(csv_path: str, db_path: str) -> dict:
             try:
                 row_data = {}
                 for csv_col, db_col in CSV_TO_DB.items():
-                    raw_val = csv_row.get(csv_col, "")
-                    sanitizer = SANITIZE_FUNCS.get(db_col, lambda v: v)
-                    row_data[db_col] = sanitizer(raw_val)
+                    if csv_col in csv_row:
+                        raw_val = csv_row.get(csv_col, "")
+                        if raw_val or db_col not in row_data or not row_data[db_col]:
+                            sanitizer = SANITIZE_FUNCS.get(db_col, lambda v: v)
+                            row_data[db_col] = sanitizer(raw_val)
 
                 # Build a minimal Unit for row-level validation
                 from data.models import Unit

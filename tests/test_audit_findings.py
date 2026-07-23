@@ -19,7 +19,7 @@ from services.validation import FieldRule, ValidationError, validate_input
 def test_fingerprint_caching_stale_value_bug():
     """
     1. Fingerprint Caching Stale Value Bug
-    
+
     Test that computes unit_fingerprint(unit), modifies a field (e.g., job_name),
     and computes the fingerprint again. Assert that the two fingerprints are different.
     This assertion will fail because the module-level _fingerprint_cache caches and
@@ -53,7 +53,7 @@ def test_fingerprint_caching_stale_value_bug():
 def test_capacity_due_today_bug():
     """
     2. Capacity Due-Today Bug
-    
+
     Test that creates a unit due today (available working days = 0) with non-zero
     department hours and 0% complete. Assert that calculated_status_color evaluates
     to 'red' (since remaining hours > available capacity). Currently, it evaluates
@@ -84,7 +84,7 @@ def test_capacity_due_today_bug():
 def test_decorator_validation_positional_arguments_bug():
     """
     3. Decorator Validation Positional Arguments Bug
-    
+
     Test that invokes a method decorated with @validate_input by passing invalid
     arguments positionally. Assert that ValidationError is raised. Since the
     decorator currently only validates kwargs, no error is raised, making the

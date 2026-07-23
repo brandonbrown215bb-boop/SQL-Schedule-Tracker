@@ -36,7 +36,9 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── cleanup_detailers.py      # Detailer cleanup operations
 │   ├── export_to_workbook.py     # Export to Excel workbook
 │   ├── import_preview.py         # Import diff/staging preview (FEAT-019)
-│   └── import_atomsvc.py         # Alternate import format
+│   ├── import_atomsvc.py         # Alternate import format
+│   ├── deploy.py                 # Network distribution deployment script
+│   └── bump_and_deploy.py        # Version bump and deploy helper script
 ├── data/
 │   ├── models.py                 # Unit dataclass + all computed properties
 │   ├── db.py                     # SQLite connection (per-thread), schema migration, row→Unit, audit log
@@ -64,14 +66,16 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── batch_edit_dialog.py      # Bulk edit dialog
 │   ├── inline_edit_bar.py        # Inline editing bar
 │   ├── audit_dialog.py           # Audit trail viewer
-│   └── a11y_dialog.py            # Accessibility settings
+│   ├── a11y_dialog.py            # Accessibility settings
+│   └── no_scroll_filter.py       # Event filter suppressing unintentional wheel/arrow scrolling
 ├── services/                     # ★ Business logic layer (zero Qt dependencies)
-│   ├── __init__.py               # Exports: UnitService, ImportService, ExportService, SyncService, ConfigService
+│   ├── __init__.py               # Exports: UnitService, ImportService, ExportService, SyncService, ConfigService, UpdateService
 │   ├── unit_service.py           # Unit CRUD: load, save, fingerprint, identicals, due date changes, audit
 │   ├── import_service.py         # CSV/SSRS import with ImportResult stats + diff preview
 │   ├── export_service.py         # Excel/CSV export
 │   ├── sync_service.py           # Multi-user sync: locks, revisions, sessions, shared cache
 │   ├── config_service.py         # Config load/validate/save with deep merge + defaults
+│   ├── update_service.py         # Network deployment version check, config merging, updater script
 │   ├── validation.py             # ★ FieldRule, validate_unit, ValidationError, decorators
 │   ├── sanitizer.py              # ★ InputSanitizer: clean_date, clean_percent, clean_com, clean_string
 │   ├── pre_save_hooks.py         # ★ PreSaveHookRegistry: date order, target hours, non-negative, percent range
@@ -98,6 +102,11 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── test_sanitizer.py         # ★ InputSanitizer tests (clean_date, clean_percent, clean_com)
 │   ├── test_batch_edit_dialog.py # ★ Batch edit dialog tests (8 tests)
 │   ├── test_inline_edit_bar.py   # ★ Inline edit bar tests
+│   ├── test_no_scroll_filter.py  # Mouse wheel event filter tests
+│   ├── test_update_service.py    # Auto-update service & version check tests
+│   ├── test_unit_cancellation.py # Unit state cancellation filtering & display tests
+│   ├── test_import_preview.py    # Import diff & preview tests
+│   ├── test_audit_findings.py    # Regression tests for audit findings
 │   ├── test_sync.py              # Lock manager + revision store tests
 │   ├── test_multi_user_integration.py  # Cross-instance conflict scenarios
 │   ├── test_property.py          # Hypothesis property-based tests
@@ -145,6 +154,7 @@ window = MainWindow(services)
 | `ExportService` | `services/export_service.py` | `to_excel()`, `to_csv()` | `automation/export_to_workbook.py` |
 | `SyncService` | `services/sync_service.py` | `is_enabled()`, `acquire_lock()`, `release_lock()`, `get_revision()`, `commit_revision()`, `get_active_sessions()`, `start_heartbeat()`, `stop_heartbeat()` | `sync/lock_manager.py`, `sync/revision_store.py`, `sync/session_registry.py`, `sync/shared_cache.py` |
 | `ConfigService` | `services/config_service.py` | `load()`, `validate()`, `save()`, `merge_ui_defaults()`, `get_detailer_schedules()` | (static methods) |
+| `UpdateService` | `services/update_service.py` | `get_local_version()`, `get_remote_version()`, `check_for_update()`, `smart_merge_config()`, `generate_updater_script()` | network deployment folder, `version.txt` |
 
 ### Data Flow with Services
 
@@ -155,6 +165,7 @@ MainWindow → services.import_service.from_csv() → automation/import_csv.py �
 MainWindow → services.export_service.to_excel() → automation/export_to_workbook.py
 MainWindow → services.sync_service.get_active_sessions() → sync/session_registry.py
 MainWindow → services.config_service.save() → config.yaml
+MainWindow → services.update_service.check_for_update() → network folder
 ```
 
 ---
@@ -394,6 +405,11 @@ Tests use pytest with a SQLite database fixture (`db_path`, `db_with_units`). Th
 | `test_notification_panel.py` | Notification panel (toast) tests |
 | `test_reference_dialog.py` | Reference guide dialog tests |
 | `test_workers.py` | Background worker thread tests |
+| `test_no_scroll_filter.py` | Mouse wheel and arrow key event suppression tests |
+| `test_update_service.py` | Auto-updater version checks, config merging, updater script generation |
+| `test_unit_cancellation.py` | Unit state cancellation tracking and list panel filtering |
+| `test_import_preview.py` | CSV import diff calculations and preview dialog data |
+| `test_audit_findings.py` | Regression test suite for past audit findings |
 
 Run tests: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ -v`
 

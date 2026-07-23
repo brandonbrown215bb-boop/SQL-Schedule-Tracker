@@ -113,14 +113,14 @@ class TestValidateUnit:
         assert valid is True
 
     def test_update_allowed_detailers(self, valid_unit):
-        from services.validation import update_allowed_detailers, _DEFAULT_DETAILERS
-        
+        from services.validation import _DEFAULT_DETAILERS, update_allowed_detailers
+
         original_allowed = list(_DEFAULT_DETAILERS)
         try:
             valid_unit.detailer = "New Custom Detailer"
             valid, _errors = validate_unit(valid_unit)
             assert valid is False
-            
+
             update_allowed_detailers(["New Custom Detailer"])
             valid, _errors = validate_unit(valid_unit)
             assert valid is True

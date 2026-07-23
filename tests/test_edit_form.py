@@ -94,6 +94,7 @@ class TestSetUnitPopulatesAllFields:
         edit_form.set_unit(sample_unit)
         assert edit_form.dept_hours_spin.value() == 40.0
         assert edit_form.target_hours_spin.value() == 36.0
+        assert edit_form.target_hours_spin.isReadOnly() is False
         assert edit_form.iec_hours_spin.value() == 4.0
         assert edit_form.percent_spin.value() == 50.0
         assert edit_form.actual_hours_spin.value() == 20.0

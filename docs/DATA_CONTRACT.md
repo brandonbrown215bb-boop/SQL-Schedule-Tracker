@@ -18,6 +18,7 @@ The primary entity is the `Unit` dataclass (defined in [models.py](file:///c:/Us
 | `description` | `description` | `TEXT` | Identity | Free-text description of the unit from the SSRS report. |
 | `detailer` | `detailer` | `TEXT` | Assignment | Name of the assigned detailer. |
 | `checking_status` | `checking_status` | `TEXT` | Assignment | Status description for the checking pipeline. |
+| `unit_state` | `unit_state` | `TEXT` | Status | Manufacturing Order Management State (`LineItemStateDesc`: `Done`, `Fab-Eng`, `Fab-Load`, `Fab-Lock`, `Pre-Eng`, `Pre-Load`). |
 | `notes` | `notes` | `TEXT` | Assignment | Free-text notes. |
 | `dr_checks` | `dr_checks` | `TEXT` | Assignment | Status/log comments for Design Review checks. |
 | `dvl_checks` | `dvl_checks` | `TEXT` | Assignment | Status/log comments for Design Verification Log checks. |

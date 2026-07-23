@@ -188,8 +188,9 @@ class TestGetDeptHoursColor:
     """Tests for get_dept_hours_color — dynamic conditional formatting."""
 
     def test_min_max_identical(self):
-        from gui.theme import get_dept_hours_color
         from PyQt5.QtGui import QColor
+
+        from gui.theme import get_dept_hours_color
 
         # When min_val == max_val, it should return the low hours color (c1)
         bg, fg = get_dept_hours_color("light", 50.0, 100.0, 100.0, cvd_mode="none")
@@ -199,8 +200,9 @@ class TestGetDeptHoursColor:
         assert fg == QColor("#0f172a")
 
     def test_interpolation_bounds(self):
-        from gui.theme import get_dept_hours_color
         from PyQt5.QtGui import QColor
+
+        from gui.theme import get_dept_hours_color
 
         # Min value
         bg_min, _ = get_dept_hours_color("light", 10.0, 10.0, 100.0, cvd_mode="none")
@@ -211,8 +213,9 @@ class TestGetDeptHoursColor:
         assert bg_max == QColor("#c73838")
 
     def test_interpolation_midpoint(self):
-        from gui.theme import get_dept_hours_color
         from PyQt5.QtGui import QColor
+
+        from gui.theme import get_dept_hours_color
 
         # Midpoint value (55.0 is exactly halfway between 10.0 and 100.0)
         bg_mid, _ = get_dept_hours_color("light", 55.0, 10.0, 100.0, cvd_mode="none")
@@ -220,8 +223,9 @@ class TestGetDeptHoursColor:
         assert bg_mid == QColor("#ffeb9c")
 
     def test_clamping_out_of_bounds(self):
-        from gui.theme import get_dept_hours_color
         from PyQt5.QtGui import QColor
+
+        from gui.theme import get_dept_hours_color
 
         # Below min
         bg_low, _ = get_dept_hours_color("light", 5.0, 10.0, 100.0, cvd_mode="none")
@@ -232,8 +236,9 @@ class TestGetDeptHoursColor:
         assert bg_high == QColor("#c73838")
 
     def test_cvd_overrides_light(self):
-        from gui.theme import get_dept_hours_color
         from PyQt5.QtGui import QColor
+
+        from gui.theme import get_dept_hours_color
 
         # Deuteranopia min color in light mode: #e0f2f1 (Teal)
         bg, _ = get_dept_hours_color("light", 10.0, 10.0, 100.0, cvd_mode="deuteranopia")
@@ -248,8 +253,9 @@ class TestGetDeptHoursColor:
         assert bg == QColor("#880e4f")
 
     def test_cvd_overrides_dark(self):
-        from gui.theme import get_dept_hours_color
         from PyQt5.QtGui import QColor
+
+        from gui.theme import get_dept_hours_color
 
         # Deuteranopia min color in dark mode: #004d40
         bg, _ = get_dept_hours_color("dark", 10.0, 10.0, 100.0, cvd_mode="deuteranopia")
@@ -260,8 +266,9 @@ class TestGetDeptHoursColor:
         assert bg == QColor("#7f2d12")
 
     def test_foreground_contrast(self):
-        from gui.theme import get_dept_hours_color
         from PyQt5.QtGui import QColor
+
+        from gui.theme import get_dept_hours_color
 
         # Verify dark background results in white text
         # Dark theme normal c3 is #7f1d1d (Ruby Red) which is dark -> text should be white
@@ -271,5 +278,57 @@ class TestGetDeptHoursColor:
         # Light theme normal c1 is #e2f0d9 (Soft Green) which is light -> text should be dark slate
         _, fg_light = get_dept_hours_color("light", 10.0, 10.0, 100.0, cvd_mode="none")
         assert fg_light == QColor("#0f172a")
+
+
+class TestApplyThemePopupStyling:
+    """Tests that apply_theme sets global QApplication styles for popup dialogs (QMessageBox, QDialog)."""
+
+    def test_apply_theme_dark_sets_app_popup_styles(self, qapp):
+        from PyQt5.QtWidgets import QWidget
+        from gui.theme import apply_theme
+
+        w = QWidget()
+        apply_theme(w, "dark")
+
+        app_ss = qapp.styleSheet()
+        assert "QMessageBox" in app_ss
+        assert "QDialog" in app_ss
+        assert "background-color: #0f172a" in app_ss
+        assert "color: #f1f5f9" in app_ss
+
+    def test_apply_theme_light_sets_app_popup_styles(self, qapp):
+        from PyQt5.QtWidgets import QWidget
+        from gui.theme import apply_theme
+
+        w = QWidget()
+        apply_theme(w, "light")
+
+        app_ss = qapp.styleSheet()
+        assert "QMessageBox" in app_ss
+        assert "background-color: #ffffff" in app_ss
+        assert "color: #1e293b" in app_ss
+
+
+class TestMainWindowThemeInit:
+    """Tests that MainWindow._init_theme propagates theme to all panels (including AlertPanel)."""
+
+    def test_dark_mode_init_propagates_to_alert_panel(self, qapp, tmp_path, db_path):
+        from gui.main_window import MainWindow, ServiceRegistry
+
+        config = {
+            "sqlite_path": str(db_path),
+            "ui": {
+                "theme": "dark",
+                "colorblind_mode": "none",
+            },
+        }
+        config_path = tmp_path / "config.yaml"
+        services = ServiceRegistry(config, str(config_path), str(db_path))
+
+        win = MainWindow(services)
+        assert win.alert_panel._theme_name == "dark"
+        assert win.calendar_panel._theme_name == "dark"
+        assert win.list_panel._theme_name == "dark"
+
 
 

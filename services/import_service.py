@@ -64,7 +64,11 @@ class ImportService:
         )
 
     def from_ssrs(
-        self, url: str, lookback_days: int = 30, lookahead_days: int = 365
+        self,
+        url: str,
+        ssrs_summary_url: str | None = None,
+        lookback_days: int = 30,
+        lookahead_days: int = 365,
     ) -> ImportResult:
         """Fetch CSV from SSRS ReportServer and import into SQLite.
 
@@ -72,6 +76,7 @@ class ImportService:
 
         Args:
             url: SSRS ReportServer endpoint URL.
+            ssrs_summary_url: Optional secondary summary report URL for LineItemStateDesc.
             lookback_days: Number of days to look back in the report.
             lookahead_days: Number of days to look forward in the report.
 
@@ -84,6 +89,7 @@ class ImportService:
         stats = run_ssrs_import(
             db_path=self._db_path,
             ssrs_url=url,
+            ssrs_summary_url=ssrs_summary_url,
             lookback_days=lookback_days,
             lookahead_days=lookahead_days,
         )
@@ -93,6 +99,51 @@ class ImportService:
             skipped=stats.get("skipped", 0),
             errors=stats.get("errors", 0),
         )
+
+    def download_ssrs(
+        self,
+        url: str,
+        ssrs_summary_url: str | None = None,
+        lookback_days: int = 30,
+        lookahead_days: int = 365,
+    ) -> str:
+        """Fetch CSV from SSRS ReportServer to a temporary file.
+
+        Args:
+            url: SSRS ReportServer endpoint URL.
+            ssrs_summary_url: Optional secondary summary report URL for LineItemStateDesc.
+            lookback_days: Number of days to look back in the report.
+            lookahead_days: Number of days to look forward in the report.
+
+        Returns:
+            The path to the downloaded temporary CSV file.
+        """
+        import os
+        from automation.import_atomsvc import (
+            build_date_params,
+            build_ssrs_url,
+            fetch_csv_from_ssrs,
+            merge_summary_states_into_csv,
+        )
+
+        start_date, end_date = build_date_params(lookback_days, lookahead_days)
+        full_url = build_ssrs_url(url, start_date, end_date)
+        csv_path = fetch_csv_from_ssrs(full_url, filename_prefix="_ssrs_detailing_pull")
+
+        if ssrs_summary_url:
+            try:
+                summary_full_url = build_ssrs_url(ssrs_summary_url, start_date, end_date)
+                summary_csv_path = fetch_csv_from_ssrs(summary_full_url, filename_prefix="_ssrs_summary_pull")
+                if summary_csv_path and os.path.exists(summary_csv_path):
+                    merge_summary_states_into_csv(csv_path, summary_csv_path)
+                    try:
+                        os.remove(summary_csv_path)
+                    except OSError:
+                        pass
+            except Exception as e:
+                logger.warning("Summary report merge failed: %s", e)
+
+        return csv_path
 
     def diff_before_import(self, csv_path: str) -> ImportDiff:
         """Preview what would change during an import without applying changes.

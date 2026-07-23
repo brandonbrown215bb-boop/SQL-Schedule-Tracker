@@ -15,18 +15,62 @@ logger = logging.getLogger(__name__)
 
 # Default configuration values
 DEFAULTS: dict = {
-    "sqlite_path": "",
-    "excel_path": "",
-    "unedited_reports_dir": "",
-    "ssrs_url": "",
-    "update_source_dir": "",
+    "sqlite_path": "P:\\Detailing Schedule 2019\\schedule.db",
+    "excel_path": "P:\\Detailing Schedule 2019\\SCHDetailingReport_all_plants_MASTER.xlsm",
+    "unedited_reports_dir": "P:\\Detailing Schedule 2019\\Unedited Reports",
+    "csv_output_dir": "./csv_cache",
+    "ssrs_url": "http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHDetailingReport",
+    "ssrs_summary_url": "http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHSchedulingSummaryReport",
+    "update_source_dir": "P:\\Detailing Schedule 2019\\Schedule App",
     "ssrs_lookback_days": 30,
     "ssrs_lookahead_days": 365,
-    "default_detailers": [],
-    "status_labels": {},
+    "default_detailers": [
+        "— Unassigned —",
+        "Cancelled",
+        "Jackie H",
+        "Tommy N",
+        "Matthew S",
+        "Matthew E",
+        "Carl M",
+        "Stewart D",
+        "Austin K",
+        "Kris L",
+        "Emilio P",
+        "Timothy B",
+        "Jeremy B",
+        "Brandon B",
+        "Tracy V",
+        "Tanner D",
+    ],
+    "detailer_schedules": {
+        "Brandon B": [1, 2, 3, 4],
+        "Carl M": [0, 1, 2, 3],
+        "Emilio P": [0, 1, 2, 3],
+        "Jackie H": [0, 1, 2, 3],
+        "Jeremy B": [0, 1, 2, 3],
+        "Kris L": [0, 1, 2, 3],
+        "Matthew E": [1, 2, 3, 4],
+        "Matthew S": [1, 2, 3, 4],
+        "Stewart D": [1, 2, 3, 4],
+        "Tanner D": [0, 1, 2, 3],
+        "Timothy B": [1, 2, 3, 4],
+        "Tommy N": [1, 2, 3, 4],
+        "Tracy V": [0, 1, 2, 3],
+        "default": [0, 1, 2, 3],
+    },
+    "status_labels": {
+        "gray": "Unassigned (0%)",
+        "green": "Released (100%)",
+        "orange": "Checked & Returned (95%)",
+        "purple": "Ready for Checking (90%)",
+        "red": "Overdue",
+        "yellow": "In Progress (1-89%)",
+    },
     "multi_user": {
-        "enabled": False,
+        "enabled": True,
         "fallback_mode": "block",
+        "machine": "",
+        "username": "",
     },
     "ui": {
         "theme": "light",
@@ -36,10 +80,33 @@ DEFAULTS: dict = {
         "last_view": "calendar",
         "splitter_sizes": None,
         "list_column_widths": {},
-        "list_visible_columns": [],
+        "list_visible_columns": [
+            "com_number",
+            "unit_state",
+            "detailing_due_date",
+            "dept_due_date_previous",
+            "job_name",
+            "detailer",
+            "status_color",
+            "percent_complete",
+            "description_tags",
+            "department_hours",
+            "actual_hours",
+            "target_department_hours",
+            "checking_status",
+            "dr_checks",
+            "dvl_checks",
+            "contract_number",
+            "unit_detailing_start_date",
+            "notes",
+            "alert_level",
+        ],
         "list_sort_column": "detailing_due_date",
         "list_sort_ascending": True,
         "onboarding_completed": False,
+        "show_inline_edit": True,
+        "right_panel_collapsed": False,
+        "timeline_collapsed": True,
     },
 }
 
@@ -60,7 +127,7 @@ class ConfigService:
     """Service for loading, validating, and persisting config.yaml.
 
     Usage:
-        config = Config_service.load("/path/to/config.yaml")
+        config = ConfigService.load("/path/to/config.yaml")
         warnings = ConfigService.validate(config)
         ConfigService.save("/path/to/config.yaml", config)
     """
@@ -92,8 +159,25 @@ class ConfigService:
                 f"config.yaml did not parse as a valid mapping (dict), got {type(raw).__name__}"
             )
 
-        # Deep merge with defaults
-        config = deepcopy(DEFAULTS)
+        # Base defaults start from hardcoded DEFAULTS
+        base_defaults = deepcopy(DEFAULTS)
+
+        # If update_source_dir points to an accessible network folder with config.yaml,
+        # merge network template into base_defaults so new network settings take precedence over hardcoded DEFAULTS
+        update_dir = raw.get("update_source_dir") or DEFAULTS.get("update_source_dir", "")
+        if update_dir and os.path.isdir(update_dir):
+            remote_config_path = os.path.join(update_dir, "config.yaml")
+            if os.path.exists(remote_config_path) and os.path.abspath(remote_config_path) != os.path.abspath(path):
+                try:
+                    with open(remote_config_path, encoding="utf-8") as rf:
+                        remote_raw = yaml.safe_load(rf) or {}
+                    if isinstance(remote_raw, dict):
+                        ConfigService._deep_merge(base_defaults, remote_raw)
+                except Exception as e:
+                    logger.warning(f"Could not sync network config template from {remote_config_path}: {e}")
+
+        # Deep merge local user config on top of base defaults
+        config = base_defaults
         ConfigService._deep_merge(config, raw)
 
         try:
@@ -200,11 +284,26 @@ class ConfigService:
     # ── Internal ──────────────────────────────────────────────────────
 
     @staticmethod
-    def _deep_merge(base: dict, override: dict) -> dict:
+    def _deep_merge(base: dict, override: dict, fill_empty_scalars: bool = True) -> dict:
         """Deep merge override into base. Modifies base in-place."""
         for key, value in override.items():
             if key in base and isinstance(base[key], dict) and isinstance(value, dict):
-                ConfigService._deep_merge(base[key], value)
+                ConfigService._deep_merge(base[key], value, fill_empty_scalars=fill_empty_scalars)
+            elif key in base and isinstance(base[key], list) and isinstance(value, list):
+                merged_list = deepcopy(value)
+                for item in base[key]:
+                    if item not in merged_list:
+                        merged_list.append(deepcopy(item))
+                base[key] = merged_list
+            elif (
+                fill_empty_scalars
+                and key in base
+                and isinstance(base[key], str)
+                and base[key].strip() != ""
+                and (value is None or (isinstance(value, str) and value.strip() == ""))
+            ):
+                # Keep non-empty base default string when override string is empty/None
+                pass
             else:
                 base[key] = deepcopy(value)
         return base

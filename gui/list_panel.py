@@ -62,6 +62,7 @@ def get_week_of_month(friday_date: date) -> int:
 
 COLUMN_DEFS: list[tuple[str, str, int, bool]] = [
     ("com_number", "COM", 70, True),
+    ("unit_state", "Mfg State", 85, True),
     ("detailing_due_date", "Due Date", 80, True),
     ("dept_due_date_previous", "Prev Due", 80, True),
     ("job_name", "Job Name", 180, True),
@@ -94,6 +95,15 @@ STATUS_COLORS_FALLBACK: dict[str, QColor] = {
     "orange": QColor(249, 115, 22),
     "green": QColor(34, 197, 94),
     "red": QColor(239, 68, 68),
+}
+
+UNIT_STATE_COLORS: dict[str, QColor] = {
+    "Done": QColor(5, 150, 105),       # Emerald
+    "Fab-Eng": QColor(124, 58, 237),   # Violet
+    "Fab-Load": QColor(79, 70, 229),   # Indigo
+    "Fab-Lock": QColor(217, 119, 6),   # Amber
+    "Pre-Eng": QColor(2, 132, 199),    # Soft Blue
+    "Pre-Load": QColor(100, 116, 139), # Slate
 }
 
 STATUS_LABELS: dict[str, str] = {
@@ -181,6 +191,8 @@ class UnitListModel:
         date_to: date | None = None,
         com_search: str = "",
         alert_filter: str = "All",
+        show_cancelled: bool = False,
+        unit_state_filter: str = "All",
     ) -> None:
         """Apply all active filters with AND logic."""
         # Store current filter state for re-application
@@ -191,18 +203,41 @@ class UnitListModel:
         self._current_date_to = date_to
         self._current_com_search = com_search
         self._current_alert_filter = alert_filter
+        self._current_show_cancelled = show_cancelled
+        self._current_unit_state_filter = unit_state_filter
 
         result = list(self._all_units)
 
-        # Stale filter: when show_stale is False, exclude stale units
+        # Cancelled filter: exclude cancelled units unless explicitly shown or filtered by Cancelled detailer
+        if not show_cancelled and detailer != "Cancelled":
+            result = [u for u in result if not u.is_cancelled]
+
+        # Stale filter: when show_stale is False, exclude stale units,
+        # unless a custom date range is active and includes this unit.
         if not self._show_stale:
-            result = [u for u in result if not u.is_stale]
+            def is_in_custom_range(u: Unit) -> bool:
+                if date_preset != "custom":
+                    return False
+                if u.detailing_due_date is None:
+                    return False
+                if date_from and date_to:
+                    return date_from <= u.detailing_due_date <= date_to
+                elif date_from:
+                    return u.detailing_due_date >= date_from
+                elif date_to:
+                    return u.detailing_due_date <= date_to
+                return False
+
+            result = [u for u in result if not u.is_stale or is_in_custom_range(u)]
 
         if status != "All":
             result = [u for u in result if u.status_color_name == status]
 
         if detailer != "All":
             result = [u for u in result if u.detailer == detailer]
+
+        if unit_state_filter != "All":
+            result = [u for u in result if u.unit_state == unit_state_filter]
 
         if alert_filter != "All":
             result = [u for u in result if u.alert_level == alert_filter]
@@ -402,12 +437,14 @@ class ListPanel(QWidget):
     column_widths_changed = pyqtSignal(dict)  # {key: width}
     column_visibility_changed = pyqtSignal(list)  # list of visible column keys
     batch_mode_changed = pyqtSignal(int)  # count of selected units (0 = no batch)
+    show_inline_edit_changed = pyqtSignal(bool)
 
     def __init__(
         self,
         units: list[Unit] | None = None,
         default_detailers: list[str] | None = None,
         db_path: str = "",
+        show_inline_edit: bool = True,
         parent=None,
     ):
         super().__init__(parent)
@@ -423,6 +460,8 @@ class ListPanel(QWidget):
         self._emitting_widths: bool = False
         self._default_detailers: list[str] = default_detailers or []
         self._db_path: str = db_path
+        self._show_inline_edit: bool = show_inline_edit
+        self._show_cancelled: bool = False
         # Cache of pre-computed tag display strings, keyed by com_number.
         # Invalidated when the model (unit set) changes, preserved across
         # sort-only refreshes so we don't re-parse on every column click.
@@ -473,6 +512,8 @@ class ListPanel(QWidget):
     def set_theme(self, theme_name: str, cvd_mode: str = "none") -> None:
         self._theme_name = theme_name
         self._cvd_mode = cvd_mode
+        if hasattr(self, "_inline_edit_bar") and self._inline_edit_bar is not None:
+            self._inline_edit_bar.set_theme(theme_name, cvd_mode)
         self._refresh_table_full()
 
     # ── UI Construction ──────────────────────────────────────────────
@@ -516,6 +557,16 @@ class ListPanel(QWidget):
         self.detailer_combo.addItem("All", "All")
         self.detailer_combo.currentIndexChanged.connect(self._on_filter_changed)
         row1.addWidget(self.detailer_combo, 1)
+
+        row1.addWidget(QLabel("Mfg State:"))
+        self.unit_state_combo = QComboBox()
+        self.unit_state_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.unit_state_combo.addItem("All States", "All")
+        from data.models import VALID_UNIT_STATES
+        for state_val in VALID_UNIT_STATES:
+            self.unit_state_combo.addItem(state_val, state_val)
+        self.unit_state_combo.currentIndexChanged.connect(self._on_filter_changed)
+        row1.addWidget(self.unit_state_combo, 1)
         filter_layout.addLayout(row1)
 
         # Row 1.5: Alert filter + Stale checkbox
@@ -533,6 +584,12 @@ class ListPanel(QWidget):
         self.show_stale_checkbox.setChecked(False)
         self.show_stale_checkbox.stateChanged.connect(self._on_stale_toggled)
         row1_5.addWidget(self.show_stale_checkbox)
+
+        self.show_cancelled_checkbox = QCheckBox("Show Cancelled")
+        self.show_cancelled_checkbox.setChecked(False)
+        self.show_cancelled_checkbox.stateChanged.connect(self._on_cancelled_toggled)
+        row1_5.addWidget(self.show_cancelled_checkbox)
+
         filter_layout.addLayout(row1_5)
 
         # Row 2: Date range + Search
@@ -583,6 +640,12 @@ class ListPanel(QWidget):
         self.columns_btn = QPushButton("Columns...")
         self.columns_btn.clicked.connect(self._show_column_chooser)
         row3.addWidget(self.columns_btn)
+
+        self.inline_edit_toggle = QCheckBox("Inline Edit Bar")
+        self.inline_edit_toggle.setToolTip("Show/hide the inline editing bar at the bottom of the table")
+        self.inline_edit_toggle.setChecked(self._show_inline_edit)
+        self.inline_edit_toggle.toggled.connect(self._on_inline_toggle_clicked)
+        row3.addWidget(self.inline_edit_toggle)
         filter_layout.addLayout(row3)
 
         filter_group.setLayout(filter_layout)
@@ -605,6 +668,8 @@ class ListPanel(QWidget):
         self.table.doubleClicked.connect(self._on_double_clicked)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.table.setItemDelegate(HighlightDelegate(self.table))
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
 
         # ── Ctrl+A Select All ──
         select_all_action = QAction("Select All", self.table)
@@ -618,6 +683,8 @@ class ListPanel(QWidget):
         self._inline_edit_bar = InlineEditBar(self._default_detailers)
         self._inline_edit_bar.unit_saved.connect(self._on_inline_save)
         self._inline_edit_bar.dirty_changed.connect(self.inline_dirty_changed)
+        if not self._show_inline_edit:
+            self._inline_edit_bar.setVisible(False)
         layout.addWidget(self._inline_edit_bar)
 
         # ── Batch Edit Bar ──
@@ -648,7 +715,7 @@ class ListPanel(QWidget):
 
     def load_visible_columns(self, keys: list[str]) -> None:
         """Load saved visible columns from config (list of column keys).
-        
+
         Stores the keys and applies them if the model already exists.
         """
         if not keys:
@@ -794,6 +861,13 @@ class ListPanel(QWidget):
         self._refresh_table_full()
         self.stale_changed.emit(show_stale)
 
+    def _on_cancelled_toggled(self, state: int) -> None:
+        """Handle 'Show Cancelled' checkbox toggle."""
+        if self._model is None:
+            return
+        self._show_cancelled = (state == Qt.Checked)
+        self._apply_filters_and_refresh()
+
     def _on_filter_changed(self) -> None:
         """Called when any filter widget changes (or debounce fires)."""
         if self._model is None:
@@ -807,6 +881,7 @@ class ListPanel(QWidget):
 
         status = self.status_combo.currentData() or "All"
         detailer = self.detailer_combo.currentData() or "All"
+        unit_state_filter = self.unit_state_combo.currentData() or "All"
         date_preset = self.date_combo.currentData()
         date_from = self.date_from.date().toPyDate()
         date_to = self.date_to.date().toPyDate()
@@ -821,6 +896,8 @@ class ListPanel(QWidget):
             date_to=date_to,
             com_search=com_search,
             alert_filter=alert_filter,
+            show_cancelled=self._show_cancelled,
+            unit_state_filter=unit_state_filter,
         )
         self._model.sort_by(self._sort_column, self._sort_ascending)
         self._refresh_table_full()
@@ -1020,6 +1097,15 @@ class ListPanel(QWidget):
                     item.setText(icon)
                     item.setToolTip(f"{icon} {label}")
 
+                if key == "unit_state" and value:
+                    state_str = str(value).strip()
+                    color = UNIT_STATE_COLORS.get(state_str, QColor(100, 116, 139))
+                    item.setBackground(QBrush(color))
+                    item.setForeground(QBrush(QColor("white")))
+                    item.setFont(bold_font)
+                    item.setTextAlignment(Qt.AlignCenter)
+                    item.setToolTip(f"Manufacturing Order State: {state_str}")
+
                 if (
                     key == "detailing_due_date"
                     and value
@@ -1040,12 +1126,20 @@ class ListPanel(QWidget):
                 if key == "dept_due_date_previous" and value:
                     item.setFont(bold_font)
 
+                if unit.is_cancelled:
+                    if key == "detailer":
+                        item.setText("🚫 Cancelled")
+                        item.setFont(bold_font)
+                        item.setForeground(QBrush(QColor("#64748b")))
+                    elif key != "status_color":
+                        item.setForeground(QBrush(QColor("#64748b")))
+
                 item.setData(Qt.UserRole, unit)
                 self.table.setItem(row_idx, col_idx, item)
 
         total = len(self._model.all_units)
         showing = len(units)
-        stale_count = sum(1 for u in self._model.all_units if u.is_stale)
+        stale_count = sum(1 for u in self._model.all_units if u.is_stale and u not in units)
         if self._model._show_stale:
             stale_note = ""
         elif stale_count > 0:
@@ -1122,13 +1216,60 @@ class ListPanel(QWidget):
 
     # ── Selection ───────────────────────────────────────────────────
 
+    def set_show_inline_edit(self, show: bool) -> bool:
+        """Enable or disable the inline edit bar.
+
+        Returns True if updated, False if user cancelled discard of dirty state.
+        """
+        if self._show_inline_edit == show:
+            return True
+
+        if not show and self._inline_edit_bar.is_dirty:
+            from PyQt5.QtWidgets import QMessageBox
+
+            result = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved changes in the inline edit bar.\n"
+                "Disabling the inline edit bar will discard them.\n\n"
+                "Discard changes and disable?",
+                QMessageBox.Discard | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+            if result == QMessageBox.Cancel:
+                self.inline_edit_toggle.blockSignals(True)
+                self.inline_edit_toggle.setChecked(True)
+                self.inline_edit_toggle.blockSignals(False)
+                return False
+
+        self._show_inline_edit = show
+        self.inline_edit_toggle.blockSignals(True)
+        self.inline_edit_toggle.setChecked(show)
+        self.inline_edit_toggle.blockSignals(False)
+
+        if not show:
+            self._inline_edit_bar.set_unit(None)
+            self._inline_edit_bar.setVisible(False)
+        else:
+            selected = self._get_selected_units()
+            if len(selected) == 1:
+                self._inline_edit_bar.set_unit(selected[0])
+                self._inline_edit_bar.setVisible(True)
+
+        self.show_inline_edit_changed.emit(show)
+        return True
+
+    def _on_inline_toggle_clicked(self, checked: bool) -> None:
+        self.set_show_inline_edit(checked)
+
     def _on_selection_changed(self) -> None:
         """Emit unit_selected when the user clicks a row."""
         unit = self._get_selected_unit()
         if unit is not None:
             # If inline bar is dirty and user selected a different unit, warn
             if (
-                self._inline_edit_bar.is_dirty
+                self._show_inline_edit
+                and self._inline_edit_bar.is_dirty
                 and self._inline_edit_bar._unit is not None
                 and unit.com_number != self._inline_edit_bar._unit.com_number
             ):
@@ -1147,11 +1288,18 @@ class ListPanel(QWidget):
                     # Revert selection back to the dirty unit
                     self._select_com(self._inline_edit_bar._unit.com_number)
                     return
-            self._inline_edit_bar.set_unit(unit)
+
+            if self._show_inline_edit and len(self._get_selected_units()) < 2:
+                self._inline_edit_bar.set_unit(unit)
+            else:
+                self._inline_edit_bar.set_unit(None)
+                self._inline_edit_bar.setVisible(False)
+
             self.unit_selected.emit(unit)
             self._update_blame(unit)
         else:
             self._inline_edit_bar.set_unit(None)
+            self._inline_edit_bar.setVisible(False)
             self.blame_label.setText("")
         self._update_batch_bar()
 
@@ -1235,7 +1383,11 @@ class ListPanel(QWidget):
             self._inline_edit_bar.setVisible(False)
         else:
             self._batch_bar.setVisible(False)
-            # Inline edit bar visibility is handled by _on_selection_changed
+            if self._show_inline_edit and count == 1:
+                self._inline_edit_bar.set_unit(selected[0])
+                self._inline_edit_bar.setVisible(True)
+            else:
+                self._inline_edit_bar.setVisible(False)
         self.batch_mode_changed.emit(count)
 
     def _get_selected_units(self) -> list[Unit]:
@@ -1253,6 +1405,24 @@ class ListPanel(QWidget):
                 if unit:
                     units.append(unit)
         return units
+
+    def _on_table_context_menu(self, pos) -> None:
+        """Show context menu for selected table rows."""
+        selected = self._get_selected_units()
+        if not selected:
+            return
+
+        from PyQt5.QtWidgets import QMenu
+
+        menu = QMenu(self.table)
+        cancel_action = menu.addAction("🚫 Mark as Cancelled")
+
+        action = menu.exec_(self.table.mapToGlobal(pos))
+        if action == cancel_action:
+            for u in selected:
+                u.detailer = "Cancelled"
+                u.target_department_hours = 0.0
+                self.unit_saved.emit(u)
 
     def _on_batch_edit_clicked(self) -> None:
         """Open batch edit dialog for selected units."""

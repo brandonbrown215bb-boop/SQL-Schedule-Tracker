@@ -19,6 +19,7 @@ def _safe_journal_mode(conn: sqlite3.Connection, db_path: str) -> None:
     """Set WAL mode only if the database is on a local filesystem and multi-user is disabled."""
     import os
     import sys
+
     import yaml
 
     # Set generous busy timeout to prevent immediate lock crashes on network shares
@@ -37,7 +38,7 @@ def _safe_journal_mode(conn: sqlite3.Connection, db_path: str) -> None:
     config_path = os.path.join(app_path, "config.yaml")
     if os.path.exists(config_path):
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
                 multi_user_enabled = config.get("multi_user", {}).get("enabled", False)
         except Exception:
@@ -147,12 +148,17 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE units ADD COLUMN week_ending_friday TEXT")
             logger.info("Migration: added week_ending_friday column")
 
-        # ── Sprint 1: Database indexes for common query filters ────────────
+        if "unit_state" not in cols:
+            conn.execute("ALTER TABLE units ADD COLUMN unit_state TEXT")
+            logger.info("Migration: added unit_state column")
+
+        # ── Database indexes for common query filters ────────────
         desired_indexes = {
             "idx_units_detailing_due_date": "detailing_due_date",
             "idx_units_detailer": "detailer",
             "idx_units_contract_number": "top_level_number",
             "idx_units_status_color": "status_color",
+            "idx_units_unit_state": "unit_state",
         }
         existing_indexes = {
             row[0]
@@ -372,9 +378,10 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         description=row["description"] or "",
         detailer=row["detailer"] or "",
         checking_status=row["checking_status"] or "",
+        unit_state=(row["unit_state"] or "") if "unit_state" in row.keys() else "",  # noqa: SIM118
         notes=row["notes"] or "",
-        dr_checks=row["dr_checks"] or "" if "dr_checks" in row.keys() else "",
-        dvl_checks=row["dvl_checks"] or "" if "dvl_checks" in row.keys() else "",
+        dr_checks=(row["dr_checks"] or "") if "dr_checks" in row.keys() else "",  # noqa: SIM118
+        dvl_checks=(row["dvl_checks"] or "") if "dvl_checks" in row.keys() else "",  # noqa: SIM118
         status_color=row["status_color"] or "gray",  # persisted from last computed value
         department_hours=row["department_hours"] or 0.0,
         target_department_hours=row["target_dept_hours"]

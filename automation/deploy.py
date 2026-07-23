@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+
 import yaml
 
 
@@ -19,9 +20,23 @@ def validate_version(version: str) -> bool:
     return bool(re.match(r"^\d+\.\d+\.\d+$", version.strip()))
 
 
+def prepare_production_config(template_config_path: str, dest_config_path: str, deploy_dir: str) -> None:
+    """Read local dev template config.yaml and write production config.yaml to deployment folder with P: drive paths."""
+    with open(template_config_path, encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+
+    config["sqlite_path"] = r"P:\Detailing Schedule 2019\schedule.db"
+    config["excel_path"] = r"P:\Detailing Schedule 2019\SCHDetailingReport_all_plants_MASTER.xlsm"
+    config["unedited_reports_dir"] = r"P:\Detailing Schedule 2019\Unedited Reports"
+    config["update_source_dir"] = deploy_dir
+
+    with open(dest_config_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, default_flow_style=False, sort_keys=True)
+
+
 def main():
     print("=== SQL Schedule Tracker Deployment Automation ===")
-    
+
     # 1. Ask for version number
     version = ""
     while not validate_version(version):
@@ -39,7 +54,7 @@ def main():
     default_dest = ""
     if os.path.exists(config_path):
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
                 default_dest = config.get("update_source_dir", "")
         except Exception as e:
@@ -118,15 +133,15 @@ def main():
         print(f"Copying '{dist_exe}' -> '{dest_exe}'")
         shutil.copy2(dist_exe, dest_exe)
 
-        # Copy template config.yaml
-        print(f"Copying '{template_config}' -> '{dest_config}'")
-        shutil.copy2(template_config, dest_config)
+        # Generate production config.yaml template with P: drive paths
+        print(f"Writing production template config -> '{dest_config}'")
+        prepare_production_config(template_config, dest_config, dest_dir)
 
         # Copy version.txt
         print(f"Copying '{local_version_path}' -> '{dest_version}'")
         shutil.copy2(local_version_path, dest_version)
 
-        print(f"\n=== Deployment SUCCESSFUL! ===")
+        print("\n=== Deployment SUCCESSFUL! ===")
         print(f"Version v{version} is now available for users on the shared network drive.")
     except Exception as e:
         print(f"\nError: File copy failed: {e}")

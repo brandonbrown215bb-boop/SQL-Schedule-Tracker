@@ -29,6 +29,9 @@ def _working_days_between(start: date, end: date, working_weekdays: list[int] | 
 StatusColor = Literal["gray", "yellow", "purple", "orange", "green", "red"]
 
 
+VALID_UNIT_STATES = ["Done", "Fab-Eng", "Fab-Load", "Fab-Lock", "Pre-Eng", "Pre-Load"]
+
+
 @dataclass
 class Unit:
     com_number: str
@@ -37,6 +40,7 @@ class Unit:
     description: str
     detailer: str
     checking_status: str
+    unit_state: str = ""  # Manufacturing Order Management State (LineItemStateDesc)
     notes: str = ""
     dr_checks: str = ""
     dvl_checks: str = ""
@@ -123,6 +127,11 @@ class Unit:
         return self._milestones_cache
 
     @property
+    def is_cancelled(self) -> bool:
+        """True if unit is assigned to 'Cancelled'."""
+        return bool(self.detailer and self.detailer.strip() == "Cancelled")
+
+    @property
     def is_assigned(self) -> bool:
         """True if a valid detailer is assigned (not blank, Unassigned, or — Unassigned —)."""
         return bool(self.detailer and self.detailer.strip() not in ("— Unassigned —", "Unassigned", ""))
@@ -152,9 +161,9 @@ class Unit:
     def is_stale(self) -> bool:
         """True if due date is more than STALE_THRESHOLD_DAYS in the past.
 
-        Unassigned units are never marked stale to prevent them from being hidden.
+        Unassigned and cancelled units are never marked stale to prevent them from being hidden unexpectedly.
         """
-        if not self.is_assigned:
+        if not self.is_assigned or self.is_cancelled:
             return False
         if self.detailing_due_date:
             return self.detailing_due_date < date.today() - timedelta(days=STALE_THRESHOLD_DAYS)

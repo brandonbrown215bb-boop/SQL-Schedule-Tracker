@@ -30,6 +30,7 @@ def unit_fingerprint(unit: Unit) -> str:
         "description": unit.description,
         "detailer": unit.detailer,
         "checking_status": unit.checking_status,
+        "unit_state": unit.unit_state,
         "dr_checks": unit.dr_checks,
         "dvl_checks": unit.dvl_checks,
         "notes": unit.notes,

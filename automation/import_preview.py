@@ -67,9 +67,11 @@ def parse_csv_rows(csv_path: str) -> list[dict]:
                 continue
             row_data = {}
             for csv_col, db_col in CSV_TO_DB.items():
-                raw_val = csv_row.get(csv_col, "")
-                parser = PARSE_FUNCS.get(db_col, lambda v: v)
-                row_data[db_col] = parser(raw_val)
+                if csv_col in csv_row:
+                    raw_val = csv_row.get(csv_col, "")
+                    if raw_val or db_col not in row_data or not row_data[db_col]:
+                        parser = PARSE_FUNCS.get(db_col, lambda v: v)
+                        row_data[db_col] = parser(raw_val)
             rows.append(row_data)
     return rows
 
@@ -127,7 +129,7 @@ def _csv_row_to_changes(old_row, new_data: dict) -> list[dict]:
     # Note: percent_complete is only written to existing units when current value is NULL
     import_fields = [
         "detailing_due_date", "job_name", "top_level_number", "description",
-        "build_date", "department_hours", "percent_complete",
+        "build_date", "department_hours", "percent_complete", "unit_state",
     ]
 
     for field_name in import_fields:
@@ -162,8 +164,7 @@ def _csv_row_to_changes(old_row, new_data: dict) -> list[dict]:
         elif field_name == "percent_complete":
             # Existing row — skip percent_complete if current value is not NULL
             # (import only sets percent_complete for new units or when currently NULL)
-            old_pct = old_row["percent_complete"] if "percent_complete" in old_row.keys() else None
-            if old_pct is not None:
+            if old_val is not None:
                 continue
             # percent_complete is NULL in DB — compare as normal
             old_str = "0.0"

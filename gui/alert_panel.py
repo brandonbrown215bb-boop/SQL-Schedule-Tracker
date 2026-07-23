@@ -309,8 +309,8 @@ class AlertPanel(QWidget):
 
     def _rebuild(self) -> None:
         """Filter, sort, and populate the list widget."""
-        # Filter: non-stale, matching detailer
-        units = [u for u in self._all_units if not u.is_stale]
+        # Filter: non-stale, non-cancelled, matching detailer
+        units = [u for u in self._all_units if not u.is_stale and not u.is_cancelled]
 
         if self._current_detailer and self._current_detailer != "All Detailers":
             units = [u for u in units if u.detailer == self._current_detailer]
@@ -456,7 +456,7 @@ class AlertPanel(QWidget):
 
         total_hours = 0.0
         for u in self._all_units:
-            if u.detailer == self._current_detailer and not u.is_stale:
+            if u.detailer == self._current_detailer and not u.is_stale and not u.is_cancelled:
                 remaining_pct = max(0.0, 1.0 - u.percent_complete / 100.0)
                 total_hours += u.department_hours * remaining_pct
 

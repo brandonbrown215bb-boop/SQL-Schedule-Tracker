@@ -75,7 +75,7 @@ def build_ssrs_url(
 # ── Fetch + import pipeline ──────────────────────────────────────────
 
 
-def fetch_csv_from_ssrs(url: str, timeout: int = 60) -> str:
+def fetch_csv_from_ssrs(url: str, timeout: int = 60, filename_prefix: str = "_ssrs_pull") -> str:
     """Fetch CSV from SSRS URL, return path to temp file.
 
     Tries multiple auth methods:
@@ -83,7 +83,31 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60) -> str:
       2. requests with explicit credentials (Basic/Digest)
       3. urllib (no auth, for open endpoints)
     """
-    log.info(f"Fetching SSRS CSV: {url[:120]}...")
+    log.info(f"Fetching SSRS CSV ({filename_prefix}): {url[:120]}...")
+    target_filename = f"{filename_prefix}.csv"
+
+    # Try PowerShell with -UseDefaultCredentials (built into Windows 10/11, native Windows SSO/NTLM)
+    if os.name == "nt":
+        try:
+            import subprocess
+
+            tmp_path = os.path.join(tempfile.gettempdir(), target_filename)
+            ps_cmd = [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                f"$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '{url}' -UseDefaultCredentials -OutFile '{tmp_path}'",
+            ]
+            res = subprocess.run(ps_cmd, capture_output=True, text=True, timeout=timeout)
+            if res.returncode == 0 and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+                log.info(f"Downloaded {os.path.getsize(tmp_path)} bytes (PowerShell UseDefaultCredentials)")
+                return tmp_path
+            else:
+                log.warning(f"PowerShell fetch failed (rc={res.returncode}): {res.stderr[:200]}")
+        except Exception as e:
+            log.warning(f"PowerShell fetch failed: {e}")
 
     # Try curl with NTLM negotiation (Windows 10+ has curl built in)
     try:
@@ -95,7 +119,7 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60) -> str:
             timeout=timeout,
         )
         if result.returncode == 0 and result.stdout:
-            tmp_path = os.path.join(tempfile.gettempdir(), "_ssrs_pull.csv")
+            tmp_path = os.path.join(tempfile.gettempdir(), target_filename)
             with open(tmp_path, "wb") as tmp:
                 tmp.write(result.stdout)
             log.info(f"Downloaded {len(result.stdout)} bytes (curl NTLM)")
@@ -121,7 +145,7 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60) -> str:
             resp = session.get(url, timeout=timeout, auth=HttpNtlmAuth("", ""))
         resp.raise_for_status()
 
-        tmp_path = os.path.join(tempfile.gettempdir(), "_ssrs_pull.csv")
+        tmp_path = os.path.join(tempfile.gettempdir(), target_filename)
         with open(tmp_path, "wb") as tmp:
             tmp.write(resp.content)
         log.info(f"Downloaded {len(resp.content)} bytes (requests+ntlm)")
@@ -145,7 +169,7 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60) -> str:
 
             if xmlhttp.Status == 200:
                 data = xmlhttp.ResponseBody
-                tmp_path = os.path.join(tempfile.gettempdir(), "_ssrs_pull.csv")
+                tmp_path = os.path.join(tempfile.gettempdir(), target_filename)
                 with open(tmp_path, "wb") as tmp:
                     tmp.write(bytes(data))
                 log.info(f"Downloaded {len(data)} bytes (win32com)")
@@ -159,12 +183,11 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60) -> str:
     except Exception as e:
         log.warning(f"win32com failed: {e}")
 
-    # Last resort: plain urllib (works if SSRS allows anonymous or if
-    # the user has a valid session cookie in the default credential cache)
+    # Last resort: plain urllib
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             data = resp.read()
-        tmp_path = os.path.join(tempfile.gettempdir(), "_ssrs_pull.csv")
+        tmp_path = os.path.join(tempfile.gettempdir(), target_filename)
         with open(tmp_path, "wb") as tmp:
             tmp.write(data)
         log.info(f"Downloaded {len(data)} bytes (urllib)")
@@ -174,9 +197,60 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60) -> str:
         raise
 
 
+def merge_summary_states_into_csv(detailing_csv_path: str, summary_csv_path: str) -> None:
+    """Merge LineItemStateDesc from SCHSchedulingSummaryReport CSV into SCHDetailingReport CSV in-place."""
+    import csv
+
+    # Read summary states keyed by COM number
+    state_map: dict[str, str] = {}
+    try:
+        with open(summary_csv_path, mode="r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                com = (r.get("COMNumber1") or r.get("COMNumber") or "").strip()
+                state = (r.get("LineItemStateDesc") or r.get("UnitState") or "").strip()
+                if com and state:
+                    state_map[com] = state
+    except Exception as e:
+        log.warning(f"Could not read summary CSV states: {e}")
+        return
+
+    if not state_map:
+        return
+
+    # Read primary detailing CSV
+    rows = []
+    fieldnames = []
+    try:
+        with open(detailing_csv_path, mode="r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            fieldnames = list(reader.fieldnames or [])
+            if "LineItemStateDesc" not in fieldnames:
+                fieldnames.append("LineItemStateDesc")
+            for r in reader:
+                com = (r.get("COMNumber") or "").strip()
+                if com in state_map and not r.get("LineItemStateDesc"):
+                    r["LineItemStateDesc"] = state_map[com]
+                rows.append(r)
+    except Exception as e:
+        log.warning(f"Could not process detailing CSV for state merge: {e}")
+        return
+
+    # Write back merged CSV
+    try:
+        with open(detailing_csv_path, mode="w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+        log.info(f"Merged LineItemStateDesc for {len(state_map)} COM numbers into detailing CSV")
+    except Exception as e:
+        log.warning(f"Failed to write merged detailing CSV: {e}")
+
+
 def run_ssrs_import(
     db_path: str,
     ssrs_url: str | None = None,
+    ssrs_summary_url: str | None = None,
     lookback_days: int = 30,
     lookahead_days: int = 365,
     date_format: str = "%m/%d/%Y",
@@ -196,8 +270,23 @@ def run_ssrs_import(
     full_url = build_ssrs_url(ssrs_url, start_date, end_date)
     log.info(f"SSRS URL: {full_url[:150]}...")
 
-    # Fetch CSV
-    csv_path = fetch_csv_from_ssrs(full_url)
+    # Fetch primary detailing CSV
+    csv_path = fetch_csv_from_ssrs(full_url, filename_prefix="_ssrs_detailing_pull")
+
+    # Attempt to fetch secondary summary report to enrich LineItemStateDesc
+    if ssrs_summary_url:
+        try:
+            summary_full_url = build_ssrs_url(ssrs_summary_url, start_date, end_date)
+            log.info("Fetching secondary summary report for LineItemStateDesc...")
+            summary_csv_path = fetch_csv_from_ssrs(summary_full_url, filename_prefix="_ssrs_summary_pull")
+            if summary_csv_path and os.path.exists(summary_csv_path):
+                merge_summary_states_into_csv(csv_path, summary_csv_path)
+                try:
+                    os.remove(summary_csv_path)
+                except OSError:
+                    pass
+        except Exception as e:
+            log.warning(f"Summary report fetch skipped or failed: {e}")
 
     try:
         # Delegate to existing CSV import

@@ -124,8 +124,9 @@ def non_primary_identical_hook(unit: Unit, context: dict) -> list[str]:
 
 def target_hours_hook(unit: Unit, context: dict) -> list[str]:
     """Auto-calculate target_department_hours = max(0, dept - iec)."""
-    if unit.is_non_primary_identical:
-        return []  # handled by non_primary_identical_hook
+    if unit.is_non_primary_identical or unit.is_cancelled:
+        unit.target_department_hours = 0.0
+        return []
     expected = max(0.0, unit.department_hours - unit.iec_internal_hours)
     if abs(unit.target_department_hours - expected) > 0.01:
         unit.target_department_hours = expected

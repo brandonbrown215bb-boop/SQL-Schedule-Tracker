@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+
 import pytest
 import yaml
+
 from services.update_service import UpdateService
 
 
@@ -113,29 +115,35 @@ class TestUpdateService:
     def test_smart_merge_config(self, temp_dir):
         service = UpdateService(temp_dir)
 
-        # Local settings
+        # Local settings with empty string override for a URL
         local_cfg = {
             "sqlite_path": "C:\\local\\schedule.db",
             "excel_path": "C:\\local\\master.xlsx",
+            "ssrs_summary_url": "",  # Empty local string
+            "default_detailers": ["— Unassigned —", "Jackie H", "Tommy N"],
             "ui": {
                 "theme": "dark",
                 "high_contrast": True,
                 "list_sort_column": "job_name",
+                "list_visible_columns": ["com_number", "job_name"],
             }
         }
         local_config_path = os.path.join(temp_dir, "config.yaml")
         with open(local_config_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(local_cfg, f)
 
-        # Remote settings (new version template with new key)
+        # Remote settings (new version template with new key & default summary URL)
         remote_cfg = {
             "sqlite_path": "P:\\remote\\schedule.db",
             "excel_path": "P:\\remote\\master.xlsm",
+            "ssrs_summary_url": "http://j030m1p3/ReportServer?SummaryReport",
             "new_feature_key": "some_value",
+            "default_detailers": ["— Unassigned —", "Cancelled", "Jackie H", "Tommy N", "New Person"],
             "ui": {
                 "theme": "light",
                 "new_ui_setting": 42,
                 "list_sort_column": "detailing_due_date",
+                "list_visible_columns": ["com_number", "unit_state", "job_name"],
             }
         }
         remote_dir = os.path.join(temp_dir, "remote")
@@ -149,7 +157,7 @@ class TestUpdateService:
         assert success is True
 
         # Load merged config and verify values
-        with open(local_config_path, "r", encoding="utf-8") as f:
+        with open(local_config_path, encoding="utf-8") as f:
             merged = yaml.safe_load(f)
 
         # Assert local values preserved
@@ -159,9 +167,40 @@ class TestUpdateService:
         assert merged["ui"]["high_contrast"] is True
         assert merged["ui"]["list_sort_column"] == "job_name"
 
-        # Assert remote new keys incorporated
+        # Assert remote new keys & empty string default fallback incorporated
         assert merged["new_feature_key"] == "some_value"
         assert merged["ui"]["new_ui_setting"] == 42
+        assert merged["ssrs_summary_url"] == "http://j030m1p3/ReportServer?SummaryReport"
+
+        # Assert lists were merged smartly (user items preserved, missing remote items appended)
+        assert merged["default_detailers"] == ["— Unassigned —", "Jackie H", "Tommy N", "Cancelled", "New Person"]
+        assert merged["ui"]["list_visible_columns"] == ["com_number", "job_name", "unit_state"]
+
+    def test_config_service_load_syncs_network_template(self, temp_dir):
+        from services.config_service import ConfigService
+
+        remote_dir = os.path.join(temp_dir, "network_share")
+        os.makedirs(remote_dir)
+        remote_cfg_path = os.path.join(remote_dir, "config.yaml")
+        with open(remote_cfg_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump({
+                "new_network_setting": "enabled",
+                "ssrs_lookback_days": 45,
+            }, f)
+
+        local_cfg = {
+            "sqlite_path": os.path.join(temp_dir, "test.db"),
+            "update_source_dir": remote_dir,
+            "ui": {"theme": "dark"},
+        }
+        local_cfg_path = os.path.join(temp_dir, "local_config.yaml")
+        with open(local_cfg_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(local_cfg, f)
+
+        loaded = ConfigService.load(local_cfg_path)
+        assert loaded["ui"]["theme"] == "dark"
+        assert loaded["ssrs_lookback_days"] == 45
+        assert loaded["new_network_setting"] == "enabled"
 
     def test_generate_updater_script(self, temp_dir):
         service = UpdateService(temp_dir)
@@ -172,7 +211,7 @@ class TestUpdateService:
         assert os.path.exists(batch_path)
         assert batch_path.endswith(".bat")
 
-        with open(batch_path, "r", encoding="cp1252") as f:
+        with open(batch_path, encoding="cp1252") as f:
             content = f.read()
 
         # Check that it contains the robocopy command with correct paths
@@ -182,3 +221,30 @@ class TestUpdateService:
 
         # Clean up batch file
         os.remove(batch_path)
+
+    def test_prepare_production_config(self, temp_dir):
+        from automation.deploy import prepare_production_config
+
+        template_path = os.path.join(temp_dir, "local_config.yaml")
+        dest_path = os.path.join(temp_dir, "prod_config.yaml")
+        deploy_dir = "P:\\Detailing Schedule 2019\\Schedule App"
+
+        with open(template_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump({
+                "sqlite_path": "C:\\local\\testing.db",
+                "excel_path": "C:\\local\\testing.xlsm",
+                "unedited_reports_dir": "./local_reports",
+                "custom_key": "user_val",
+            }, f)
+
+        prepare_production_config(template_path, dest_path, deploy_dir)
+
+        assert os.path.exists(dest_path)
+        with open(dest_path, encoding="utf-8") as f:
+            prod_cfg = yaml.safe_load(f)
+
+        assert prod_cfg["sqlite_path"] == "P:\\Detailing Schedule 2019\\schedule.db"
+        assert prod_cfg["excel_path"] == "P:\\Detailing Schedule 2019\\SCHDetailingReport_all_plants_MASTER.xlsm"
+        assert prod_cfg["unedited_reports_dir"] == "P:\\Detailing Schedule 2019\\Unedited Reports"
+        assert prod_cfg["update_source_dir"] == deploy_dir
+        assert prod_cfg["custom_key"] == "user_val"

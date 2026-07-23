@@ -95,27 +95,45 @@ class SaveWorker(QThread):
 
 
 class PullSSRSWorker(QThread):
-    """Background worker for fetching SSRS data."""
+    """Background worker for fetching SSRS data and computing diff."""
 
-    finished = pyqtSignal(object)
+    finished = pyqtSignal(object, str)  # (ImportDiff, temp_csv_path)
     error = pyqtSignal(str)
 
-    def __init__(self, import_service: ImportService, url: str, lookback_days: int, lookahead_days: int):
+    def __init__(
+        self,
+        import_service: ImportService,
+        url: str,
+        lookback_days: int,
+        lookahead_days: int,
+        ssrs_summary_url: str | None = None,
+    ):
         super().__init__()
         self._import_service = import_service
         self.url = url
         self.lookback_days = lookback_days
         self.lookahead_days = lookahead_days
+        self.ssrs_summary_url = ssrs_summary_url
 
     def run(self):
+        temp_path = None
         try:
-            res = self._import_service.from_ssrs(
+            temp_path = self._import_service.download_ssrs(
                 url=self.url,
+                ssrs_summary_url=self.ssrs_summary_url,
                 lookback_days=self.lookback_days,
-                lookahead_days=self.lookahead_days
+                lookahead_days=self.lookahead_days,
             )
-            self.finished.emit(res)
+            diff = self._import_service.diff_before_import(temp_path)
+            self.finished.emit(diff, temp_path)
         except Exception as e:
+            if temp_path:
+                import os
+                try:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                except Exception:
+                    pass
             self.error.emit(str(e))
 
 
@@ -312,6 +330,9 @@ class MainWindow(QMainWindow):
             cvd_mode=self._current_cvd,
             high_contrast=self._current_hc,
         )
+        for panel in (self.calendar_panel, self.list_panel, self.timeline_panel, self.edit_form, self.alert_panel):
+            if hasattr(panel, "set_theme"):
+                panel.set_theme(self._current_theme_name, self._current_cvd)
         if hasattr(self, "notification_panel") and self.notification_panel is not None:
             self.notification_panel.set_theme(self._current_theme_name, self._current_cvd)
 
@@ -478,14 +499,17 @@ class MainWindow(QMainWindow):
         self.calendar_panel = CalendarPanel(self.units)
         self.calendar_panel.unit_selected.connect(self.on_unit_selected)
         self.view_stack.addWidget(self.calendar_panel)
+        show_inline = self._services.config.get("ui", {}).get("show_inline_edit", True)
         self.list_panel = ListPanel(
             self.units,
             default_detailers=self._services.config.get("default_detailers", []),
             db_path=self._services.db_path,
+            show_inline_edit=show_inline,
         )
         self.list_panel.unit_selected.connect(self.on_unit_selected)
         self.list_panel.unit_saved.connect(self.on_save_unit)
         self.list_panel.inline_dirty_changed.connect(self._on_inline_dirty_changed)
+        self.list_panel.show_inline_edit_changed.connect(self._on_show_inline_edit_changed)
         self.list_panel.stale_changed.connect(self._on_stale_changed)
         self.list_panel.column_widths_changed.connect(self._on_column_widths_changed)
         self.list_panel.column_visibility_changed.connect(self._on_column_visibility_changed)
@@ -589,10 +613,43 @@ class MainWindow(QMainWindow):
     def _build_help_menu(self):
         menubar = self.menuBar()
         menubar.setObjectName("menuBar")
+
+        # View menu
+        view_menu = menubar.addMenu("&View")
+        show_inline = self._services.config.get("ui", {}).get("show_inline_edit", True)
+        self._show_inline_action = view_menu.addAction("&Show Inline Edit Bar")
+        self._show_inline_action.setCheckable(True)
+        self._show_inline_action.setChecked(show_inline)
+        self._show_inline_action.setToolTip("Show or hide the bottom inline edit bar in List View")
+        self._show_inline_action.triggered.connect(self._toggle_inline_edit_from_menu)
+
+        self._show_side_panel_action = view_menu.addAction("Show &Side Edit Panel")
+        self._show_side_panel_action.setCheckable(True)
+        self._show_side_panel_action.setChecked(not self._right_collapsed)
+        self._show_side_panel_action.setToolTip("Expand or collapse the right-side detail edit form")
+        self._show_side_panel_action.triggered.connect(self._on_toggle_right_panel)
+
+        view_menu.addSeparator()
+
+        cal_action = view_menu.addAction("📅 &Calendar View")
+        cal_action.setShortcut("Ctrl+1")
+        cal_action.triggered.connect(lambda: self._switch_view("calendar"))
+
+        list_action = view_menu.addAction("📋 &List View")
+        list_action.setShortcut("Ctrl+2")
+        list_action.triggered.connect(lambda: self._switch_view("list"))
+
+        alerts_action = view_menu.addAction("🔔 &Alerts View")
+        alerts_action.setShortcut("Ctrl+3")
+        alerts_action.triggered.connect(lambda: self._switch_view("alerts"))
+
+        # Reports menu
         reports_menu = menubar.addMenu("&Reports")
         dashboard_action = reports_menu.addAction("📊 Scheduling Dashboard")
         dashboard_action.setToolTip("Open the scheduling status chart (exportable as PNG)")
         dashboard_action.triggered.connect(self._open_dashboard)
+
+        # Help menu
         help_menu = menubar.addMenu("&Help")
 
         legend_action = help_menu.addAction("&Legend & Reference Guide")
@@ -609,6 +666,29 @@ class MainWindow(QMainWindow):
         help_menu.addSeparator()
         about_action = help_menu.addAction("&About Unit Tracker")
         about_action.triggered.connect(self._show_about)
+
+    def _on_show_inline_edit_changed(self, show: bool) -> None:
+        """Handle inline edit toggle changed signal from ListPanel."""
+        if hasattr(self, "_show_inline_action"):
+            self._show_inline_action.blockSignals(True)
+            self._show_inline_action.setChecked(show)
+            self._show_inline_action.blockSignals(False)
+
+        self._services.config.setdefault("ui", {})["show_inline_edit"] = show
+        try:
+            self._services.config_service.save(self._services.config_path, self._services.config)
+        except Exception as e:
+            logger.warning("Failed to save show_inline_edit setting to config: %s", e)
+
+        self._notify("Inline edit bar enabled" if show else "Inline edit bar disabled", "info")
+
+    def _toggle_inline_edit_from_menu(self, checked: bool) -> None:
+        """Toggle inline edit bar from View menu."""
+        success = self.list_panel.set_show_inline_edit(checked)
+        if not success and hasattr(self, "_show_inline_action"):
+            self._show_inline_action.blockSignals(True)
+            self._show_inline_action.setChecked(not checked)
+            self._show_inline_action.blockSignals(False)
 
     def _show_legend(self) -> None:
         dlg = ReferenceDialog(
@@ -1336,7 +1416,7 @@ class MainWindow(QMainWindow):
             "Confirm SSRS Pull",
             f"Fetch latest data from SSRS?\n\nURL: {ssrs_url}\n"
             f"Date range: {lookback} days back → {lookahead} days forward\n\n"
-            f"This will upsert all report rows into the SQLite database.\nContinue?",
+            f"Continue?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -1344,24 +1424,45 @@ class MainWindow(QMainWindow):
             return
 
         self._set_io_busy(True)
-        self.loading_overlay.show_with_message("Fetching SSRS data...")
+        ssrs_summary_url = self._services.config.get("ssrs_summary_url", "")
+        self.loading_overlay.show_with_message("Fetching SSRS data & computing diff...")
         self._pull_ssrs_worker = PullSSRSWorker(
-            self._services.import_service, ssrs_url, lookback, lookahead
+            self._services.import_service,
+            ssrs_url,
+            lookback,
+            lookahead,
+            ssrs_summary_url=ssrs_summary_url,
         )
         self._pull_ssrs_worker.finished.connect(self._on_pull_ssrs_finished)
         self._pull_ssrs_worker.error.connect(self._on_pull_ssrs_error)
         self._pull_ssrs_worker.start()
 
-    def _on_pull_ssrs_finished(self, result):
+    def _on_pull_ssrs_finished(self, diff, temp_csv_path):
         self.loading_overlay.hide()
         self.notification_panel.flush_queue()
         self._set_io_busy(False)
-        self._notify(
-            f"SSRS import complete — {result.inserted} inserted, "
-            f"{result.updated} updated, {result.errors} errors",
-            "success"
+
+        from gui.import_preview_dialog import ImportPreviewDialog
+        dlg = ImportPreviewDialog(diff, parent=self)
+        dlg.exec_()
+        if not dlg.approved:
+            self._notify("Import cancelled", "info")
+            try:
+                if os.path.exists(temp_csv_path):
+                    os.remove(temp_csv_path)
+            except Exception as e:
+                logger.error("Failed to delete temporary SSRS file %s: %s", temp_csv_path, e)
+            return
+
+        self._set_io_busy(True)
+        self.loading_overlay.show_with_message("Importing SSRS data...")
+        self._temp_ssrs_path = temp_csv_path
+        self._ssrs_import_worker = CSVImportWorker(
+            self._services.import_service, temp_csv_path
         )
-        self._refresh_data()
+        self._ssrs_import_worker.finished.connect(self._on_ssrs_import_finished)
+        self._ssrs_import_worker.error.connect(self._on_ssrs_import_error)
+        self._ssrs_import_worker.start()
 
     def _on_pull_ssrs_error(self, error_msg: str):
         self.loading_overlay.hide()
@@ -1370,6 +1471,39 @@ class MainWindow(QMainWindow):
         logger.error("SSRS pull failed: %s", error_msg)
         QMessageBox.warning(self, "SSRS Import Error", f"Failed:\n{error_msg}")
         self._notify("SSRS import failed", "error")
+
+    def _on_ssrs_import_finished(self, result):
+        self.loading_overlay.hide()
+        self.notification_panel.flush_queue()
+        self._set_io_busy(False)
+        self._notify(f"Imported {result.total_affected} rows successfully", "success")
+        self._refresh_data()
+
+        temp_path = getattr(self, "_temp_ssrs_path", None)
+        if temp_path:
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except Exception as e:
+                logger.error("Failed to delete temporary SSRS file %s: %s", temp_path, e)
+            self._temp_ssrs_path = None
+
+    def _on_ssrs_import_error(self, error_msg: str):
+        self.loading_overlay.hide()
+        self.notification_panel.flush_queue()
+        self._set_io_busy(False)
+        logger.error("SSRS import failed: %s", error_msg)
+        QMessageBox.warning(self, "Import Error", f"Failed:\n{error_msg}")
+        self._notify("Import failed", "error")
+
+        temp_path = getattr(self, "_temp_ssrs_path", None)
+        if temp_path:
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except Exception as e:
+                logger.error("Failed to delete temporary SSRS file %s: %s", temp_path, e)
+            self._temp_ssrs_path = None
 
     def _export_excel(self):
         if getattr(self, "_io_busy", False):
@@ -1552,6 +1686,10 @@ class MainWindow(QMainWindow):
             self._collapse_btn.setText("◀")
             self._collapse_btn.setToolTip("Expand right panel")
         # Persist
+        if hasattr(self, "_show_side_panel_action"):
+            self._show_side_panel_action.blockSignals(True)
+            self._show_side_panel_action.setChecked(not self._right_collapsed)
+            self._show_side_panel_action.blockSignals(False)
         self._services.config.setdefault("ui", {})["right_panel_collapsed"] = self._right_collapsed
         self._save_ui_config()
 
@@ -1739,10 +1877,13 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Update Error", f"Failed to generate update script:\n{e}")
             return
 
-        # Launch batch file detached
+        # Launch batch file detached with PyInstaller env variables stripped
         import subprocess
+        clean_env = os.environ.copy()
+        clean_env.pop("_MEIPASS", None)
+        clean_env.pop("_MEIPASS2", None)
         try:
-            subprocess.Popen(f'start "" "{batch_path}"', shell=True)
+            subprocess.Popen(f'start "" "{batch_path}"', shell=True, env=clean_env)
         except Exception as e:
             QMessageBox.critical(self, "Update Error", f"Failed to launch update script:\n{e}")
             return

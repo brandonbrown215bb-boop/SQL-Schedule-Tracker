@@ -5,6 +5,7 @@ from PyQt5.QtCore import QDate, QEvent, QRect, Qt, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QPainter
 from PyQt5.QtWidgets import (
     QCalendarWidget,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -34,6 +35,7 @@ class EventCalendarWidget(QCalendarWidget):
         self._theme_name = "light"
         self._cvd_mode = "none"
         self._show_stale = False
+        self._show_cancelled = False
         self._highlighted_com: str | None = None  # P18
         # Fix: install event filter to reposition month/year QMenu popups
         self.installEventFilter(self)
@@ -61,6 +63,9 @@ class EventCalendarWidget(QCalendarWidget):
     def set_show_stale(self, show: bool) -> None:
         self._show_stale = show
 
+    def set_show_cancelled(self, show: bool) -> None:
+        self._show_cancelled = show
+
     def set_highlighted_com(self, com_number: str | None) -> None:
         """Set the COM number whose due date cell should be highlighted (P18)."""
         self._highlighted_com = com_number
@@ -71,6 +76,8 @@ class EventCalendarWidget(QCalendarWidget):
         self.events_by_date.clear()
         for unit in units:
             if not self._show_stale and unit.is_stale:
+                continue
+            if not self._show_cancelled and unit.is_cancelled:
                 continue
             if unit.detailing_due_date is not None:
                 qdate = QDate(
@@ -208,6 +215,10 @@ class CalendarPanel(QWidget):
         header = QHBoxLayout()
         header.addWidget(QLabel("<b>Calendar</b>"))
         header.addStretch()
+        self.show_cancelled_cb = QCheckBox("Show Cancelled")
+        self.show_cancelled_cb.setChecked(False)
+        self.show_cancelled_cb.toggled.connect(self._on_show_cancelled_toggled)
+        header.addWidget(self.show_cancelled_cb)
         self.today_btn = QPushButton("Today")
         self.today_btn.clicked.connect(self._go_today)
         header.addWidget(self.today_btn)
@@ -278,6 +289,11 @@ class CalendarPanel(QWidget):
         if unit:
             self.set_highlighted_unit(unit.com_number)
             self.unit_selected.emit(unit)
+
+    def _on_show_cancelled_toggled(self, checked: bool) -> None:
+        self.calendar.set_show_cancelled(checked)
+        self.calendar.set_events(self.units)
+        self._refresh_event_list()
 
     def _go_today(self):
         self.calendar.setSelectedDate(QDate.currentDate())

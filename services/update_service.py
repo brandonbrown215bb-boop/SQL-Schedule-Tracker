@@ -9,7 +9,9 @@ import logging
 import os
 import tempfile
 from copy import deepcopy
+
 import yaml
+
 from services.config_service import ConfigService
 
 logger = logging.getLogger(__name__)
@@ -33,7 +35,7 @@ class UpdateService:
             return "0.0.0"
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return f.readline().strip() or "0.0.0"
         except Exception as e:
             logger.error("Failed to read local version.txt: %s. Defaulting to 0.0.0", e)
@@ -58,7 +60,7 @@ class UpdateService:
             return None
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return f.readline().strip() or None
         except Exception as e:
             logger.error("Failed to read remote version.txt: %s", e)
@@ -134,16 +136,16 @@ class UpdateService:
             return False
 
         try:
-            with open(remote_config_path, "r", encoding="utf-8") as f:
+            with open(remote_config_path, encoding="utf-8") as f:
                 remote_cfg = yaml.safe_load(f) or {}
-            
+
             # Load local config if it exists
             local_cfg = {}
             if os.path.exists(local_config_path):
-                with open(local_config_path, "r", encoding="utf-8") as f:
+                with open(local_config_path, encoding="utf-8") as f:
                     local_cfg = yaml.safe_load(f) or {}
 
-            # Perform deep merge: local_cfg overrides/merges into remote_cfg
+            # Perform deep merge: start with remote network template, merge local user config on top
             merged_cfg = deepcopy(remote_cfg)
             ConfigService._deep_merge(merged_cfg, local_cfg)
 
@@ -176,6 +178,11 @@ class UpdateService:
         # /W:5: 5 seconds wait between retries
         batch_template = f"""@echo off
 title Updating Detailing Schedule...
+
+rem Clear PyInstaller environment variables so restarted app extracts a clean temporary runtime
+set _MEIPASS=
+set _MEIPASS2=
+
 echo Waiting for application to exit...
 
 :wait_loop
@@ -185,12 +192,17 @@ if "%ERRORLEVEL%"=="0" (
     goto wait_loop
 )
 
+rem Extra pause to guarantee process file locks & PyInstaller cleanup complete
+timeout /t 2 /nobreak >nul
+
 echo.
 echo Copying new version files from network share...
 robocopy "{update_source_dir}" "{local_app_dir}" /MIR /XD "backups" "csv_cache" "Unedited Reports" /XF "config.yaml" "*.db" "*.log" "update_detailing_schedule.bat" /R:3 /W:5
 
 echo.
 echo Restarting application...
+set _MEIPASS=
+set _MEIPASS2=
 start "" "{local_app_dir}\\Detailing Schedule.exe"
 
 echo.

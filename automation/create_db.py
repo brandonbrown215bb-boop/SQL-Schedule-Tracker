@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS units (
     days_diff_due_to_build INTEGER,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
-    status_color TEXT DEFAULT 'gray'
+    status_color TEXT DEFAULT 'gray',
+    unit_state TEXT
 );
 
 
@@ -74,6 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_units_pct_complete ON units(percent_complete);
 CREATE INDEX IF NOT EXISTS idx_units_manufacturing_location ON units(manufacturing_location);
 CREATE INDEX IF NOT EXISTS idx_units_working_days ON units(working_days_until_due);
 CREATE INDEX IF NOT EXISTS idx_units_due_date ON units(detailing_due_date);
+CREATE INDEX IF NOT EXISTS idx_units_unit_state ON units(unit_state);
 """
 
 SEED_SQL = """

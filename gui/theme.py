@@ -620,14 +620,14 @@ def _style_calendar(widget: QWidget, tokens: dict[str, str]) -> None:
 def _apply_text_color_to_widget(widget: QWidget, color: str) -> None:
     current_ss = widget.styleSheet().strip()
     was_applied = widget.property("theme_color_applied")
-    
+
     if not current_ss:
         widget.setStyleSheet(f"color: {color};")
         widget.setProperty("theme_color_applied", True)
     else:
         color_regex = r"(?<![a-zA-Z-])color\s*:\s*([^;]+)"
         match = re.search(color_regex, current_ss, re.IGNORECASE)
-        
+
         if match:
             if was_applied:
                 new_ss = re.sub(color_regex, f"color: {color}", current_ss, flags=re.IGNORECASE)
@@ -735,27 +735,27 @@ def apply_theme(
     from PyQt5.QtGui import QPalette
     from PyQt5.QtWidgets import QApplication
     app = QApplication.instance()
-    
+
     if theme_name == "dark":
         pal = widget.palette()
         text_color = QColor(tokens["text_primary"])
         sec_text_color = QColor(tokens["text_secondary"])
-        
+
         pal.setColor(QPalette.WindowText, text_color)
         pal.setColor(QPalette.Text, text_color)
         pal.setColor(QPalette.ButtonText, text_color)
         pal.setColor(QPalette.PlaceholderText, sec_text_color)
-        
+
         # Also set window background color in the palette
         pal.setColor(QPalette.Window, QColor(tokens["bg_primary"]))
         pal.setColor(QPalette.Base, QColor(tokens["bg_primary"]))
         pal.setColor(QPalette.AlternateBase, QColor(tokens["bg_tertiary"]))
         pal.setColor(QPalette.Button, QColor(tokens["bg_tertiary"]))
-        
+
         # Selection colors
         pal.setColor(QPalette.Highlight, QColor(tokens["accent"]))
         pal.setColor(QPalette.HighlightedText, QColor(tokens["text_on_accent"]))
-        
+
         widget.setPalette(pal)
         if app is not None:
             app.setPalette(pal)
@@ -763,6 +763,44 @@ def apply_theme(
         if app is not None:
             app.setPalette(app.style().standardPalette())
         widget.setPalette(widget.style().standardPalette())
+
+    # Set global application stylesheet for modal popups (QMessageBox, QDialog, etc.)
+    global_app_styles = f"""
+        QDialog, QMessageBox {{
+            background-color: {tokens['bg_primary']};
+            color: {tokens['text_primary']};
+        }}
+        QMessageBox QLabel {{
+            color: {tokens['text_primary']};
+            background: transparent;
+        }}
+        QMessageBox QPushButton {{
+            background: {tokens['bg_tertiary']};
+            color: {tokens['text_primary']};
+            border: 1px solid {tokens['border']};
+            border-radius: 6px;
+            padding: 6px 16px;
+            min-width: 65px;
+            font-weight: 500;
+        }}
+        QMessageBox QPushButton:hover {{
+            background: {tokens['border']};
+        }}
+        QMessageBox QPushButton:pressed {{
+            background: {tokens['accent']};
+            color: {tokens['text_on_accent']};
+        }}
+        QMessageBox QPushButton:default {{
+            background: {tokens['accent']};
+            color: {tokens['text_on_accent']};
+            border: 1px solid {tokens['accent']};
+        }}
+        QMessageBox QPushButton:default:hover {{
+            background: {tokens['accent_hover']};
+        }}
+    """
+    if app is not None:
+        app.setStyleSheet(global_app_styles)
 
     # Set backgrounds on plain QWidget panels that have no type-specific handler.
     for name in ("left_panel", "right_panel"):
@@ -817,7 +855,7 @@ def apply_theme(
     """
 
     # Global UI container stylesheets if root widget is QMainWindow
-    from PyQt5.QtWidgets import QMainWindow, QDialog
+    from PyQt5.QtWidgets import QDialog, QMainWindow
     if isinstance(widget, QMainWindow):
         widget.setStyleSheet(f"""
             QMainWindow {{

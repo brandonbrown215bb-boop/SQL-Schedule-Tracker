@@ -60,6 +60,9 @@ def main():
     app = QApplication(sys.argv)
     _safe_print("QApplication created.")
 
+    from gui.no_scroll_filter import install_no_scroll_filter
+    install_no_scroll_filter(app)
+
     if not os.path.exists(config_path):
         _safe_print(f"Error: config.yaml not found at {config_path}")
         QMessageBox.critical(

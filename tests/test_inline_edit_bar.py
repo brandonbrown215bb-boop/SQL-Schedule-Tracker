@@ -72,6 +72,8 @@ class TestInlineEditBarSetUnit:
         assert bar.start_date_edit.date() == QDate(2025, 7, 1)
         assert bar.checking_date_edit.date() == QDate(2025, 7, 10)
         assert bar.completion_date_edit.date() == QDate(2025, 7, 12)
+        assert bar.due_date_edit.date() == QDate(2025, 7, 15)
+        assert bar.notes_edit.text() == "Some notes"
         assert bar.isVisible() is True
 
     def test_set_unit_none_hides_bar(self, bar, sample_unit):
@@ -172,12 +174,13 @@ class TestInlineEditBarRevert:
 
 
 class TestInlineEditBarDate:
-    def test_save_preserves_dates(self, bar, sample_unit):
+    def test_save_preserves_and_updates_due_date(self, bar, sample_unit):
         received = []
         bar.unit_saved.connect(lambda u: received.append(u))
         bar.set_unit(sample_unit)
+        bar.due_date_edit.setDate(QDate(2025, 8, 20))
         bar._on_save()
-        assert received[0].detailing_due_date == date(2025, 7, 15)
+        assert received[0].detailing_due_date == date(2025, 8, 20)
         assert received[0].unit_detailing_start_date == date(2025, 7, 1)
         assert received[0].unit_moved_to_checking_date == date(2025, 7, 10)
         assert received[0].unit_detailing_completion_date == date(2025, 7, 12)
@@ -186,18 +189,36 @@ class TestInlineEditBarDate:
 class TestInlineEditBarAutoCalculations:
     def test_pct_change_updates_remaining_demand(self, bar, sample_unit):
         bar.set_unit(sample_unit)
-        # dept hours = 40.0. At 50%, remaining = 20.0
-        bar.pct_spin.setValue(25.0)  # remaining demand should become 30.0
+        bar.pct_spin.setValue(25.0)
         assert bar.remaining_demand_spin.value() == 30.0
 
     def test_iec_change_updates_target_hours(self, bar, sample_unit):
         bar.set_unit(sample_unit)
-        # dept hours = 40.0.
-        bar.iec_hours_spin.setValue(10.0)  # target hours should become 30.0
+        bar.iec_hours_spin.setValue(10.0)
         assert bar.target_hours_spin.value() == 30.0
+
+    def test_target_hours_can_be_manually_overridden(self, bar, sample_unit):
+        bar.set_unit(sample_unit)
+        bar.target_hours_spin.setValue(50.0)
+        assert bar.target_hours_spin.value() == 50.0
 
     def test_actual_detail_change_updates_variance(self, bar, sample_unit):
         bar.set_unit(sample_unit)
-        # dept hours = 40.0.
-        bar.actual_hours_to_detail_spin.setValue(18.5)  # variance should become 21.5
+        bar.actual_hours_to_detail_spin.setValue(18.5)
         assert bar.hour_variance_spin.value() == 21.5
+
+
+class TestInlineEditBarValidation:
+    def test_validation_shows_status_label(self, bar, sample_unit):
+        bar.set_unit(sample_unit)
+        # Set invalid negative target hours directly
+        bar.target_hours_spin.setRange(-100.0, 99999.0)
+        bar.target_hours_spin.setValue(-10.0)
+
+        received = []
+        bar.unit_saved.connect(lambda u: received.append(u))
+        bar._on_save()
+
+        # Hard error should block saving and show status label message
+        assert len(received) == 0
+        assert "target_department_hours" in bar.status_label.text()

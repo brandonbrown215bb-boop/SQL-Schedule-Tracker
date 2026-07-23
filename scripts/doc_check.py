@@ -777,6 +777,12 @@ def main():
         else args.checks
     )
 
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
     # Run checks
     results = run_checks(project_root, changed_files, checks)
 
@@ -793,3 +799,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

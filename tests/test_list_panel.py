@@ -239,6 +239,41 @@ class TestUnitListModelFiltering:
         for u in self.model.filtered_units:
             assert u.detailing_due_date is not None
 
+    def test_custom_date_range_ignores_stale_data_flag(self):
+        # Create a model with one stale unit and one non-stale unit
+        today = date.today()
+        stale_unit = _make_unit("COM-STALE", due=today - timedelta(days=45), detailer="Jackie")
+        non_stale_unit = _make_unit("COM-ACTIVE", due=today + timedelta(days=5), detailer="Jackie")
+
+        assert stale_unit.is_stale
+        assert not non_stale_unit.is_stale
+
+        model = UnitListModel([stale_unit, non_stale_unit], show_stale=False)
+
+        # 1. Normal filter (without date): stale unit is hidden when show_stale is False
+        model.apply_filters()
+        assert len(model.filtered_units) == 1
+        assert model.filtered_units[0].com_number == "COM-ACTIVE"
+
+        # 2. Custom date range filter that INCLUDES the stale unit:
+        # It should ignore the stale data flag and show both units!
+        model.apply_filters(
+            date_preset="custom",
+            date_from=today - timedelta(days=50),
+            date_to=today + timedelta(days=10)
+        )
+        assert len(model.filtered_units) == 2
+
+        # 3. Custom date range filter that EXCLUDES the stale unit:
+        # It should only show the active unit
+        model.apply_filters(
+            date_preset="custom",
+            date_from=today - timedelta(days=10),
+            date_to=today + timedelta(days=10)
+        )
+        assert len(model.filtered_units) == 1
+        assert model.filtered_units[0].com_number == "COM-ACTIVE"
+
 
 # ─── UnitListModel Sorting ────────────────────────────────────────
 
@@ -700,3 +735,58 @@ class TestFilterSortIntegration:
         panel.set_theme("light", "none")
         item_a = panel.table.item(0, com_col)
         assert item_a.foreground().color().name() == "#1e293b"  # tokens["text_primary"] in light mode
+
+
+class TestShowInlineEdit:
+    def test_default_show_inline_edit_is_true(self, qapp):
+        panel = ListPanel([])
+        assert panel._show_inline_edit is True
+        assert panel.inline_edit_toggle.isChecked() is True
+
+    def test_init_with_show_inline_edit_false(self, qapp):
+        panel = ListPanel([], show_inline_edit=False)
+        assert panel._show_inline_edit is False
+        assert panel.inline_edit_toggle.isChecked() is False
+        assert panel._inline_edit_bar.isHidden() is True
+
+    def test_toggle_show_inline_edit(self, qapp):
+        u1 = _make_unit(com="COM-101")
+        panel = ListPanel([u1], show_inline_edit=True)
+        panel.show()
+        panel._select_com("COM-101")
+
+        assert panel._inline_edit_bar.isHidden() is False
+        assert panel._inline_edit_bar.isVisible() is True
+
+        # Disable inline edit
+        signals = []
+        panel.show_inline_edit_changed.connect(lambda val: signals.append(val))
+        res = panel.set_show_inline_edit(False)
+
+        assert res is True
+        assert panel._show_inline_edit is False
+        assert panel._inline_edit_bar.isHidden() is True
+        assert signals == [False]
+
+        # Enable inline edit
+        res = panel.set_show_inline_edit(True)
+        assert res is True
+        assert panel._show_inline_edit is True
+        assert panel._inline_edit_bar.isHidden() is False
+        assert panel._inline_edit_bar.isVisible() is True
+        assert signals == [False, True]
+
+    def test_selection_change_when_disabled(self, qapp):
+        u1 = _make_unit(com="COM-101")
+        u2 = _make_unit(com="COM-102")
+        panel = ListPanel([u1, u2], show_inline_edit=False)
+        panel.show()
+
+        panel._select_com("COM-101")
+        assert panel._inline_edit_bar.isHidden() is True
+        assert panel._inline_edit_bar._unit is None
+
+        panel._select_com("COM-102")
+        assert panel._inline_edit_bar.isHidden() is True
+        assert panel._inline_edit_bar._unit is None
+

@@ -9,7 +9,8 @@ from gui.main_window import CSVDiffWorker, CSVImportWorker, ExcelExportWorker, P
 class TestBackgroundWorkers:
     def test_pull_ssrs_worker_success(self, qtbot):
         mock_import_service = MagicMock()
-        mock_import_service.from_ssrs.return_value = "mock_ssrs_result"
+        mock_import_service.download_ssrs.return_value = "temp_ssrs.csv"
+        mock_import_service.diff_before_import.return_value = "mock_diff"
 
         worker = PullSSRSWorker(
             import_service=mock_import_service,
@@ -19,7 +20,7 @@ class TestBackgroundWorkers:
         )
 
         received = []
-        worker.finished.connect(lambda res: received.append(res))
+        worker.finished.connect(lambda diff, path: received.append((diff, path)))
 
         with qtbot.wait_signal(worker.finished, timeout=1000):
             worker.start()
@@ -27,16 +28,18 @@ class TestBackgroundWorkers:
         worker.wait()  # Ensure QThread is cleaned up
 
         assert len(received) == 1
-        assert received[0] == "mock_ssrs_result"
-        mock_import_service.from_ssrs.assert_called_once_with(
+        assert received[0] == ("mock_diff", "temp_ssrs.csv")
+        mock_import_service.download_ssrs.assert_called_once_with(
             url="http://ssrs.example.com",
+            ssrs_summary_url=None,
             lookback_days=15,
             lookahead_days=90,
         )
+        mock_import_service.diff_before_import.assert_called_once_with("temp_ssrs.csv")
 
     def test_pull_ssrs_worker_error(self, qtbot):
         mock_import_service = MagicMock()
-        mock_import_service.from_ssrs.side_effect = Exception("SSRS Server Down")
+        mock_import_service.download_ssrs.side_effect = Exception("SSRS Server Down")
 
         worker = PullSSRSWorker(
             import_service=mock_import_service,

@@ -3,6 +3,7 @@ from datetime import date
 from PyQt5.QtCore import QDate, QEvent, Qt, pyqtSignal
 from PyQt5.QtGui import QKeyEvent
 from PyQt5.QtWidgets import (
+    QAbstractSpinBox,
     QComboBox,
     QDateEdit,
     QDoubleSpinBox,
@@ -20,6 +21,7 @@ from PyQt5.QtWidgets import (
 )
 
 from data.models import Unit
+from gui.no_scroll_filter import install_no_scroll_filter
 from services.validation import validate_unit
 
 
@@ -113,6 +115,10 @@ class EditForm(QWidget):
         self.detailer_edit.addItems(default_detailers)
         self.form.addRow(QLabel("Detailer:"), self.detailer_edit)
 
+        self.unit_state_edit = QLineEdit()
+        self.unit_state_edit.setReadOnly(True)
+        self.form.addRow(QLabel("Mfg State:"), self.unit_state_edit)
+
         self.checking_status_edit = QLineEdit()
         self.form.addRow(QLabel("Checking Status:"), self.checking_status_edit)
 
@@ -136,6 +142,7 @@ class EditForm(QWidget):
 
         self.dept_hours_spin = QDoubleSpinBox()
         self.dept_hours_spin.setFocusPolicy(Qt.ClickFocus)
+        self.dept_hours_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.dept_hours_spin.setMaximum(99999.0)
         self.dept_hours_spin.setDecimals(2)
         self.dept_hours_spin.setSingleStep(0.25)
@@ -143,15 +150,17 @@ class EditForm(QWidget):
 
         self.target_hours_spin = QDoubleSpinBox()
         self.target_hours_spin.setFocusPolicy(Qt.ClickFocus)
+        self.target_hours_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.target_hours_spin.setMaximum(99999.0)
         self.target_hours_spin.setDecimals(2)
         self.target_hours_spin.setSingleStep(0.25)
-        self.target_hours_spin.setReadOnly(True)
-        self.target_hours_spin.setToolTip("Auto-calculated: Dept Hours - IEC Internal Hours")
+        self.target_hours_spin.setReadOnly(False)
+        self.target_hours_spin.setToolTip("Target Hours (Auto-calculated: Dept Hours - IEC Internal Hours, or manually editable)")
         self.form.addRow(QLabel("Target Hours:"), self.target_hours_spin)
 
         self.iec_hours_spin = QDoubleSpinBox()
         self.iec_hours_spin.setFocusPolicy(Qt.ClickFocus)
+        self.iec_hours_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.iec_hours_spin.setMaximum(99999.0)
         self.iec_hours_spin.setDecimals(2)
         self.iec_hours_spin.setSingleStep(0.25)
@@ -159,6 +168,7 @@ class EditForm(QWidget):
 
         self.percent_spin = QDoubleSpinBox()
         self.percent_spin.setFocusPolicy(Qt.ClickFocus)
+        self.percent_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.percent_spin.setMaximum(100.0)
         self.percent_spin.setDecimals(1)
         self.percent_spin.setSuffix("%")
@@ -166,6 +176,7 @@ class EditForm(QWidget):
 
         self.actual_hours_spin = QDoubleSpinBox()
         self.actual_hours_spin.setFocusPolicy(Qt.ClickFocus)
+        self.actual_hours_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.actual_hours_spin.setMaximum(99999.0)
         self.actual_hours_spin.setDecimals(2)
         self.actual_hours_spin.setSingleStep(0.25)
@@ -234,6 +245,7 @@ class EditForm(QWidget):
         # --- Auto-calculate Target Hours = Dept Hours - IEC Hours ---
         self.dept_hours_spin.valueChanged.connect(self._update_target_hours)
         self.iec_hours_spin.valueChanged.connect(self._update_target_hours)
+        self.detailer_edit.currentIndexChanged.connect(self._update_target_hours)
 
         # --- Buttons ---
         button_row = QHBoxLayout()
@@ -265,6 +277,8 @@ class EditForm(QWidget):
         # so QFormLayout fields don't compress/overlap when scrolling.
         form_container.adjustSize()
         form_container.setMinimumSize(form_container.sizeHint())
+
+        install_no_scroll_filter(self)
 
     def _create_h_line(self) -> QFrame:
         line = QFrame()
@@ -310,6 +324,7 @@ class EditForm(QWidget):
                 self.description_edit.setText("")
                 # self.detailer_edit.setText("") # REMOVED: Replaced with QComboBox
                 self.detailer_edit.setCurrentIndex(0)
+                self.unit_state_edit.setText("")
                 self.checking_status_edit.setText("")
                 self.dr_checks_edit.setText("")
                 self.dvl_checks_edit.setText("")
@@ -339,6 +354,7 @@ class EditForm(QWidget):
                 self.detailer_edit.setCurrentText(unit.detailer)
             else:
                 self.detailer_edit.setCurrentIndex(0)
+            self.unit_state_edit.setText(unit.unit_state or "")
             self.checking_status_edit.setText(unit.checking_status)
             self.dr_checks_edit.setText(unit.dr_checks)
             self.dvl_checks_edit.setText(unit.dvl_checks)
@@ -498,10 +514,11 @@ class EditForm(QWidget):
     def _update_target_hours(self) -> None:
         """Auto-calculate target hours = dept hours - IEC hours.
 
-        For non-primary identicals the target must stay at 0 regardless
+        For non-primary identicals or cancelled units the target must stay at 0 regardless
         of what is typed into Dept Hours or IEC Internal Hours.
         """
-        if self.current_unit and self.current_unit.is_non_primary_identical:
+        detailer = self.detailer_edit.currentText().strip()
+        if (self.current_unit and self.current_unit.is_non_primary_identical) or detailer == "Cancelled":
             self.target_hours_spin.setValue(0.0)
             return
         dept = self.dept_hours_spin.value()

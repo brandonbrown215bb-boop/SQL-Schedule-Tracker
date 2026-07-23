@@ -89,6 +89,18 @@ class TestLoadUnits:
         assert units[0].detailing_due_date is None
         assert units[0].build_date is None
 
+    def test_loads_unit_state(self, db_path):
+        from data.db import get_db
+        conn = get_db(db_path)
+        conn.execute(
+            "INSERT INTO units (com_number, unit_state) VALUES (?, ?)",
+            ("88888", "Fab-Eng"),
+        )
+        conn.commit()
+        units = load_units(db_path)
+        u = next(u for u in units if u.com_number == "88888")
+        assert u.unit_state == "Fab-Eng"
+
 
 # ── unit_fingerprint ─────────────────────────────────────────────
 
