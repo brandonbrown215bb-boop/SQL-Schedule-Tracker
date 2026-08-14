@@ -492,6 +492,7 @@ class TestListPanelWidget:
         u3.contract_number = "CON-2"  # singleton contract
 
         panel = ListPanel([u1, u2, u3])
+        panel.show_stale_checkbox.setChecked(True)
         panel._model.sort_by("detailing_due_date", True)
         panel._refresh_table_full()
 
@@ -525,6 +526,7 @@ class TestListPanelWidget:
         u3.contract_number = "CON-3"
 
         panel = ListPanel([u1, u2, u3])
+        panel.show_stale_checkbox.setChecked(True)
         panel._model.sort_by("detailing_due_date", True)
         panel._refresh_table_full()
 
@@ -547,6 +549,7 @@ class TestListPanelWidget:
             u.contract_number = "SHARED"
 
         panel = ListPanel([u1, u2, u3])
+        panel.show_stale_checkbox.setChecked(True)
 
         # Sort ascending — capture COM colors at each position
         panel._model.sort_by("detailing_due_date", True)
@@ -639,6 +642,7 @@ class TestFilterSortIntegration:
         """Verify that detailing_due_date always displays the suffix (e.g. ' (W1)')."""
         u1 = _make_unit(com="COM-A", due=date(2026, 7, 3))  # July 3, 2026 is Week 1
         panel = ListPanel([u1])
+        panel.show_stale_checkbox.setChecked(True)
         panel._refresh_table_full()
 
         col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
@@ -654,6 +658,7 @@ class TestFilterSortIntegration:
         u2 = _make_unit(com="COM-B", due=date(2026, 7, 10)) # July 10, 2026 -> Week 2
 
         panel = ListPanel([u1, u2])
+        panel.show_stale_checkbox.setChecked(True)
         panel._refresh_table_full()
 
         col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
@@ -717,6 +722,7 @@ class TestFilterSortIntegration:
         u4.contract_number = "SHARED-2"
 
         panel = ListPanel([u1, u2, u3, u4])
+        panel.show_stale_checkbox.setChecked(True)
         panel._refresh_table_full()
 
         col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
@@ -834,7 +840,7 @@ class TestColumnOrdering:
         assert new_visible[0] != "com_number"
 
     def test_column_chooser_dialog_move_up_down(self, qapp):
-        from gui.list_panel import ColumnChooserDialog, COLUMN_DEFS
+        from gui.list_panel import COLUMN_DEFS, ColumnChooserDialog
         all_keys = [d[0] for d in COLUMN_DEFS]
         visible = ["com_number", "unit_state", "job_name"]
 
@@ -842,17 +848,17 @@ class TestColumnOrdering:
         dialog.list_widget.setCurrentRow(1)
 
         dialog._move_up()
-        ordered, vis = dialog.get_result()
+        ordered, _vis = dialog.get_result()
         assert ordered[0] == "unit_state"
         assert ordered[1] == "com_number"
 
         dialog._move_down()
-        ordered2, vis2 = dialog.get_result()
+        ordered2, _vis2 = dialog.get_result()
         assert ordered2[0] == "com_number"
         assert ordered2[1] == "unit_state"
 
     def test_column_chooser_dialog_reset_defaults(self, qapp):
-        from gui.list_panel import ColumnChooserDialog, COLUMN_DEFS
+        from gui.list_panel import COLUMN_DEFS, ColumnChooserDialog
         all_keys = [d[0] for d in COLUMN_DEFS]
         custom_order = list(reversed(all_keys))
 
@@ -860,6 +866,6 @@ class TestColumnOrdering:
         dialog._reset_defaults()
 
         assert dialog.is_reset_requested is True
-        ordered, vis = dialog.get_result()
+        ordered, _vis = dialog.get_result()
         assert ordered[0] == COLUMN_DEFS[0][0]
 

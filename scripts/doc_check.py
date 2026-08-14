@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -778,10 +779,8 @@ def main():
     )
 
     if hasattr(sys.stdout, "reconfigure"):
-        try:
+        with contextlib.suppress(Exception):
             sys.stdout.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
 
     # Run checks
     results = run_checks(project_root, changed_files, checks)

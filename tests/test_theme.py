@@ -285,6 +285,7 @@ class TestApplyThemePopupStyling:
 
     def test_apply_theme_dark_sets_app_popup_styles(self, qapp):
         from PyQt5.QtWidgets import QWidget
+
         from gui.theme import apply_theme
 
         w = QWidget()
@@ -298,6 +299,7 @@ class TestApplyThemePopupStyling:
 
     def test_apply_theme_light_sets_app_popup_styles(self, qapp):
         from PyQt5.QtWidgets import QWidget
+
         from gui.theme import apply_theme
 
         w = QWidget()

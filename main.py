@@ -5,7 +5,6 @@ import os
 import sys
 import traceback
 
-import yaml
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from data.db import close_db, get_db
@@ -97,8 +96,9 @@ def main():
     username = config["multi_user"].get("username", "").strip()
 
     if not username:
-        from PyQt5.QtWidgets import QInputDialog
         import getpass
+
+        from PyQt5.QtWidgets import QInputDialog
 
         sys_username = getpass.getuser()
 

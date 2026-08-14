@@ -33,6 +33,7 @@ CSV_TO_DB = {
     "DepartmentHours": "department_hours",
     "PercentComplete": "percent_complete",
     "WeekEndingFriday": "week_ending_friday",
+    "LineItemState": "unit_state",
     "LineItemStateDesc": "unit_state",
     "UnitState": "unit_state",
 }
@@ -103,7 +104,13 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
             )
 
         # Build UPDATE — SSRS fields only (NOT manual fields)
-        update_cols = [c for c in VALUE_COLUMNS if c in row_data and c != "percent_complete"]
+        update_cols = [
+            c
+            for c in VALUE_COLUMNS
+            if c in row_data
+            and c != "percent_complete"
+            and (c != "unit_state" or row_data.get("unit_state"))
+        ]
 
         # percent_complete: only set from CSV if currently NULL
         if current_pct is None:

@@ -28,10 +28,9 @@ class NoScrollEventFilter(QObject):
         # Check if the target is an edit control
         if isinstance(obj, (QComboBox, QAbstractSpinBox, QDateEdit)):
             # Suppress Up and Down arrow key stepping on spin boxes
-            if isinstance(obj, QAbstractSpinBox) and event.type() == QEvent.KeyPress:
-                if event.key() in (Qt.Key_Up, Qt.Key_Down):
-                    event.accept()
-                    return True
+            if isinstance(obj, QAbstractSpinBox) and event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Up, Qt.Key_Down):
+                event.accept()
+                return True
 
             # Intercept Mouse Wheel events
             if event.type() == QEvent.Wheel:

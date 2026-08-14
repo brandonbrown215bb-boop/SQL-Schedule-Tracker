@@ -25,7 +25,6 @@ from PyQt5.QtWidgets import (
 
 from data.models import Unit
 from gui.edit_form import ClearableDateEdit
-from gui.no_scroll_filter import install_no_scroll_filter
 
 
 class BatchEditDialog(QDialog):

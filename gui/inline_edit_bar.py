@@ -14,28 +14,21 @@ from PyQt5.QtCore import QDate, QEvent, QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAbstractSpinBox,
     QComboBox,
-    QDateEdit,
-    QDialog,
     QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
-
-
 
 from data.models import Unit
 from gui.edit_form import ClearableDateEdit, _get_invalid_style
 from gui.no_scroll_filter import install_no_scroll_filter
 from gui.theme import reset_input_style
 from services.validation import validate_unit
-
 
 
 class EnterKeySaveFilter(QObject):
@@ -46,10 +39,9 @@ class EnterKeySaveFilter(QObject):
         self.save_callback = save_callback
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        if event.type() == QEvent.KeyPress:
-            if event.key() in (Qt.Key_Return, Qt.Key_Enter):
-                self.save_callback()
-                return True
+        if event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.save_callback()
+            return True
         return super().eventFilter(obj, event)
 
 

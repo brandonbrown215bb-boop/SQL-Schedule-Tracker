@@ -371,6 +371,7 @@ def backup_db(db_path: str, backup_dir: str | None = None, *, keep_count: int = 
 
 def row_to_unit(row: sqlite3.Row) -> Unit:
     """Convert a SQLite row to a Unit dataclass."""
+    row_keys = set(row.keys())
     return Unit(
         com_number=row["com_number"] or "",
         job_name=row["job_name"] or "",
@@ -378,31 +379,31 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         description=row["description"] or "",
         detailer=row["detailer"] or "",
         checking_status=row["checking_status"] or "",
-        unit_state=(row["unit_state"] or "") if "unit_state" in row.keys() else "",  # noqa: SIM118
+        unit_state=(row["unit_state"] or "") if "unit_state" in row_keys else "",
         notes=row["notes"] or "",
-        dr_checks=(row["dr_checks"] or "") if "dr_checks" in row.keys() else "",  # noqa: SIM118
-        dvl_checks=(row["dvl_checks"] or "") if "dvl_checks" in row.keys() else "",  # noqa: SIM118
+        dr_checks=(row["dr_checks"] or "") if "dr_checks" in row_keys else "",
+        dvl_checks=(row["dvl_checks"] or "") if "dvl_checks" in row_keys else "",
         status_color=row["status_color"] or "gray",  # persisted from last computed value
         department_hours=row["department_hours"] or 0.0,
         target_department_hours=(
             row["target_dept_hours"]
-            if "target_dept_hours" in row.keys() and row["target_dept_hours"] is not None
+            if "target_dept_hours" in row_keys and row["target_dept_hours"] is not None
             else max(0.0, (row["department_hours"] or 0.0) - (row["iec_internal_hours"] or 0.0))
         ),
         iec_internal_hours=row["iec_internal_hours"] or 0.0,
         percent_complete=(row["percent_complete"] or 0.0) * 100,
         actual_hours=row["actual_hours"] or 0.0,
         actual_hours_to_detail_unit=row["actual_hours_to_detail_unit"]
-        if "actual_hours_to_detail_unit" in row and row["actual_hours_to_detail_unit"] is not None
+        if "actual_hours_to_detail_unit" in row_keys and row["actual_hours_to_detail_unit"] is not None
         else 0.0,
         hour_variance=row["hour_variance"]
-        if "hour_variance" in row and row["hour_variance"] is not None
+        if "hour_variance" in row_keys and row["hour_variance"] is not None
         else 0.0,
         remaining_demand=row["remaining_demand"]
-        if "remaining_demand" in row and row["remaining_demand"] is not None
+        if "remaining_demand" in row_keys and row["remaining_demand"] is not None
         else 0.0,
         hours_checking=row["hours_checking"]
-        if "hours_checking" in row and row["hours_checking"] is not None
+        if "hours_checking" in row_keys and row["hours_checking"] is not None
         else 0.0,
         working_days=None,  # set from config detailer_schedules after loading
         unit_detailing_start_date=_parse_date(row["unit_detailing_start_date"]),
@@ -412,10 +413,10 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         detailing_due_date=_parse_date(row["detailing_due_date"]),
         build_date=_parse_date(row["build_date"]),
         working_days_in_checking=row["working_days_in_checking"]
-        if "working_days_in_checking" in row and row["working_days_in_checking"] is not None
+        if "working_days_in_checking" in row_keys and row["working_days_in_checking"] is not None
         else None,
         week_ending_friday=_parse_date(row["week_ending_friday"])
-        if "week_ending_friday" in row and row["week_ending_friday"] is not None
+        if "week_ending_friday" in row_keys and row["week_ending_friday"] is not None
         else None,
         updated_at=row["updated_at"] or "",
     )

@@ -17,6 +17,7 @@ Config.yaml keys used:
 """
 
 import argparse
+import contextlib
 import logging
 import os
 import tempfile
@@ -201,16 +202,20 @@ def merge_summary_states_into_csv(detailing_csv_path: str, summary_csv_path: str
     """Merge LineItemStateDesc from SCHSchedulingSummaryReport CSV into SCHDetailingReport CSV in-place."""
     import csv
 
+    from services.sanitizer import InputSanitizer
+
     # Read summary states keyed by COM number
     state_map: dict[str, str] = {}
     try:
-        with open(summary_csv_path, mode="r", encoding="utf-8-sig") as f:
+        with open(summary_csv_path, encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for r in reader:
-                com = (r.get("COMNumber1") or r.get("COMNumber") or "").strip()
-                state = (r.get("LineItemStateDesc") or r.get("UnitState") or "").strip()
-                if com and state:
-                    state_map[com] = state
+                raw_com = (r.get("COMNumber1") or r.get("COMNumber") or "").strip()
+                state = (r.get("LineItemState") or r.get("LineItemStateDesc") or r.get("UnitState") or "").strip()
+                if raw_com and state:
+                    com_key = InputSanitizer.clean_com_number(raw_com)
+                    if com_key:
+                        state_map[com_key] = state
     except Exception as e:
         log.warning(f"Could not read summary CSV states: {e}")
         return
@@ -222,15 +227,17 @@ def merge_summary_states_into_csv(detailing_csv_path: str, summary_csv_path: str
     rows = []
     fieldnames = []
     try:
-        with open(detailing_csv_path, mode="r", encoding="utf-8-sig") as f:
+        with open(detailing_csv_path, encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             fieldnames = list(reader.fieldnames or [])
             if "LineItemStateDesc" not in fieldnames:
                 fieldnames.append("LineItemStateDesc")
             for r in reader:
-                com = (r.get("COMNumber") or "").strip()
-                if com in state_map and not r.get("LineItemStateDesc"):
-                    r["LineItemStateDesc"] = state_map[com]
+                raw_com = (r.get("COMNumber") or "").strip()
+                com_key = InputSanitizer.clean_com_number(raw_com) if raw_com else ""
+                current_state = (r.get("LineItemStateDesc") or r.get("UnitState") or "").strip()
+                if com_key and com_key in state_map and not current_state:
+                    r["LineItemStateDesc"] = state_map[com_key]
                 rows.append(r)
     except Exception as e:
         log.warning(f"Could not process detailing CSV for state merge: {e}")
@@ -257,6 +264,10 @@ def run_ssrs_import(
 ) -> dict:
     """Full pipeline: build URL → fetch CSV → import into SQLite.
 
+    SCHDetailingReport (ssrs_url) now directly includes unit state
+    (LineItemStateDesc / UnitState). Secondary summary report fetching
+    via ssrs_summary_url is omitted unless explicitly provided.
+
     Returns stats dict from import_csv.
     """
     if not ssrs_url:
@@ -273,7 +284,7 @@ def run_ssrs_import(
     # Fetch primary detailing CSV
     csv_path = fetch_csv_from_ssrs(full_url, filename_prefix="_ssrs_detailing_pull")
 
-    # Attempt to fetch secondary summary report to enrich LineItemStateDesc
+    # Legacy fallback: optional fetch of secondary summary report if provided
     if ssrs_summary_url:
         try:
             summary_full_url = build_ssrs_url(ssrs_summary_url, start_date, end_date)
@@ -281,10 +292,8 @@ def run_ssrs_import(
             summary_csv_path = fetch_csv_from_ssrs(summary_full_url, filename_prefix="_ssrs_summary_pull")
             if summary_csv_path and os.path.exists(summary_csv_path):
                 merge_summary_states_into_csv(csv_path, summary_csv_path)
-                try:
+                with contextlib.suppress(OSError):
                     os.remove(summary_csv_path)
-                except OSError:
-                    pass
         except Exception as e:
             log.warning(f"Summary report fetch skipped or failed: {e}")
 

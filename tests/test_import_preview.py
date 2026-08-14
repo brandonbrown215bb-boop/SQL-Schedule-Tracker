@@ -2,9 +2,11 @@
 """Unit tests for automation.import_preview (Import diff engine)."""
 
 import csv
-import pytest
 import sqlite3
-from automation.import_preview import compute_diff, parse_csv_rows, format_change_summary
+
+import pytest
+
+from automation.import_preview import compute_diff, format_change_summary
 from services.import_service import ImportService
 
 

@@ -1,15 +1,16 @@
 # tests/test_unit_cancellation.py
 """Tests for production unit cancellation feature."""
 
-import pytest
 from datetime import date, timedelta
+
 from PyQt5.QtCore import QDate
+
 from data.models import Unit
-from services.pre_save_hooks import target_hours_hook
 from gui.alert_panel import AlertPanel
+from gui.batch_edit_dialog import BatchEditDialog
 from gui.calendar_panel import EventCalendarWidget
 from gui.list_panel import UnitListModel
-from gui.batch_edit_dialog import BatchEditDialog
+from services.pre_save_hooks import target_hours_hook
 
 
 def test_unit_is_cancelled_property():

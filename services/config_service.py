@@ -20,7 +20,7 @@ DEFAULTS: dict = {
     "unedited_reports_dir": "P:\\Detailing Schedule 2019\\Unedited Reports",
     "csv_output_dir": "./csv_cache",
     "ssrs_url": "http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHDetailingReport",
-    "ssrs_summary_url": "http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHSchedulingSummaryReport",
+    "ssrs_summary_url": "http://j030m1p3/ReportServer?%2fCustom%2fProduction+Control%2fSCHSchedulingSummaryReport",  # Legacy/Optional: SCHDetailingReport contains unit_state directly
     "update_source_dir": "P:\\Detailing Schedule 2019\\Schedule App",
     "ssrs_lookback_days": 30,
     "ssrs_lookahead_days": 365,

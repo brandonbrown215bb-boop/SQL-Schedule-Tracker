@@ -10,25 +10,19 @@ Verifies:
 6. Integration with EditForm and InlineEditBar widgets.
 """
 
-from datetime import date
 
-import pytest
 from PyQt5.QtCore import QDate, QPoint, QPointF, Qt
 from PyQt5.QtGui import QKeyEvent, QWheelEvent
 from PyQt5.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QComboBox,
-    QDateEdit,
     QDoubleSpinBox,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
 )
 
 from gui.edit_form import ClearableDateEdit, EditForm
 from gui.inline_edit_bar import InlineEditBar
-from gui.no_scroll_filter import NoScrollEventFilter, install_no_scroll_filter
+from gui.no_scroll_filter import install_no_scroll_filter
 
 
 def _create_wheel_event(delta: int = 120) -> QWheelEvent:
