@@ -1,6 +1,7 @@
 # tests/test_inline_edit_bar.py
 """Tests for gui/inline_edit_bar.py — InlineEditBar widget."""
 
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -89,6 +90,26 @@ class TestInlineEditBarSetUnit:
         assert bar.is_dirty is True
         bar.set_unit(sample_unit)
         assert bar.is_dirty is False
+
+    def test_blank_detailer_resets_combo_and_saves_as_unassigned(self, bar, sample_unit):
+        """Selecting an unassigned COM must not retain the prior COM's detailer."""
+        unassigned_unit = replace(sample_unit, com_number="14202", detailer="")
+        received = []
+        bar.unit_saved.connect(lambda unit: received.append(unit))
+
+        bar.set_unit(sample_unit)
+        assert bar.detailer_combo.currentText() == "Carl M"
+
+        bar.set_unit(unassigned_unit)
+
+        assert bar.detailer_combo.currentIndex() == 0
+        assert bar.detailer_combo.currentText() == "— Unassigned —"
+
+        bar.notes_edit.setText("Updated without assigning a detailer")
+        bar._on_save()
+
+        assert received[0].com_number == "14202"
+        assert received[0].detailer == ""
 
 
 class TestInlineEditBarDirty:

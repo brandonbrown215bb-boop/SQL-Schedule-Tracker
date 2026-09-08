@@ -601,4 +601,8 @@ class InlineEditBar(QWidget):
         if idx >= 0:
             combo.setCurrentIndex(idx)
         else:
-            combo.setCurrentText(text)
+            # This is a non-editable combo.  setCurrentText() does not clear a
+            # previous selection when ``text`` is absent, so a unit with no
+            # detailer could inherit the last unit's displayed detailer on save.
+            # Index 0 is the configured unassigned option.
+            combo.setCurrentIndex(0)
