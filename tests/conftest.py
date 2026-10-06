@@ -130,6 +130,7 @@ def db_path(tmp_path):
             hour_variance REAL DEFAULT 0.0,
             remaining_demand REAL DEFAULT 0.0,
             hours_checking REAL DEFAULT 0.0,
+            same_as TEXT DEFAULT '',
             week_ending_friday TEXT,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))

@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import subprocess
+import sys
 import tempfile
 from copy import deepcopy
 
@@ -17,11 +20,218 @@ from services.config_service import ConfigService
 logger = logging.getLogger(__name__)
 
 
+class UnsafeInstallationDirectoryError(Exception):
+    """Raised when an update is attempted in an unsafe personal or system root folder."""
+
+
 class UpdateService:
     """Service for handling application auto-updates from a network folder."""
 
     def __init__(self, application_path: str):
         self.application_path = application_path
+
+    @staticmethod
+    def get_forbidden_directories() -> set[str]:
+        """Collect paths of personal root folders and system directories where the app should never be loose."""
+        forbidden: set[str] = set()
+
+        userprofile = os.environ.get("USERPROFILE")
+        if userprofile:
+            forbidden.add(os.path.realpath(userprofile).lower())
+
+        home = os.path.expanduser("~")
+        if home:
+            forbidden.add(os.path.realpath(home).lower())
+
+        # Standard user subdirectories under userprofile / home
+        standard_names = ["documents", "desktop", "downloads", "pictures", "music", "videos"]
+        for base in [userprofile, home]:
+            if base:
+                for name in standard_names:
+                    forbidden.add(os.path.realpath(os.path.join(base, name)).lower())
+
+        # Windows registry User Shell Folders (handles OneDrive folder redirection)
+        if sys.platform == "win32":
+            try:
+                import winreg
+
+                key = winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
+                )
+                reg_names = [
+                    "Personal",  # Documents
+                    "Desktop",
+                    "{374DE290-123F-4565-9164-39C4925E467B}",  # Downloads
+                    "My Pictures",
+                    "My Music",
+                    "My Video",
+                ]
+                for reg_name in reg_names:
+                    try:
+                        val, _ = winreg.QueryValueEx(key, reg_name)
+                        expanded = os.path.expandvars(val)
+                        forbidden.add(os.path.realpath(expanded).lower())
+                    except FileNotFoundError:
+                        pass
+                winreg.CloseKey(key)
+            except Exception:
+                pass
+
+        # System and root environment directories
+        for env_var in ["SystemRoot", "windir", "ProgramFiles", "ProgramFiles(x86)", "APPDATA", "LOCALAPPDATA"]:
+            val = os.environ.get(env_var)
+            if val:
+                forbidden.add(os.path.realpath(val).lower())
+
+        return forbidden
+
+    @staticmethod
+    def is_safe_install_dir(path: str, update_source_dir: str = "") -> tuple[bool, str]:
+        """Check if an application installation directory is safe from file conflicts.
+
+        Args:
+            path: Directory where the local app is installed.
+            update_source_dir: Optional path to network deployment share.
+
+        Returns:
+            Tuple of (is_safe: bool, reason: str).
+        """
+        if not path or not path.strip():
+            return False, "Application path is empty"
+
+        abs_path = os.path.realpath(os.path.abspath(path)).lower().rstrip("\\/")
+
+        # Check drive root (e.g. C:, D:)
+        drive, rest = os.path.splitdrive(abs_path)
+        if not rest or rest in ("\\", "/"):
+            return False, f"Application cannot be installed directly in drive root '{path}'"
+
+        # Check forbidden personal/system folders
+        forbidden = UpdateService.get_forbidden_directories()
+        if abs_path in forbidden:
+            return False, f"Application cannot be installed directly in protected/personal directory '{path}'"
+
+        # Check update_source_dir
+        if update_source_dir:
+            abs_source = os.path.realpath(os.path.abspath(update_source_dir)).lower().rstrip("\\/")
+            if abs_path == abs_source:
+                return False, f"Application cannot be installed inside update source directory '{path}'"
+
+        return True, ""
+
+    @staticmethod
+    def create_desktop_shortcut(
+        target_exe: str, shortcut_name: str = "Detailing Schedule.lnk", description: str = "Detailing Schedule Tracker"
+    ) -> str | None:
+        """Create a Windows desktop shortcut pointing to the application executable."""
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        if sys.platform == "win32":
+            import winreg
+
+            try:
+                key = winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
+                )
+                val, _ = winreg.QueryValueEx(key, "Desktop")
+                winreg.CloseKey(key)
+                desktop = os.path.expandvars(val)
+            except Exception:
+                pass
+
+        if not os.path.isdir(desktop):
+            logger.warning("Desktop folder not found at %s", desktop)
+            return None
+
+        shortcut_path = os.path.join(desktop, shortcut_name)
+        ps_cmd = (
+            f"$WshShell = New-Object -ComObject WScript.Shell; "
+            f"$Shortcut = $WshShell.CreateShortcut('{shortcut_path}'); "
+            f"$Shortcut.TargetPath = '{target_exe}'; "
+            f"$Shortcut.WorkingDirectory = '{os.path.dirname(target_exe)}'; "
+            f"$Shortcut.Description = '{description}'; "
+            f"$Shortcut.Save()"
+        )
+        creation_flags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
+        try:
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_cmd],
+                capture_output=True,
+                text=True,
+                creationflags=creation_flags,
+            )
+            if res.returncode == 0 and os.path.exists(shortcut_path):
+                logger.info("Successfully created desktop shortcut at %s", shortcut_path)
+                return shortcut_path
+            logger.error("PowerShell shortcut creation failed: %s", res.stderr)
+        except Exception as e:
+            logger.error("Failed to create desktop shortcut: %s", e)
+        return None
+
+    @classmethod
+    def migrate_to_dedicated_folder(
+        cls, current_app_path: str, target_dir: str | None = None
+    ) -> tuple[bool, str, str]:
+        """Safely copy the application and its config into a dedicated directory.
+
+        Default destination is %LOCALAPPDATA%\\Programs\\Detailing Schedule.
+        Also creates a Desktop shortcut. Old personal documents are NEVER deleted.
+
+        Args:
+            current_app_path: Current folder where app/config is located.
+            target_dir: Optional target folder. Defaults to %LOCALAPPDATA%\\Programs\\Detailing Schedule.
+
+        Returns:
+            Tuple of (success: bool, target_exe_path: str, message: str).
+        """
+        if not target_dir:
+            local_appdata = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+            target_dir = os.path.join(local_appdata, "Programs", "Detailing Schedule")
+
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+
+            # Locate the executable to copy
+            exe_name = "Detailing Schedule.exe"
+            source_exe = os.path.join(current_app_path, exe_name)
+            if not os.path.exists(source_exe) and getattr(sys, "frozen", False):
+                source_exe = sys.executable
+
+            target_exe = os.path.join(target_dir, exe_name)
+            if os.path.exists(source_exe):
+                shutil.copy2(source_exe, target_exe)
+            else:
+                logger.warning("Source executable not found at %s during migration", source_exe)
+
+            # Copy config.yaml if present
+            source_config = os.path.join(current_app_path, "config.yaml")
+            target_config = os.path.join(target_dir, "config.yaml")
+            if os.path.exists(source_config):
+                shutil.copy2(source_config, target_config)
+
+            # Copy version.txt if present
+            source_version = os.path.join(current_app_path, "version.txt")
+            target_version = os.path.join(target_dir, "version.txt")
+            if os.path.exists(source_version):
+                shutil.copy2(source_version, target_version)
+
+            # Copy local databases if present (*.db)
+            if os.path.isdir(current_app_path):
+                for fname in os.listdir(current_app_path):
+                    if fname.endswith(".db"):
+                        shutil.copy2(os.path.join(current_app_path, fname), os.path.join(target_dir, fname))
+
+            # Create Desktop shortcut
+            cls.create_desktop_shortcut(target_exe)
+
+            msg = f"Application successfully moved to:\n{target_dir}"
+            logger.info(msg)
+            return True, target_exe, msg
+        except Exception as e:
+            err_msg = f"Failed to migrate application: {e}"
+            logger.error(err_msg)
+            return False, "", err_msg
 
     def get_local_version(self) -> str:
         """Read the local version.txt next to the executable.
@@ -157,11 +367,57 @@ class UpdateService:
             logger.error("Failed to smart-merge config.yaml: %s", e)
             return False
 
+    @staticmethod
+    def clean_pyinstaller_env(env: dict[str, str] | None = None) -> dict[str, str]:
+        """Return an environment dictionary stripped of PyInstaller runtime and IPC variables.
+
+        Ensures child processes or restarted instances unpack into a fresh temporary
+        runtime folder rather than inheriting references to a terminating process's
+        _MEIxxxxxx directory (which triggers 'Failed to load Python DLL').
+
+        Args:
+            env: Optional environment dictionary to sanitize. Defaults to os.environ.copy().
+
+        Returns:
+            Sanitized environment dictionary with PYINSTALLER_RESET_ENVIRONMENT=1.
+        """
+        clean = os.environ.copy() if env is None else env.copy()
+
+        # Remove all PyInstaller internal variables
+        keys_to_remove = [
+            k for k in clean
+            if k.startswith(("_PYI_", "_MEI")) or k in ("_MEIPASS", "_MEIPASS2")
+        ]
+        for k in keys_to_remove:
+            clean.pop(k, None)
+
+        # Force PyInstaller bootloader to treat any new instance as a top-level process
+        clean["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+
+        # Remove the temporary _MEI directory from PATH if present
+        mei_dir = getattr(sys, "_MEIPASS", None)
+        path = clean.get("PATH", "")
+        if path:
+            cleaned_parts = []
+            for part in path.split(os.pathsep):
+                part_stripped = part.strip()
+                if not part_stripped:
+                    continue
+                if mei_dir and os.path.realpath(part_stripped).lower() == os.path.realpath(mei_dir).lower():
+                    continue
+                if "_mei" in os.path.basename(part_stripped.lower()):
+                    continue
+                cleaned_parts.append(part_stripped)
+            clean["PATH"] = os.pathsep.join(cleaned_parts)
+
+        return clean
+
     def generate_updater_script(self, update_source_dir: str, local_app_dir: str) -> str:
         """Create a temporary Windows batch file to update app files.
 
-        The batch file waits for the running exe to close, robocopies all files
-        from network share (excluding config/db/logs/etc.), and restarts the app.
+        The batch file waits for the running exe to close, creates a backup,
+        robocopies ONLY the application binaries from network share (NEVER using /MIR or /PURGE),
+        checks exit codes with automatic rollback on error, and restarts the app.
 
         Args:
             update_source_dir: Directory containing the new app files.
@@ -169,19 +425,34 @@ class UpdateService:
 
         Returns:
             Absolute path to the generated batch file.
+
+        Raises:
+            UnsafeInstallationDirectoryError: If local_app_dir is an unsafe personal or system directory.
         """
-        # Robocopy arguments:
-        # /MIR: Mirror directory tree (deletes files in dest that don't exist in source)
-        # /XD: Exclude directories (backups, caches)
-        # /XF: Exclude files (config.yaml, local database files, logs, updater batch)
-        # /R:3: 3 retries on failed copy
-        # /W:5: 5 seconds wait between retries
+        safe, reason = self.is_safe_install_dir(local_app_dir, update_source_dir)
+        if not safe:
+            raise UnsafeInstallationDirectoryError(
+                f"Cannot update unsafe installation directory '{local_app_dir}': {reason}"
+            )
+
         batch_template = f"""@echo off
 title Updating Detailing Schedule...
 
-rem Clear PyInstaller environment variables so restarted app extracts a clean temporary runtime
+rem Clear all PyInstaller runtime and IPC variables so restarted app extracts a clean temporary runtime
 set _MEIPASS=
 set _MEIPASS2=
+set _PYI_APPLICATION_HOME_DIR=
+set _PYI_PARENT_PROCESS_LEVEL=
+set _PYI_ARCHIVE_FILE=
+set _PYI_SPLASH_IPC=
+set _PYI_LINUX_PROCESS_NAME=
+set PYINSTALLER_RESET_ENVIRONMENT=1
+
+set LOG_FILE=%TEMP%\\detailing_schedule_update.log
+echo ====================================================== > "%LOG_FILE%"
+echo Detailing Schedule Update Started: %DATE% %TIME% >> "%LOG_FILE%"
+echo Source: "{update_source_dir}" >> "%LOG_FILE%"
+echo Destination: "{local_app_dir}" >> "%LOG_FILE%"
 
 echo Waiting for application to exit...
 
@@ -195,20 +466,50 @@ if "%ERRORLEVEL%"=="0" (
 rem Extra pause to guarantee process file locks & PyInstaller cleanup complete
 timeout /t 2 /nobreak >nul
 
+rem Backup existing executable if present
+if exist "{local_app_dir}\\Detailing Schedule.exe" (
+    copy /y "{local_app_dir}\\Detailing Schedule.exe" "{local_app_dir}\\Detailing Schedule.exe.bak" >nul 2>&1
+)
+
 echo.
 echo Copying new version files from network share...
-robocopy "{update_source_dir}" "{local_app_dir}" /MIR /XD "backups" "csv_cache" "Unedited Reports" /XF "config.yaml" "*.db" "*.log" "update_detailing_schedule.bat" /R:3 /W:5
+rem Explicitly target ONLY application binaries. Never mirror or purge destination.
+robocopy "{update_source_dir}" "{local_app_dir}" "Detailing Schedule.exe" "version.txt" /R:3 /W:5 >> "%LOG_FILE%" 2>&1
+
+rem Robocopy exit codes 0-7 indicate success or no changes; 8+ indicates serious failure
+if %ERRORLEVEL% GEQ 8 (
+    echo. >> "%LOG_FILE%"
+    echo ERROR: Robocopy failed with error code %ERRORLEVEL%. >> "%LOG_FILE%"
+    echo Update failed! Restoring backup...
+    if exist "{local_app_dir}\\Detailing Schedule.exe.bak" (
+        copy /y "{local_app_dir}\\Detailing Schedule.exe.bak" "{local_app_dir}\\Detailing Schedule.exe" >nul 2>&1
+    )
+    echo Update could not be completed. Please check "%LOG_FILE%".
+    pause
+    exit /b 1
+)
+
+rem Success - remove backup
+if exist "{local_app_dir}\\Detailing Schedule.exe.bak" (
+    del /f /q "{local_app_dir}\\Detailing Schedule.exe.bak" >nul 2>&1
+)
 
 echo.
 echo Restarting application...
 set _MEIPASS=
 set _MEIPASS2=
-start "" "{local_app_dir}\\Detailing Schedule.exe"
+set _PYI_APPLICATION_HOME_DIR=
+set _PYI_PARENT_PROCESS_LEVEL=
+set _PYI_ARCHIVE_FILE=
+set _PYI_SPLASH_IPC=
+set _PYI_LINUX_PROCESS_NAME=
+set PYINSTALLER_RESET_ENVIRONMENT=1
+start "" /D "{local_app_dir}" "{local_app_dir}\\Detailing Schedule.exe"
 
 echo.
 echo Update complete!
 timeout /t 2 >nul
-exit
+exit /b 0
 """
         temp_dir = tempfile.gettempdir()
         batch_path = os.path.join(temp_dir, "update_detailing_schedule.bat")
@@ -221,3 +522,4 @@ exit
         except Exception as e:
             logger.error("Failed to generate updater batch file: %s", e)
             raise
+

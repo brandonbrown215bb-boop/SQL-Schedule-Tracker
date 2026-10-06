@@ -62,6 +62,43 @@ def main():
     from gui.no_scroll_filter import install_no_scroll_filter
     install_no_scroll_filter(app)
 
+    # Path safety check (guard against running loose in Documents, Desktop, etc.)
+    from services.update_service import UpdateService
+
+    safe, reason = UpdateService.is_safe_install_dir(application_path)
+    if not safe:
+        _safe_print(f"Startup warning: running in personal or system folder: {reason}")
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setWindowTitle("Detailing Schedule — Setup Notice")
+        msg_box.setText(
+            f"Detailing Schedule is running directly inside a personal folder:\n\n"
+            f"{application_path}\n\n"
+            f"Running loose in this folder can clutter your personal documents with application files, and automatic updates are disabled for your safety.\n\n"
+            f"Would you like to move the application to its dedicated folder now?\n"
+            f"(Installs to %LOCALAPPDATA%\\Programs\\Detailing Schedule and creates a Desktop shortcut)"
+        )
+        move_btn = msg_box.addButton("Move to Dedicated Folder (Recommended)", QMessageBox.ActionRole)
+        msg_box.addButton("Continue Anyway", QMessageBox.RejectRole)
+        msg_box.setDefaultButton(move_btn)
+        msg_box.exec_()
+
+        if msg_box.clickedButton() == move_btn:
+            success, new_exe, move_msg = UpdateService.migrate_to_dedicated_folder(application_path)
+            if success:
+                QMessageBox.information(
+                    None,
+                    "Setup Complete",
+                    f"{move_msg}\n\nA Desktop shortcut has been created. The application will now restart from its dedicated folder.",
+                )
+                import subprocess
+
+                clean_env = UpdateService.clean_pyinstaller_env()
+                subprocess.Popen(f'start "" "{new_exe}"', shell=True, env=clean_env)
+                sys.exit(0)
+            else:
+                QMessageBox.critical(None, "Setup Error", f"Failed to move application:\n{move_msg}")
+
     if not os.path.exists(config_path):
         _safe_print(f"Error: config.yaml not found at {config_path}")
         QMessageBox.critical(

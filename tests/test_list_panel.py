@@ -869,3 +869,78 @@ class TestColumnOrdering:
         ordered, _vis = dialog.get_result()
         assert ordered[0] == COLUMN_DEFS[0][0]
 
+
+class TestSearchSelectionSync:
+    """Tests for selection synchronization during search and filter operations."""
+
+    def test_search_clears_stale_selection_when_unit_not_in_results(self, qapp):
+        u1 = Unit(com_number="COM-100", job_name="Job 1", contract_number="C1", description="D1", detailer="Alice", checking_status="Done")
+        u2 = Unit(com_number="COM-200", job_name="Job 2", contract_number="C2", description="D2", detailer="Bob", checking_status="Done")
+        panel = ListPanel([u1, u2])
+
+        received = []
+        panel.unit_selected.connect(lambda u: received.append(u.com_number if u else None))
+
+        # 1. Search for COM-100 and select it
+        panel.com_search.setText("COM-100")
+        panel._on_filter_changed()
+        panel.table.selectRow(0)
+        assert received == ["COM-100"]
+
+        # 2. Simulate save refresh
+        panel.refresh([u1, u2])
+        assert panel._get_selected_com() == "COM-100"
+
+        # 3. Search for COM-200
+        panel.com_search.setText("COM-200")
+        panel._on_filter_changed()
+
+        # Selection should be cleared (not stuck on row 0)
+        assert panel.table.rowCount() == 1
+        assert len(panel.table.selectedIndexes()) == 0
+
+        # 4. User clicks row 0 (COM-200)
+        panel._on_cell_clicked(0, 0)
+        assert "COM-200" in received
+        assert panel._get_selected_com() == "COM-200"
+
+    def test_cell_clicked_emits_unit_even_if_row_already_selected(self, qapp):
+        u1 = Unit(com_number="COM-100", job_name="Job 1", contract_number="C1", description="D1", detailer="Alice", checking_status="Done")
+        panel = ListPanel([u1])
+
+        # Force table selection without emitting
+        panel.table.selectRow(0)
+        panel._last_emitted_com = None  # simulate desync
+
+        received = []
+        panel.unit_selected.connect(lambda u: received.append(u.com_number if u else None))
+
+        panel._on_cell_clicked(0, 0)
+        assert received == ["COM-100"]
+
+    def test_search_enter_key_selects_first_match(self, qapp):
+        u1 = Unit(com_number="COM-100", job_name="Job 1", contract_number="C1", description="D1", detailer="Alice", checking_status="Done")
+        u2 = Unit(com_number="COM-200", job_name="Job 2", contract_number="C2", description="D2", detailer="Bob", checking_status="Done")
+        panel = ListPanel([u1, u2])
+
+        received = []
+        panel.unit_selected.connect(lambda u: received.append(u.com_number if u else None))
+
+        panel.com_search.setText("COM-200")
+        panel._on_search_return_pressed()
+
+        assert received == ["COM-200"]
+        assert panel._get_selected_com() == "COM-200"
+
+    def test_refresh_preserves_selection_if_unit_still_in_results(self, qapp):
+        u1 = Unit(com_number="COM-100", job_name="Job 1", contract_number="C1", description="D1", detailer="Alice", checking_status="Done")
+        u2 = Unit(com_number="COM-200", job_name="Job 2", contract_number="C2", description="D2", detailer="Bob", checking_status="Done")
+        panel = ListPanel([u1, u2])
+
+        panel._select_com("COM-100")
+        assert panel._get_selected_com() == "COM-100"
+
+        panel.refresh([u1, u2])
+        assert panel._get_selected_com() == "COM-100"
+
+

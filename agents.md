@@ -154,7 +154,7 @@ window = MainWindow(services)
 | `ExportService` | `services/export_service.py` | `to_excel()`, `to_csv()` | `automation/export_to_workbook.py` |
 | `SyncService` | `services/sync_service.py` | `is_enabled()`, `acquire_lock()`, `release_lock()`, `get_revision()`, `commit_revision()`, `get_active_sessions()`, `start_heartbeat()`, `stop_heartbeat()` | `sync/lock_manager.py`, `sync/revision_store.py`, `sync/session_registry.py`, `sync/shared_cache.py` |
 | `ConfigService` | `services/config_service.py` | `load()`, `validate()`, `save()`, `merge_ui_defaults()`, `get_detailer_schedules()` | (static methods) |
-| `UpdateService` | `services/update_service.py` | `get_local_version()`, `get_remote_version()`, `check_for_update()`, `smart_merge_config()`, `generate_updater_script()` | network deployment folder, `version.txt` |
+| `UpdateService` | `services/update_service.py` | `get_local_version()`, `get_remote_version()`, `check_for_update()`, `smart_merge_config()`, `generate_updater_script()`, `clean_pyinstaller_env()` | network deployment folder, `version.txt` |
 
 ### Data Flow with Services
 

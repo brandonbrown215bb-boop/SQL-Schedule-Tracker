@@ -387,8 +387,8 @@ To prevent operators from accidentally changing dates, percentages, or detailers
 │   ├── Semantic Version Comparison (compares local vs network share version.txt)           │
 │   ├── Smart YAML Config Merging (preserves user settings while inheriting new release keys│
 │   └── Detached robocopy Batch Script (%TEMP%\update_detailing_schedule.bat)              │
-│       - Strips PyInstaller _MEIPASS environment variables                                 │
-│       - Waits for process exit, mirrors binaries, and relaunches application cleanly      │
+│       - Strips PyInstaller runtime & IPC variables (_MEIPASS, _PYI_*, reset flag)         │
+│       - Waits for process exit, copies binaries, and relaunches application cleanly       │
 └───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -416,7 +416,7 @@ When another user saves changes to the shared SQLite database:
 When new software versions are published to the network share:
 1. `UpdateCheckWorker` compares local `version.txt` with remote `version.txt`.
 2. If newer, `smart_merge_config()` deep-merges local user settings into the new configuration template, ensuring custom paths, column widths, and theme choices are preserved.
-3. A detached batch script (`%TEMP%\update_detailing_schedule.bat`) is generated. It strips PyInstaller runtime variables (`_MEIPASS`), waits for the application to close, executes a mirrored `robocopy` excluding user databases and logs, and restarts the updated application.
+3. A detached batch script (`%TEMP%\update_detailing_schedule.bat`) is generated. It strips PyInstaller runtime variables (`_MEIPASS`, `_PYI_*`), sets `PYINSTALLER_RESET_ENVIRONMENT=1`, waits for the application to close, executes `robocopy` for updated binaries, and restarts the updated application.
 
 ---
 

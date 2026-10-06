@@ -195,6 +195,25 @@ class ExcelExportWorker(QThread):
             self.error.emit(str(e))
 
 
+class ReportingFeedExportWorker(QThread):
+    """Background worker for exporting reporting feed."""
+
+    finished = pyqtSignal(int, str)
+    error = pyqtSignal(str)
+
+    def __init__(self, export_service: ExportService, db_path: str):
+        super().__init__()
+        self._export_service = export_service
+        self._db_path = db_path
+
+    def run(self):
+        try:
+            row_count, path = self._export_service.export_reporting_feed(self._db_path)
+            self.finished.emit(row_count, path)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class UpdateCheckWorker(QThread):
     """Background worker for checking updates."""
 
@@ -301,6 +320,12 @@ class MainWindow(QMainWindow):
         self._current_cvd: str = "none"
         self._current_hc: bool = False
 
+        self._feed_export_worker: ReportingFeedExportWorker | None = None
+        self._feed_export_timer = QTimer(self)
+        self._feed_export_timer.setSingleShot(True)
+        self._feed_export_timer.setInterval(10000)
+        self._feed_export_timer.timeout.connect(self._trigger_background_feed_export)
+
         self._init_status_bar()
         self._init_toolbar()
         self._init_central_layout()
@@ -384,6 +409,12 @@ class MainWindow(QMainWindow):
         action_export.setToolTip("Export SQLite data to Excel workbook (Current List sheet)")
         action_export.triggered.connect(self._export_excel)
         toolbar.addAction(action_export)
+
+        # ── Export Reporting Feed ──
+        action_feed = QAction("📊 Export Reporting Feed", self)
+        action_feed.setToolTip("Export lightweight reporting feed (Detailing_Reporting_Feed.xlsx / .csv) for Excel dashboards")
+        action_feed.triggered.connect(self._manual_export_reporting_feed)
+        toolbar.addAction(action_feed)
 
         toolbar.addSeparator()
 
@@ -848,6 +879,11 @@ class MainWindow(QMainWindow):
         com = unit.com_number if unit else None
         self.calendar_panel.set_highlighted_unit(com)
         self.alert_panel.set_selected_unit(com)
+        if hasattr(self, "list_panel") and self.list_panel._get_selected_com() != com:
+            if com:
+                self.list_panel._select_com(com)
+            else:
+                self.list_panel.table.clearSelection()
         if unit is not None:
             if unit.due_date_changed:
                 unit.due_date_changed = False
@@ -913,6 +949,7 @@ class MainWindow(QMainWindow):
 
             self._pending_save_unit = None
             self._notify(f"Saved COM {unit.com_number}", "success")
+            self._feed_export_timer.start()
 
         # Drain save queue
         if self._save_queue:
@@ -1390,6 +1427,7 @@ class MainWindow(QMainWindow):
         self._set_io_busy(False)
         self._notify(f"Imported {result.total_affected} rows successfully", "success")
         self._refresh_data()
+        self._trigger_background_feed_export()
 
     def _on_csv_import_error(self, error_msg: str):
         self.loading_overlay.hide()
@@ -1561,6 +1599,43 @@ class MainWindow(QMainWindow):
         logger.error("Excel export failed: %s", error_msg)
         QMessageBox.warning(self, "Export Error", f"Failed:\n{error_msg}")
         self._notify("Export failed", "error")
+
+    def _trigger_background_feed_export(self) -> None:
+        """Silently trigger background feed export without blocking UI."""
+        if self._feed_export_worker and self._feed_export_worker.isRunning():
+            return
+        worker = ReportingFeedExportWorker(self._services.export_service, self._services.db_path)
+        self._feed_export_worker = worker
+        worker.finished.connect(
+            lambda count, path: logger.info(f"Reporting feed auto-updated: {count} rows -> {path}")
+        )
+        worker.error.connect(lambda err: logger.warning(f"Reporting feed auto-update failed: {err}"))
+        worker.start()
+
+    def _manual_export_reporting_feed(self) -> None:
+        """Trigger manual reporting feed export with toast notification."""
+        if getattr(self, "_io_busy", False):
+            self._notify("Operation in progress. Please wait...", "warning")
+            return
+        self._set_io_busy(True)
+        self.loading_overlay.show_with_message("Exporting reporting feed...")
+        worker = ReportingFeedExportWorker(self._services.export_service, self._services.db_path)
+        self._feed_export_worker = worker
+
+        def _done(count, path):
+            self.loading_overlay.hide()
+            self._set_io_busy(False)
+            self._notify(f"Exported {count} rows to reporting feed", "success")
+
+        def _err(err):
+            self.loading_overlay.hide()
+            self._set_io_busy(False)
+            self._notify("Feed export failed", "error")
+            QMessageBox.warning(self, "Export Error", f"Failed:\n{err}")
+
+        worker.finished.connect(_done)
+        worker.error.connect(_err)
+        worker.start()
 
     def _open_audit(self, unit: Unit | None = None) -> None:
         """Open the audit trail dialog for the given or currently selected unit."""
@@ -1863,8 +1938,45 @@ class MainWindow(QMainWindow):
         if not update_source_dir:
             return
 
-        remote_config_path = os.path.join(update_source_dir, "config.yaml")
         local_config_path = self._services.config_path
+        local_app_dir = os.path.dirname(local_config_path)
+
+        # Check path safety before proceeding
+        safe, reason = self._services.update_service.is_safe_install_dir(local_app_dir, update_source_dir)
+        if not safe:
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setWindowTitle("Update Blocked — Personal Folder Protection")
+            msg_box.setText(
+                f"Detailing Schedule cannot perform an automatic update while running directly inside a personal or system folder:\n\n"
+                f"{local_app_dir}\n\n"
+                f"Reason: {reason}\n\n"
+                f"To protect your personal documents, updates are disabled until the application is placed in its own dedicated folder.\n\n"
+                f"Would you like to move Detailing Schedule to a dedicated folder now?\n"
+                f"(Installs to %LOCALAPPDATA%\\Programs\\Detailing Schedule with a Desktop shortcut)"
+            )
+            move_btn = msg_box.addButton("Move to Dedicated Folder (Recommended)", QMessageBox.ActionRole)
+            msg_box.addButton("Cancel Update", QMessageBox.RejectRole)
+            msg_box.setDefaultButton(move_btn)
+            msg_box.exec_()
+
+            if msg_box.clickedButton() == move_btn:
+                success, new_exe, move_msg = self._services.update_service.migrate_to_dedicated_folder(local_app_dir)
+                if success:
+                    QMessageBox.information(
+                        self,
+                        "Migration Complete",
+                        f"{move_msg}\n\nA Desktop shortcut has been created. The application will now restart from its dedicated folder."
+                    )
+                    import subprocess
+                    clean_env = self._services.update_service.clean_pyinstaller_env()
+                    subprocess.Popen(f'start "" "{new_exe}"', shell=True, env=clean_env)
+                    self._real_close()
+                else:
+                    QMessageBox.critical(self, "Migration Error", f"Failed to move application:\n{move_msg}")
+            return
+
+        remote_config_path = os.path.join(update_source_dir, "config.yaml")
 
         # Perform smart config merge
         self._services.update_service.smart_merge_config(remote_config_path, local_config_path)
@@ -1887,9 +1999,7 @@ class MainWindow(QMainWindow):
 
         # Launch batch file detached with PyInstaller env variables stripped
         import subprocess
-        clean_env = os.environ.copy()
-        clean_env.pop("_MEIPASS", None)
-        clean_env.pop("_MEIPASS2", None)
+        clean_env = self._services.update_service.clean_pyinstaller_env()
         try:
             subprocess.Popen(f'start "" "{batch_path}"', shell=True, env=clean_env)
         except Exception as e:

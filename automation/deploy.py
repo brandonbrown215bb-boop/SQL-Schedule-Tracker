@@ -141,6 +141,13 @@ def main():
         print(f"Copying '{local_version_path}' -> '{dest_version}'")
         shutil.copy2(local_version_path, dest_version)
 
+        # Copy installer script if present
+        installer_src = os.path.join(script_dir, "Install Detailing Schedule.bat")
+        if os.path.exists(installer_src):
+            dest_installer = os.path.join(dest_dir, "Install Detailing Schedule.bat")
+            print(f"Copying '{installer_src}' -> '{dest_installer}'")
+            shutil.copy2(installer_src, dest_installer)
+
         print("\n=== Deployment SUCCESSFUL! ===")
         print(f"Version v{version} is now available for users on the shared network drive.")
     except Exception as e:

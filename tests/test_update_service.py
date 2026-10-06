@@ -202,7 +202,42 @@ class TestUpdateService:
         assert loaded["ssrs_lookback_days"] == 45
         assert loaded["new_network_setting"] == "enabled"
 
-    def test_generate_updater_script(self, temp_dir):
+    def test_is_safe_install_dir(self):
+        userprofile = os.environ.get("USERPROFILE")
+        if userprofile:
+            safe, _ = UpdateService.is_safe_install_dir(userprofile)
+            assert safe is False
+            safe, _ = UpdateService.is_safe_install_dir(os.path.join(userprofile, "Documents"))
+            assert safe is False
+            safe, _ = UpdateService.is_safe_install_dir(os.path.join(userprofile, "Desktop"))
+            assert safe is False
+
+        # Drive roots are unsafe
+        safe, _ = UpdateService.is_safe_install_dir("C:\\")
+        assert safe is False
+        safe, _ = UpdateService.is_safe_install_dir("D:\\")
+        assert safe is False
+
+        # Dedicated app subdirectories are safe
+        safe, reason = UpdateService.is_safe_install_dir("C:\\Detailing Schedule App")
+        assert safe is True
+        assert reason == ""
+
+        # Installing directly into update source dir is unsafe
+        remote_share = "P:\\Detailing Schedule 2019\\Schedule App"
+        safe, _ = UpdateService.is_safe_install_dir(remote_share, update_source_dir=remote_share)
+        assert safe is False
+
+    def test_generate_updater_script_unsafe_directory_raises(self, temp_dir):
+        userprofile = os.environ.get("USERPROFILE") or temp_dir
+        docs_dir = os.path.join(userprofile, "Documents")
+        service = UpdateService(temp_dir)
+        from services.update_service import UnsafeInstallationDirectoryError
+
+        with pytest.raises(UnsafeInstallationDirectoryError):
+            service.generate_updater_script("P:\\UpdateShare", docs_dir)
+
+    def test_generate_updater_script_safe(self, temp_dir):
         service = UpdateService(temp_dir)
         update_source = "P:\\Detailing Schedule 2019\\Schedule App"
         local_app = "C:\\Detailing Schedule App"
@@ -214,13 +249,90 @@ class TestUpdateService:
         with open(batch_path, encoding="cp1252") as f:
             content = f.read()
 
-        # Check that it contains the robocopy command with correct paths
+        # Check that it contains robocopy targeting ONLY specific application binaries
         assert "robocopy" in content
-        assert f'robocopy "{update_source}" "{local_app}"' in content
-        assert "Detailing Schedule.exe" in content
+        assert f'robocopy "{update_source}" "{local_app}" "Detailing Schedule.exe" "version.txt"' in content
+
+        # CRITICAL SAFETY: /MIR and /PURGE must NEVER be present!
+        assert "/MIR" not in content
+        assert "/PURGE" not in content
+
+        # Check backup and rollback handling
+        assert "Detailing Schedule.exe.bak" in content
+        assert "%ERRORLEVEL% GEQ 8" in content
+        assert "detailing_schedule_update.log" in content
+
+        # Check PyInstaller environment clearing and restart flags
+        assert "set _PYI_APPLICATION_HOME_DIR=" in content
+        assert "set _PYI_PARENT_PROCESS_LEVEL=" in content
+        assert "set _PYI_ARCHIVE_FILE=" in content
+        assert "set PYINSTALLER_RESET_ENVIRONMENT=1" in content
+        assert f'start "" /D "{local_app}" "{local_app}\\Detailing Schedule.exe"' in content
 
         # Clean up batch file
         os.remove(batch_path)
+
+    def test_clean_pyinstaller_env(self):
+        fake_env = {
+            "_MEIPASS": r"C:\Users\test\AppData\Local\Temp\_MEI123456",
+            "_MEIPASS2": r"C:\Users\test\AppData\Local\Temp\_MEI123456",
+            "_PYI_APPLICATION_HOME_DIR": r"C:\Users\test\AppData\Local\Temp\_MEI123456",
+            "_PYI_PARENT_PROCESS_LEVEL": "1",
+            "_PYI_ARCHIVE_FILE": r"C:\app\Detailing Schedule.exe",
+            "_PYI_SPLASH_IPC": "1234",
+            "_PYI_LINUX_PROCESS_NAME": "test",
+            "PATH": r"C:\Users\test\AppData\Local\Temp\_MEI123456;C:\Windows\System32;C:\Program Files\Python",
+            "SYSTEMROOT": r"C:\Windows",
+            "USERNAME": "testuser",
+        }
+
+        clean = UpdateService.clean_pyinstaller_env(fake_env)
+
+        # PyInstaller runtime/IPC variables must be removed
+        assert "_MEIPASS" not in clean
+        assert "_MEIPASS2" not in clean
+        assert "_PYI_APPLICATION_HOME_DIR" not in clean
+        assert "_PYI_PARENT_PROCESS_LEVEL" not in clean
+        assert "_PYI_ARCHIVE_FILE" not in clean
+        assert "_PYI_SPLASH_IPC" not in clean
+        assert "_PYI_LINUX_PROCESS_NAME" not in clean
+
+        # PYINSTALLER_RESET_ENVIRONMENT must be set to 1
+        assert clean["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+
+        # Temporary _MEI directory must be removed from PATH
+        assert "_MEI123456" not in clean["PATH"]
+        assert r"C:\Windows\System32" in clean["PATH"]
+        assert r"C:\Program Files\Python" in clean["PATH"]
+
+        # Other standard environment variables must be preserved
+        assert clean["SYSTEMROOT"] == r"C:\Windows"
+        assert clean["USERNAME"] == "testuser"
+
+    def test_migrate_to_dedicated_folder(self, temp_dir):
+        source_dir = os.path.join(temp_dir, "source")
+        target_dir = os.path.join(temp_dir, "target")
+        os.makedirs(source_dir)
+
+        # Create dummy application files and a user personal document
+        with open(os.path.join(source_dir, "Detailing Schedule.exe"), "w") as f:
+            f.write("dummy exe")
+        with open(os.path.join(source_dir, "config.yaml"), "w") as f:
+            f.write("ui: {theme: dark}\n")
+        with open(os.path.join(source_dir, "version.txt"), "w") as f:
+            f.write("1.0.0\n")
+        with open(os.path.join(source_dir, "My_Important_Resume.docx"), "w") as f:
+            f.write("do not touch")
+
+        success, new_exe, msg = UpdateService.migrate_to_dedicated_folder(source_dir, target_dir)
+        assert success is True
+        assert os.path.exists(new_exe)
+        assert os.path.exists(os.path.join(target_dir, "config.yaml"))
+        assert os.path.exists(os.path.join(target_dir, "version.txt"))
+
+        # User's personal file in source directory MUST NOT be touched or deleted
+        assert os.path.exists(os.path.join(source_dir, "My_Important_Resume.docx"))
+
 
     def test_prepare_production_config(self, temp_dir):
         from automation.deploy import prepare_production_config

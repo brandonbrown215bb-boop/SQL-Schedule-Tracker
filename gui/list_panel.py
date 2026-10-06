@@ -581,6 +581,7 @@ class ListPanel(QWidget):
         self._db_path: str = db_path
         self._show_inline_edit: bool = show_inline_edit
         self._show_cancelled: bool = False
+        self._last_emitted_com: str | None = None
         # Cache of pre-computed tag display strings, keyed by com_number.
         # Invalidated when the model (unit set) changes, preserved across
         # sort-only refreshes so we don't re-parse on every column click.
@@ -746,6 +747,7 @@ class ListPanel(QWidget):
         self._search_debounce.setInterval(200)
         self._search_debounce.timeout.connect(self._on_filter_changed)
         self.com_search.textChanged.connect(self._on_search_text_changed)
+        self.com_search.returnPressed.connect(self._on_search_return_pressed)
         row2.addWidget(self.com_search)
         filter_layout.addLayout(row2)
 
@@ -785,6 +787,7 @@ class ListPanel(QWidget):
         self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
         self.table.horizontalHeader().sectionMoved.connect(self._on_section_moved)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.table.cellClicked.connect(self._on_cell_clicked)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.doubleClicked.connect(self._on_double_clicked)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -988,6 +991,17 @@ class ListPanel(QWidget):
         """Debounce the search — don't re-filter on every keystroke."""
         self._search_debounce.start()
 
+    def _on_search_return_pressed(self) -> None:
+        """Handle Enter key in the search box: apply filter immediately and select first match."""
+        if self._search_debounce and self._search_debounce.isActive():
+            self._search_debounce.stop()
+            self._on_filter_changed()
+
+        if self._model and self._model.filtered_units:
+            first_unit = self._model.filtered_units[0]
+            self._select_com(first_unit.com_number)
+            self.table.setFocus()
+
     def _on_stale_toggled(self, state: int) -> None:
         """Handle 'Show stale data' checkbox toggle."""
         if self._model is None:
@@ -1046,6 +1060,14 @@ class ListPanel(QWidget):
 
         self._emitting_order = True
         try:
+            # Capture currently selected COM before rebuilding
+            selected_com = self._get_selected_com()
+
+            # Clear selection and current item before changing row count so Qt does not
+            # retain stale row indices onto different units
+            self.table.clearSelection()
+            self.table.setCurrentItem(None)
+
             units = self._model.filtered_units
             visible = self._model.visible_columns
 
@@ -1274,6 +1296,14 @@ class ListPanel(QWidget):
                 f" | sorted by {self._sort_column}"
                 f" {'asc' if self._sort_ascending else 'desc'}"
             )
+
+            # Restore selection if the previously selected COM is still present in the filtered view
+            if selected_com:
+                found = self._select_com(selected_com)
+                if not found:
+                    self._on_selection_changed()
+            else:
+                self._on_selection_changed()
         finally:
             self._emitting_order = False
 
@@ -1458,12 +1488,28 @@ class ListPanel(QWidget):
                 self._inline_edit_bar.setVisible(False)
 
             self.unit_selected.emit(unit)
+            self._last_emitted_com = unit.com_number
             self._update_blame(unit)
         else:
+            self._last_emitted_com = None
             self._inline_edit_bar.set_unit(None)
             self._inline_edit_bar.setVisible(False)
             self.blame_label.setText("")
         self._update_batch_bar()
+
+    def _on_cell_clicked(self, row: int, column: int) -> None:
+        """Handle cell click to ensure unit is selected even if row was already considered selected by Qt."""
+        unit = self._get_unit_at_row(row)
+        if unit is None:
+            return
+        if self._get_selected_com() != unit.com_number:
+            self.table.selectRow(row)
+        needs_sync = (
+            self._last_emitted_com != unit.com_number
+            or (self._show_inline_edit and (self._inline_edit_bar._unit is None or self._inline_edit_bar._unit.com_number != unit.com_number))
+        )
+        if needs_sync:
+            self._on_selection_changed()
 
     def _update_blame(self, unit: Unit) -> None:
         """Show last-editor info for the selected unit."""
@@ -1603,6 +1649,14 @@ class ListPanel(QWidget):
         if unit is not None:
             self.unit_selected.emit(unit)
 
+    def _get_unit_at_row(self, row: int) -> Unit | None:
+        """Return the Unit stored in UserRole for the given row, or None."""
+        if 0 <= row < self.table.rowCount():
+            item = self.table.item(row, 0)
+            if item is not None:
+                return item.data(Qt.UserRole)
+        return None
+
     def _get_selected_unit(self) -> Unit | None:
         """Return the Unit for the currently selected row, or None."""
         items = self.table.selectedItems()
@@ -1618,10 +1672,19 @@ class ListPanel(QWidget):
     def _select_com(self, com_number: str) -> bool:
         """Select the row with the given COM number. Returns True if found."""
         for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)  # COM column
-            if item and item.text() == com_number:
-                self.table.selectRow(row)
-                return True
+            item = self.table.item(row, 0)
+            if item is not None:
+                unit = item.data(Qt.UserRole)
+                if unit and unit.com_number == com_number:
+                    self.table.selectRow(row)
+                    if self._last_emitted_com != com_number:
+                        self._on_selection_changed()
+                    return True
+                if not unit and item.text() == com_number:
+                    self.table.selectRow(row)
+                    if self._last_emitted_com != com_number:
+                        self._on_selection_changed()
+                    return True
         return False
 
     # ── Column Chooser ───────────────────────────────────────────────

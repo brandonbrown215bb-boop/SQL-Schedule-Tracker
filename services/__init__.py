@@ -12,7 +12,7 @@ from services.migration_registry import Migration, SchemaMigrationRegistry
 from services.sanitizer import InputSanitizer
 from services.sync_service import SyncService
 from services.unit_service import UnitService
-from services.update_service import UpdateService
+from services.update_service import UnsafeInstallationDirectoryError, UpdateService
 from services.validation import (
     UNIT_FIELD_RULES,
     FieldRule,
@@ -32,6 +32,7 @@ __all__ = [
     "SchemaMigrationRegistry",
     "SyncService",
     "UnitService",
+    "UnsafeInstallationDirectoryError",
     "UpdateService",
     "ValidationError",
     "update_allowed_detailers",

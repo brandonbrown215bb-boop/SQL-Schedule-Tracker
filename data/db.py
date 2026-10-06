@@ -152,6 +152,10 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE units ADD COLUMN unit_state TEXT")
             logger.info("Migration: added unit_state column")
 
+        if "same_as" not in cols:
+            conn.execute("ALTER TABLE units ADD COLUMN same_as TEXT")
+            logger.info("Migration: added same_as column")
+
         # ── Database indexes for common query filters ────────────
         desired_indexes = {
             "idx_units_detailing_due_date": "detailing_due_date",
@@ -168,6 +172,40 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             if idx_name not in existing_indexes:
                 conn.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON units({col})")
                 logger.info(f"Migration: created index {idx_name} on {col}")
+
+        # ── Dedicated view for Excel reporting export ───────────
+        conn.execute("""
+            CREATE VIEW IF NOT EXISTS v_reporting_export AS
+            SELECT 
+                u.com_number,
+                u.job_name,
+                u.top_level_number AS contract_number,
+                u.detailer,
+                u.notes,
+                CASE 
+                    WHEN u.notes IS NOT NULL AND u.notes != '' AND u.detailer IS NOT NULL AND u.detailer != ''
+                        THEN (CASE WHEN u.detailer = 'Matthew E' THEN 'Matt' WHEN u.detailer = 'Matthew S' THEN 'Matthew' ELSE u.detailer END) || ' / ' || u.notes
+                    WHEN u.notes IS NOT NULL AND u.notes != '' THEN u.notes
+                    ELSE (CASE WHEN u.detailer = 'Matthew E' THEN 'Matt' WHEN u.detailer = 'Matthew S' THEN 'Matthew' ELSE COALESCE(u.detailer, '') END)
+                END AS detailer_display,
+                u.percent_complete,
+                u.remaining_hours,
+                u.department_hours,
+                COALESCE(u.target_dept_hours, u.department_hours) AS target_dept_hours,
+                u.checking_status,
+                u.unit_detailing_start_date,
+                u.unit_moved_to_checking_date,
+                u.unit_detailing_completion_date,
+                u.detailing_due_date,
+                u.build_date,
+                COALESCE(u.actual_hours_to_detail_unit, u.actual_hours, 0.0) AS actual_hours,
+                COALESCE(u.iec_internal_hours, 0.0) AS iec_internal_hours,
+                COALESCE(u.same_as, '') AS same_as,
+                COALESCE(u.dr_checks, '') AS dr_checks,
+                COALESCE(u.dvl_checks, '') AS dvl_checks,
+                u.updated_at
+            FROM units u;
+        """)
 
     except Exception as e:
         logger.warning("Migration check failed: %s", e)
