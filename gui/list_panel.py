@@ -872,8 +872,6 @@ class ListPanel(QWidget):
             self._model.set_visible_columns(self._saved_visible_columns)
         self._tag_strings_cache.clear()
         self._populate_detailer_combo()
-        self._sort_column = "detailing_due_date"
-        self._sort_ascending = True
         self._apply_filters_and_refresh()
 
     def refresh(self, units: list[Unit]) -> None:
@@ -925,8 +923,14 @@ class ListPanel(QWidget):
         self._apply_filters_and_refresh()
 
         # Update inline edit bar's unit reference after save
-        # (prevents stale updated_at causing false conflict on next save)
-        if self._inline_edit_bar.isVisible() and self._inline_edit_bar._unit is not None:
+        # (prevents stale updated_at causing false conflict on next save).
+        # A dirty bar keeps its original unit so unsaved edits survive and the
+        # save still goes through the optimistic-lock check.
+        if (
+            self._inline_edit_bar.isVisible()
+            and self._inline_edit_bar._unit is not None
+            and not self._inline_edit_bar.is_dirty
+        ):
             com = self._inline_edit_bar._unit.com_number
             for u in units:
                 if u.com_number == com:
@@ -1062,6 +1066,10 @@ class ListPanel(QWidget):
         try:
             # Capture currently selected COM before rebuilding
             selected_com = self._get_selected_com()
+
+            # Rebuild silently: a live itemSelectionChanged here would clear the
+            # inline edit bar (losing unsaved edits) and re-emit unit_selected.
+            self.table.blockSignals(True)
 
             # Clear selection and current item before changing row count so Qt does not
             # retain stale row indices onto different units
@@ -1284,7 +1292,10 @@ class ListPanel(QWidget):
 
             total = len(self._model.all_units)
             showing = len(units)
-            stale_count = sum(1 for u in self._model.all_units if u.is_stale and u not in units)
+            shown_ids = {id(u) for u in units}
+            stale_count = sum(
+                1 for u in self._model.all_units if id(u) not in shown_ids and u.is_stale
+            )
             if self._model._show_stale:
                 stale_note = ""
             elif stale_count > 0:
@@ -1298,14 +1309,52 @@ class ListPanel(QWidget):
             )
 
             # Restore selection if the previously selected COM is still present in the filtered view
-            if selected_com:
-                found = self._select_com(selected_com)
-                if not found:
-                    self._on_selection_changed()
+            row = self._row_for_com(selected_com) if selected_com else -1
+            if row >= 0:
+                self.table.selectRow(row)
+            self.table.blockSignals(False)
+
+            if row >= 0 and self._last_emitted_com == selected_com:
+                self._refresh_inline_bar_unit()
+            elif row < 0 and self._inline_edit_bar.is_dirty:
+                # The unit being edited was filtered out; keep its unsaved edits.
+                self._last_emitted_com = None
+                self.blame_label.setText("")
+                self._update_batch_bar()
             else:
                 self._on_selection_changed()
         finally:
+            self.table.blockSignals(False)
             self._emitting_order = False
+
+    def _refresh_inline_bar_unit(self) -> None:
+        """Point the inline bar at the reloaded copy of the selected unit.
+
+        A dirty bar keeps the unit it started from, so its save still carries
+        the original updated_at and hits the optimistic-lock check.
+        """
+        bar = self._inline_edit_bar
+        unit = self._get_selected_unit()
+        if (
+            unit is None
+            or not self._show_inline_edit
+            or len(self._get_selected_units()) >= 2
+            or bar.is_dirty
+        ):
+            return
+        if bar._unit is None or bar._unit is not unit:
+            bar.set_unit(unit)
+
+    def _row_for_com(self, com_number: str) -> int:
+        """Return the table row showing *com_number*, or -1."""
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item is None:
+                continue
+            unit = item.data(Qt.UserRole)
+            if (unit and unit.com_number == com_number) or (not unit and item.text() == com_number):
+                return row
+        return -1
 
     def _clear_filters(self) -> None:
         """Reset all filter widgets to defaults."""
@@ -1671,21 +1720,13 @@ class ListPanel(QWidget):
 
     def _select_com(self, com_number: str) -> bool:
         """Select the row with the given COM number. Returns True if found."""
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)
-            if item is not None:
-                unit = item.data(Qt.UserRole)
-                if unit and unit.com_number == com_number:
-                    self.table.selectRow(row)
-                    if self._last_emitted_com != com_number:
-                        self._on_selection_changed()
-                    return True
-                if not unit and item.text() == com_number:
-                    self.table.selectRow(row)
-                    if self._last_emitted_com != com_number:
-                        self._on_selection_changed()
-                    return True
-        return False
+        row = self._row_for_com(com_number)
+        if row < 0:
+            return False
+        self.table.selectRow(row)
+        if self._last_emitted_com != com_number:
+            self._on_selection_changed()
+        return True
 
     # ── Column Chooser ───────────────────────────────────────────────
 

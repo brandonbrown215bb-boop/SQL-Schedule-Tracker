@@ -88,6 +88,8 @@ The primary visual indicator. Recalculated at runtime by `Unit.calculated_status
   * Within each group, the unit with the earliest `detailing_due_date` is marked as **primary** (tie-breaks by lowest `com_number` for determinism).
   * Non-primary units are flagged as `is_non_primary_identical = True`, their `target_department_hours` is forced to `0.0` in-memory to prevent double-counting load on a single order, and their original target hours are cached in `_original_target_department_hours`.
   * **Database Persistence Guard:** On save, `save_unit()` writes the **original cached target hours** back to the database (`target_dept_hours = MAX(0, _original_target_department_hours)`). This preserves the underlying data should the identicals grouping or primary assignment change later.
+  * **Exports apply the rule too:** `v_reporting_export` and the workbook export (column V) report `target_dept_hours = 0.0` for non-primary identicals, using `NON_PRIMARY_IDENTICAL_SQL` in `data/db.py` (the SQL twin of `_apply_identicals()`: earliest `date(detailing_due_date)`, undated last, then lowest `com_number`). The view carries a version marker and is recreated automatically when its definition changes.
+  * **Audit:** saves of non-primary identicals do not log `target_dept_hours`, because the unit carries no target hours.
 
 ### 2.3 Working Days in Checking (`working_days_in_checking`)
 * **Trigger:** Calculated during CSV import, manual unit saves, or database migrations.

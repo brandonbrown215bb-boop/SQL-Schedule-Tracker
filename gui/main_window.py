@@ -788,7 +788,6 @@ class MainWindow(QMainWindow):
             self.list_view_btn.setChecked(False)
             self.alerts_view_btn.setChecked(True)
             self.alert_panel.set_units(self.units)
-            QTimer.singleShot(0, self.alert_panel.refresh)
 
         self._services.config.setdefault("ui", {})["last_view"] = view_name
 
@@ -932,8 +931,14 @@ class MainWindow(QMainWindow):
         self._sync_status_widget.reset()
         if unit:
             self._commit_unit_to_memory(unit)
-            self.calendar_panel.refresh(self.units)
-            self.list_panel.refresh(self.units)
+            # During a batch, rebuild the views once when the queue drains
+            # instead of once per saved unit.
+            if self._save_queue:
+                self._views_stale = True
+            else:
+                self._views_stale = False
+                self.calendar_panel.refresh(self.units)
+                self.list_panel.refresh(self.units)
             self.timeline_panel.set_unit(unit)
 
             # Keep side edit form and inline edit bar in sync
@@ -984,6 +989,10 @@ class MainWindow(QMainWindow):
         if self._save_queue:
             next_unit = self._save_queue.pop(0)
             self._start_save_worker(next_unit)
+        elif getattr(self, "_views_stale", False):
+            self._views_stale = False
+            self.calendar_panel.refresh(self.units)
+            self.list_panel.refresh(self.units)
 
     def _show_conflict_dialog(self, error_msg: str, local_unit: Unit | None = None) -> None:
         local_unit = local_unit or self.current_unit
@@ -1009,7 +1018,9 @@ class MainWindow(QMainWindow):
         if dlg.overwrite:
             logger.info("User chose to overwrite conflict for COM %s", com_number)
             if local_unit:
-                local_unit.updated_at = ""
+                # Match the row's current timestamp; "" would only match NULL rows
+                # and the overwrite would fail with the same conflict forever.
+                local_unit.updated_at = remote_unit.updated_at if remote_unit else ""
                 self._start_save_worker(local_unit)
         elif dlg.reload:
             logger.info("User chose to reload COM %s after conflict", com_number)
@@ -1102,9 +1113,20 @@ class MainWindow(QMainWindow):
         if self.current_unit is not None:
             for new_unit in self.units:
                 if new_unit.com_number == self.current_unit.com_number:
-                    self.current_unit = new_unit
-                    self.edit_form.current_unit = new_unit
-                    if not self._form_dirty:
+                    if self._form_dirty:
+                        # Keep the unit the user started editing (and its
+                        # updated_at) so the save goes through the optimistic
+                        # lock and surfaces a conflict instead of silently
+                        # overwriting the other user's change.
+                        if new_unit.updated_at != self.edit_form.current_unit.updated_at:
+                            self._notify(
+                                f"COM {new_unit.com_number} was changed by another user "
+                                "while you were editing — saving will show the differences.",
+                                "warning",
+                            )
+                    else:
+                        self.current_unit = new_unit
+                        self.edit_form.current_unit = new_unit
                         self.edit_form.set_unit(new_unit)
 
                     if hasattr(self.list_panel, "_inline_edit_bar"):

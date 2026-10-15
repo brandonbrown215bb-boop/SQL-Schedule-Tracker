@@ -11,7 +11,6 @@ import logging
 from dataclasses import dataclass
 
 from automation.import_preview import ImportDiff
-from data.db import backup_db
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +21,7 @@ class ImportResult:
 
     inserted: int = 0
     updated: int = 0
+    unchanged: int = 0
     skipped: int = 0
     errors: int = 0
 
@@ -45,7 +45,7 @@ class ImportService:
     def from_csv(self, csv_path: str) -> ImportResult:
         """Import a CSV file into SQLite.
 
-        Backs up the database before import. Returns ImportResult with stats.
+        run_import() backs up the database before importing. Returns ImportResult with stats.
 
         Args:
             csv_path: Path to the CSV file (SSRS export format).
@@ -55,11 +55,11 @@ class ImportService:
         """
         from automation.import_csv import run_import
 
-        backup_db(self._db_path)
         stats = run_import(csv_path, self._db_path)
         return ImportResult(
             inserted=stats.get("inserted", 0),
             updated=stats.get("updated", 0),
+            unchanged=stats.get("unchanged", 0),
             skipped=stats.get("skipped", 0),
             errors=stats.get("errors", 0),
         )
@@ -73,7 +73,7 @@ class ImportService:
     ) -> ImportResult:
         """Fetch CSV from SSRS ReportServer and import into SQLite.
 
-        Backs up the database before import. Returns ImportResult with stats.
+        run_import() backs up the database before importing. Returns ImportResult with stats.
 
         Args:
             url: SSRS ReportServer endpoint URL (SCHDetailingReport).
@@ -86,7 +86,6 @@ class ImportService:
         """
         from automation.import_atomsvc import run_ssrs_import
 
-        backup_db(self._db_path)
         stats = run_ssrs_import(
             db_path=self._db_path,
             ssrs_url=url,
@@ -97,6 +96,7 @@ class ImportService:
         return ImportResult(
             inserted=stats.get("inserted", 0),
             updated=stats.get("updated", 0),
+            unchanged=stats.get("unchanged", 0),
             skipped=stats.get("skipped", 0),
             errors=stats.get("errors", 0),
         )

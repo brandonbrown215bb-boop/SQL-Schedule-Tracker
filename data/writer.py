@@ -189,6 +189,7 @@ def save_unit(
         "description": unit.description,
         "detailer": unit.detailer,
         "checking_status": unit.checking_status,
+        "unit_state": unit.unit_state,
         "dr_checks": unit.dr_checks,
         "dvl_checks": unit.dvl_checks,
         "department_hours": unit.department_hours,
@@ -222,7 +223,13 @@ def save_unit(
         "remaining_demand": unit.remaining_demand,
         "hours_checking": unit.hours_checking,
     }
-    log_field_changes(conn, unit.com_number, old_row, new_values)
+    if unit.is_non_primary_identical:
+        # Non-primary identicals aren't detailed again and carry no target
+        # hours, so their stored (primary-fallback) value isn't audited.
+        del new_values["target_dept_hours"]
+
+    # Same transaction as the UPDATE: one commit (one journal round-trip on the share).
+    log_field_changes(conn, unit.com_number, old_row, new_values, commit=False)
 
     refreshed = conn.execute(
         "SELECT updated_at FROM units WHERE com_number = ?",

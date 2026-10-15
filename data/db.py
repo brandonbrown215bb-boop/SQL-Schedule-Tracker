@@ -13,6 +13,65 @@ logger = logging.getLogger(__name__)
 
 _db_path: str | None = None
 _local = threading.local()
+_audit_user = "local"
+
+
+# SQL twin of data.loader._apply_identicals: true for every unit except the
+# primary of a contract group (earliest due date, undated last, then lowest
+# COM). Non-primary identicals aren't detailed again, so they report 0 target
+# hours; the real value stays in units.target_dept_hours in case the primary
+# changes.
+NON_PRIMARY_IDENTICAL_SQL = """(
+    TRIM(COALESCE(top_level_number, '')) <> ''
+    AND ROW_NUMBER() OVER (
+        PARTITION BY TRIM(top_level_number)
+        ORDER BY date(detailing_due_date) IS NULL, date(detailing_due_date), com_number
+    ) > 1
+)"""
+
+_REPORTING_VIEW_VERSION = "v_reporting_export:identicals-v1"
+_REPORTING_VIEW_SQL = (
+    f"""CREATE VIEW v_reporting_export AS
+            -- {_REPORTING_VIEW_VERSION}
+            SELECT
+                u.com_number,
+                u.job_name,
+                u.top_level_number AS contract_number,
+                u.detailer,
+                u.notes,
+                CASE
+                    WHEN u.notes IS NOT NULL AND u.notes != '' AND u.detailer IS NOT NULL AND u.detailer != ''
+                        THEN (CASE WHEN u.detailer = 'Matthew E' THEN 'Matt' WHEN u.detailer = 'Matthew S' THEN 'Matthew' ELSE u.detailer END) || ' / ' || u.notes
+                    WHEN u.notes IS NOT NULL AND u.notes != '' THEN u.notes
+                    ELSE (CASE WHEN u.detailer = 'Matthew E' THEN 'Matt' WHEN u.detailer = 'Matthew S' THEN 'Matthew' ELSE COALESCE(u.detailer, '') END)
+                END AS detailer_display,
+                u.percent_complete,
+                u.remaining_hours,
+                u.department_hours,
+                CASE WHEN {NON_PRIMARY_IDENTICAL_SQL} THEN 0.0
+                     ELSE COALESCE(u.target_dept_hours, u.department_hours)
+                END AS target_dept_hours,
+                u.checking_status,
+                u.unit_detailing_start_date,
+                u.unit_moved_to_checking_date,
+                u.unit_detailing_completion_date,
+                u.detailing_due_date,
+                u.build_date,
+                COALESCE(u.actual_hours_to_detail_unit, u.actual_hours, 0.0) AS actual_hours,
+                COALESCE(u.iec_internal_hours, 0.0) AS iec_internal_hours,
+                COALESCE(u.same_as, '') AS same_as,
+                COALESCE(u.dr_checks, '') AS dr_checks,
+                COALESCE(u.dvl_checks, '') AS dvl_checks,
+                u.updated_at
+            FROM units u
+"""
+)
+
+
+def set_audit_user(name: str) -> None:
+    """Set the name recorded in _audit_log.saved_by for saves from this process."""
+    global _audit_user
+    _audit_user = (name or "").strip() or "local"
 
 
 def _safe_journal_mode(conn: sqlite3.Connection, db_path: str) -> None:
@@ -173,39 +232,18 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
                 conn.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON units({col})")
                 logger.info(f"Migration: created index {idx_name} on {col}")
 
+        _ensure_audit_log(conn)
+
         # ── Dedicated view for Excel reporting export ───────────
-        conn.execute("""
-            CREATE VIEW IF NOT EXISTS v_reporting_export AS
-            SELECT 
-                u.com_number,
-                u.job_name,
-                u.top_level_number AS contract_number,
-                u.detailer,
-                u.notes,
-                CASE 
-                    WHEN u.notes IS NOT NULL AND u.notes != '' AND u.detailer IS NOT NULL AND u.detailer != ''
-                        THEN (CASE WHEN u.detailer = 'Matthew E' THEN 'Matt' WHEN u.detailer = 'Matthew S' THEN 'Matthew' ELSE u.detailer END) || ' / ' || u.notes
-                    WHEN u.notes IS NOT NULL AND u.notes != '' THEN u.notes
-                    ELSE (CASE WHEN u.detailer = 'Matthew E' THEN 'Matt' WHEN u.detailer = 'Matthew S' THEN 'Matthew' ELSE COALESCE(u.detailer, '') END)
-                END AS detailer_display,
-                u.percent_complete,
-                u.remaining_hours,
-                u.department_hours,
-                COALESCE(u.target_dept_hours, u.department_hours) AS target_dept_hours,
-                u.checking_status,
-                u.unit_detailing_start_date,
-                u.unit_moved_to_checking_date,
-                u.unit_detailing_completion_date,
-                u.detailing_due_date,
-                u.build_date,
-                COALESCE(u.actual_hours_to_detail_unit, u.actual_hours, 0.0) AS actual_hours,
-                COALESCE(u.iec_internal_hours, 0.0) AS iec_internal_hours,
-                COALESCE(u.same_as, '') AS same_as,
-                COALESCE(u.dr_checks, '') AS dr_checks,
-                COALESCE(u.dvl_checks, '') AS dvl_checks,
-                u.updated_at
-            FROM units u;
-        """)
+        # Recreate when the stored definition predates the current version
+        # (CREATE VIEW IF NOT EXISTS would keep an old definition forever).
+        existing = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='view' AND name='v_reporting_export'"
+        ).fetchone()
+        if existing is None or _REPORTING_VIEW_VERSION not in (existing[0] or ""):
+            conn.execute("DROP VIEW IF EXISTS v_reporting_export")
+            conn.execute(_REPORTING_VIEW_SQL)
+            logger.info("Migration: (re)created v_reporting_export (%s)", _REPORTING_VIEW_VERSION)
 
     except Exception as e:
         logger.warning("Migration check failed: %s", e)
@@ -241,7 +279,6 @@ def _ensure_audit_log(conn: sqlite3.Connection) -> None:
     # Index for fast lookups by COM number
     conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_com ON _audit_log(com_number)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_saved_at ON _audit_log(saved_at)")
-    conn.commit()
 
 
 def log_field_changes(
@@ -250,7 +287,8 @@ def log_field_changes(
     old_row: sqlite3.Row | None,
     new_values: dict,
     *,
-    saved_by: str = "local",
+    saved_by: str | None = None,
+    commit: bool = True,
 ) -> int:
     """Record field-level changes to the audit log.
 
@@ -258,13 +296,18 @@ def log_field_changes(
     (the dict of field_name → new_value being written).  Inserts one
     row per changed field into _audit_log.
 
+    *saved_by* defaults to the name set via set_audit_user(). Pass
+    ``commit=False`` to keep the audit rows in the caller's transaction.
+
     Returns the number of changes recorded.
     """
     _ensure_audit_log(conn)
+    if saved_by is None:
+        saved_by = _audit_user
 
     def _normalize_for_comparison(val):
         """Normalize a value for audit log comparison, accounting for SQLite type affinity."""
-        if val is None:
+        if val is None or val == "":
             return None
         if isinstance(val, float):
             # Normalize float to int if it's a whole number (SQLite stores 0.0 as 0)
@@ -285,7 +328,7 @@ def log_field_changes(
                     (com_number, field, new_str, saved_by),
                 )
                 changes += 1
-        if changes > 0:
+        if changes > 0 and commit:
             conn.commit()
         return changes
 
@@ -299,6 +342,9 @@ def log_field_changes(
         # Normalize for comparison: dates, None, etc.
         old_str = _normalize_for_comparison(old_val)
         new_str = _normalize_for_comparison(new_val)
+        # NULL and 0 mean the same thing for numeric columns — don't log noise.
+        if {old_str, new_str} == {None, "0"}:
+            continue
 
         if old_str != new_str:
             conn.execute(
@@ -309,7 +355,8 @@ def log_field_changes(
             changes += 1
 
     if changes > 0:
-        conn.commit()
+        if commit:
+            conn.commit()
         logger.info(
             "Audit: %d field(s) changed for COM %s by %s",
             changes,
@@ -380,7 +427,7 @@ def backup_db(db_path: str, backup_dir: str | None = None, *, keep_count: int = 
     # Use VACUUM INTO for a consistent atomic copy
     conn = get_db(db_path)
     try:
-        conn.execute(f"VACUUM INTO '{export_path}'")
+        conn.execute("VACUUM INTO ?", (export_path,))
     except Exception:
         # Some SQLite builds don't support VACUUM INTO — fall back to backup API
         try:

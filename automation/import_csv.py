@@ -14,6 +14,7 @@ import logging
 import sys
 import time
 
+from data.models import Unit
 from services.sanitizer import InputSanitizer
 from services.validation import validate_unit
 
@@ -66,8 +67,17 @@ SANITIZE_FUNCS = {
 }
 
 
+def _same_value(old, new) -> bool:
+    """Compare a DB value with an incoming CSV value, ignoring type/float noise."""
+    if old in (None, "") and new in (None, ""):
+        return True
+    if isinstance(old, (int, float)) and isinstance(new, (int, float)):
+        return abs(old - new) <= 1e-9
+    return str(old) == str(new)
+
+
 def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
-    """Upsert one row. Returns 'inserted', 'updated', or 'skipped'."""
+    """Upsert one row. Returns 'inserted', 'updated', 'unchanged', or 'skipped'."""
     from data.db import _working_days_between
 
     com = row_data.get("com_number")
@@ -134,8 +144,25 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
             update_cols.append("working_days_in_checking")
             row_data["working_days_in_checking"] = wd_checking
 
+        # Skip rows whose SSRS values are identical to the DB. Bumping updated_at
+        # on unchanged rows would make every open edit in other sessions fail
+        # the optimistic-lock check after each import.
+        due_changed = bool(
+            new_due_date and current_due_date and str(current_due_date) != str(new_due_date)
+        )
+        if not due_changed:
+            cursor.execute(
+                f"SELECT {', '.join(update_cols)} FROM units WHERE com_number = ?", (com,)
+            )
+            current_values = cursor.fetchone()
+            if current_values is not None and all(
+                _same_value(old, row_data.get(col))
+                for col, old in zip(update_cols, current_values, strict=True)
+            ):
+                return "unchanged"
+
         set_parts = [f"{col} = ?" for col in update_cols]
-        set_parts.append("updated_at = datetime('now')")
+        set_parts.append("updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')")
         values = [row_data.get(c) for c in update_cols]
         values.append(com)
 
@@ -178,15 +205,36 @@ def run_import(csv_path: str, db_path: str) -> dict:
     # Pre-import backup for safety
     backup_db(db_path)
 
-    stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
+    stats = {"inserted": 0, "updated": 0, "unchanged": 0, "skipped": 0, "errors": 0}
 
     conn = sqlite3.connect(db_path, timeout=30.0)
     from data.db import _safe_journal_mode
     _safe_journal_mode(conn, db_path)
     cursor = conn.cursor()
 
+    try:
+        _import_rows(csv_path, cursor, stats)
+        conn.commit()
+    except BaseException:
+        # Never leave a half-applied import or a held write lock on the shared DB.
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return stats
+
+
+def _import_rows(csv_path: str, cursor, stats: dict) -> None:
+    """Parse, validate and upsert every CSV row using *cursor* (no commit)."""
+    import sqlite3
+
     with open(csv_path, encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
+        if "COMNumber" not in (reader.fieldnames or []):
+            raise ValueError(
+                f"{csv_path} has no COMNumber column — not an SSRS detailing export "
+                "(the report server may have returned an error page)."
+            )
         for line_num, csv_row in enumerate(reader, start=2):
             if all((v or "").strip() == "" for v in csv_row.values()):
                 stats["skipped"] += 1
@@ -201,8 +249,6 @@ def run_import(csv_path: str, db_path: str) -> dict:
                             row_data[db_col] = sanitizer(raw_val)
 
                 # Build a minimal Unit for row-level validation
-                from data.models import Unit
-
                 unit_for_validation = Unit(
                     com_number=row_data.get("com_number", ""),
                     job_name=row_data.get("job_name", ""),
@@ -230,12 +276,13 @@ def run_import(csv_path: str, db_path: str) -> dict:
 
                 result = upsert_row(cursor, row_data, line_num)
                 stats[result] += 1
+            except sqlite3.OperationalError:
+                # "database is locked" etc. — abort the whole import instead of
+                # waiting out the busy timeout once per row.
+                raise
             except Exception as e:
                 stats["errors"] += 1
                 log.error(f"Line {line_num}: {e}")
-        conn.commit()
-    conn.close()
-    return stats
 
 
 def import_csv(db_path: str, csv_path: str) -> int:

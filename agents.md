@@ -239,7 +239,7 @@ Mon-Fri count between `unit_moved_to_checking_date` and `unit_detailing_completi
 
 ### 5.6 Identicals Rule
 
-Units sharing the same `contract_number` form a group. The unit with the earliest `detailing_due_date` is the **primary** (keeps normal target hours). All others get `target_department_hours = 0` and `is_non_primary_identical = True`. Applied in `data/loader.py` → `_apply_identicals()`, wrapped by `UnitService.apply_identicals()`.
+Units sharing the same `contract_number` form a group. The unit with the earliest `detailing_due_date` is the **primary** (keeps normal target hours). All others get `target_department_hours = 0` and `is_non_primary_identical = True`. Applied in `data/loader.py` → `_apply_identicals()`, wrapped by `UnitService.apply_identicals()`. The DB keeps the real `target_dept_hours`. Anything that reads the DB directly for reporting must apply `NON_PRIMARY_IDENTICAL_SQL` (`data/db.py`), as `v_reporting_export` and `automation/export_to_workbook.py` do. That expression is a window function, so use it in a SELECT list, not in WHERE.
 
 ### 5.7 Audit Trail (`_audit_log` table)
 

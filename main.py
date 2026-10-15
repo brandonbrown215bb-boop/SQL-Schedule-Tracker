@@ -185,6 +185,10 @@ def main():
 
     _safe_print(f"Connected to SQLite: {db_path}")
 
+    from data.db import set_audit_user
+
+    set_audit_user(config["multi_user"].get("username", ""))
+
     # ── Sprint 2: Bulk backup on app startup ────────────────────────────
     try:
         _startup_backup(db_path, application_path)
@@ -220,9 +224,15 @@ def _startup_backup(db_path: str, application_path: str) -> None:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_path = os.path.join(backup_dir, f"{ts}_startup_backup.db")
 
+    # One startup backup per day is plenty; every launch by every user would
+    # otherwise copy the whole DB across the share before the window opens.
+    today_prefix = datetime.now().strftime("%Y%m%d_")
+    if glob.glob(os.path.join(backup_dir, f"{today_prefix}*_startup_backup.db")):
+        return
+
     conn = get_db(db_path)
     try:
-        conn.execute(f"VACUUM INTO '{backup_path}'")
+        conn.execute("VACUUM INTO ?", (backup_path,))
     except Exception:
         # Fallback: backup API
         import sqlite3

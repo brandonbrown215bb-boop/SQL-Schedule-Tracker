@@ -16,6 +16,8 @@ import time
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
 
+from data.db import NON_PRIMARY_IDENTICAL_SQL
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
@@ -90,7 +92,15 @@ def export_to_workbook(db_path: str, excel_path: str) -> int:
     """
     # Read all columns from SQLite
     db_fields = [col[1] for col in EXPORT_COLUMNS]
-    select_cols = ", ".join(db_fields)
+    # Non-primary identicals report 0 target hours (same rule as the app and
+    # the reporting view); the DB keeps the real value.
+    select_cols = ", ".join(
+        f"CASE WHEN {NON_PRIMARY_IDENTICAL_SQL} THEN 0.0 ELSE target_dept_hours END"
+        " AS target_dept_hours"
+        if field == "target_dept_hours"
+        else field
+        for field in db_fields
+    )
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -133,7 +143,13 @@ def export_to_workbook(db_path: str, excel_path: str) -> int:
             for col_idx, _, _ in col_map:
                 ws.cell(row=row_idx, column=col_idx, value=None)
 
-    wb.save(excel_path)
+    try:
+        wb.save(excel_path)
+    finally:
+        # keep_vba=True leaves the source zip open; on Windows that holds a
+        # handle on the workbook until garbage collection.
+        if getattr(wb, "vba_archive", None) is not None:
+            wb.vba_archive.close()
     log.info(f"Exported {new_count} rows to {excel_path} ({CURRENT_LIST_SHEET} sheet)")
     return new_count
 

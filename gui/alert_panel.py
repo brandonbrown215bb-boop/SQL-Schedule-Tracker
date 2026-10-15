@@ -227,9 +227,15 @@ class AlertPanel(QWidget):
             item = self.list_widget.item(i)
             unit = item.data(Qt.UserRole)
             if unit and unit.com_number == com_number:
+                # Silent: re-emitting unit_selected would push this list's
+                # (possibly stale) Unit object back into the edit form.
+                self.list_widget.blockSignals(True)
                 self.list_widget.setCurrentItem(item)
+                self.list_widget.blockSignals(False)
                 return
+        self.list_widget.blockSignals(True)
         self.list_widget.clearSelection()
+        self.list_widget.blockSignals(False)
 
     # ── Visibility handling ──────────────────────────────────────────
 

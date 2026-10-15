@@ -17,12 +17,18 @@ def _working_days_between(start: date, end: date, working_weekdays: list[int] | 
     """
     if working_weekdays is None:
         working_weekdays = [0, 1, 2, 3]
-    count = 0
-    current = start + timedelta(days=1)
-    while current <= end:
-        if current.weekday() in working_weekdays:
+    days = (end - start).days
+    if days <= 0:
+        return 0
+    # Closed form: whole weeks contribute len(weekdays) each; walk only the
+    # remaining <7 days. Called for every unit on every sort/paint.
+    weekdays = set(working_weekdays)
+    full_weeks, extra = divmod(days, 7)
+    count = full_weeks * len(weekdays & {0, 1, 2, 3, 4, 5, 6})
+    first = start.weekday()
+    for i in range(1, extra + 1):
+        if (first + i) % 7 in weekdays:
             count += 1
-        current += timedelta(days=1)
     return count
 
 
