@@ -5,7 +5,6 @@ Shows what will change before applying an import, preventing blind data corrupti
 """
 from __future__ import annotations
 
-import csv
 import logging
 from dataclasses import dataclass, field
 
@@ -55,29 +54,13 @@ class ImportDiff:
         return ", ".join(parts) if parts else "No changes"
 
 
-def parse_csv_rows(csv_path: str) -> list[dict]:
-    """Parse a CSV file and return a list of row_data dicts."""
-    from automation.import_csv import CSV_TO_DB
-    from automation.import_csv import SANITIZE_FUNCS as PARSE_FUNCS
-    rows = []
-    with open(csv_path, encoding="utf-8-sig", newline="") as fh:
-        reader = csv.DictReader(fh)
-        for csv_row in reader:
-            if all((v or "").strip() == "" for v in csv_row.values()):
-                continue
-            row_data = {}
-            for csv_col, db_col in CSV_TO_DB.items():
-                if csv_col in csv_row:
-                    raw_val = csv_row.get(csv_col, "")
-                    if raw_val or db_col not in row_data or not row_data[db_col]:
-                        parser = PARSE_FUNCS.get(db_col, lambda v: v)
-                        row_data[db_col] = parser(raw_val)
-            rows.append(row_data)
-    return rows
-
-
 def compute_diff(csv_path: str, db_path: str) -> ImportDiff:
     """Compute what an import would change without modifying any data.
+
+    Uses the same parsing, validation and comparison as the real import
+    (automation.import_csv), so the preview matches what will be written.
+    A row that fails to parse or validate is listed under ``errors`` and the
+    rest of the file is still previewed — the real import skips such rows too.
 
     Args:
         csv_path: Path to the CSV file to import.
@@ -86,111 +69,95 @@ def compute_diff(csv_path: str, db_path: str) -> ImportDiff:
     Returns:
         ImportDiff with new, updated, unchanged, and error rows.
     """
-    csv_rows = parse_csv_rows(csv_path)
+    from automation.import_csv import csv_dict_reader, parse_row, require_com_column, validate_row
+
     diff = ImportDiff(csv_path=csv_path)
+    reader = csv_dict_reader(csv_path)
+    require_com_column(reader, csv_path)
 
     # Load existing units keyed by com_number
     # Use a separate connection to avoid mutating the app's shared connection
     import sqlite3 as _sqlite3
     conn = _sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = _sqlite3.Row
-    existing = {}
-    for row in conn.execute("SELECT * FROM units").fetchall():
-        existing[row["com_number"]] = row
-    conn.close()
+    try:
+        existing = {row["com_number"]: row for row in conn.execute("SELECT * FROM units").fetchall()}
+    finally:
+        conn.close()
 
-    for csv_row_data in csv_rows:
-        com = csv_row_data.get("com_number")
+    for line_num, csv_row in enumerate(reader, start=2):
+        if all((v or "").strip() == "" for v in csv_row.values()):
+            continue
+        raw_com = (csv_row.get("COMNumber") or "").strip()
+        label = raw_com or f"? (line {line_num})"
+        try:
+            row_data = parse_row(csv_row)
+        except Exception as e:
+            diff.errors.append(_error_row(label, line_num, str(e)))
+            continue
+
+        com = row_data.get("com_number")
         if not com:
-            diff.errors.append(RowDiff(com_number="?", status="error", changes=[{"field": "com_number", "old": None, "new": "missing"}]))
+            diff.errors.append(_error_row(label, line_num, "missing COM number"))
+            continue
+        val_errors = validate_row(row_data)
+        if val_errors:
+            diff.errors.append(_error_row(com, line_num, "; ".join(val_errors)))
             continue
 
         old_row = existing.get(com)
+        changes = _csv_row_to_changes(old_row, row_data)
         if old_row is None:
-            # New row
-            changes = _csv_row_to_changes(None, csv_row_data)
             diff.new_rows.append(RowDiff(com_number=com, status="new", changes=changes))
+        elif changes:
+            diff.updated_rows.append(RowDiff(com_number=com, status="updated", changes=changes))
         else:
-            # Existing row — compare fields
-            changes = _csv_row_to_changes(old_row, csv_row_data)
-            if changes:
-                diff.updated_rows.append(RowDiff(com_number=com, status="updated", changes=changes))
-            else:
-                diff.unchanged_rows.append(RowDiff(com_number=com, status="unchanged"))
+            diff.unchanged_rows.append(RowDiff(com_number=com, status="unchanged"))
 
     return diff
 
 
+def _error_row(com_number: str, line_num: int, message: str) -> RowDiff:
+    return RowDiff(
+        com_number=com_number,
+        status="error",
+        changes=[{"field": f"line {line_num}", "old": None, "new": message}],
+    )
+
+
 def _csv_row_to_changes(old_row, new_data: dict) -> list[dict]:
-    """Compare an old DB row against new CSV data, returning field-level changes."""
+    """Compare an old DB row against new CSV data, returning field-level changes.
+
+    Mirrors the column rules in ``automation.import_csv.upsert_row``.
+    """
+    from automation.import_csv import VALUE_COLUMNS, _same_value
+
     changes = []
-
-    # Fields imported from CSV (non-com_number)
-    # Note: percent_complete is only written to existing units when current value is NULL
-    import_fields = [
-        "detailing_due_date", "job_name", "top_level_number", "description",
-        "build_date", "department_hours", "percent_complete", "unit_state",
-    ]
-
-    for field_name in import_fields:
+    for field_name in VALUE_COLUMNS:
+        if field_name not in new_data:
+            continue
         new_val = new_data.get(field_name)
-        if old_row is not None:
-            try:
-                old_val = old_row[field_name]
-            except (IndexError, KeyError):
-                old_val = None
-        else:
-            old_val = None
-
-        if new_val is None and old_val is not None:
-            # CSV would clear this field — flag as a deletion
-            changes.append({
-                "field": field_name,
-                "old": old_val,
-                "new": None,
-            })
-            continue
-
-        if new_val is None:
-            continue
 
         if old_row is None:
-            # New row — all non-None values are changes
-            changes.append({
-                "field": field_name,
-                "old": None,
-                "new": new_val,
-            })
-        elif field_name == "percent_complete":
-            # Existing row — skip percent_complete if current value is not NULL
-            # (import only sets percent_complete for new units or when currently NULL)
-            if old_val is not None:
-                continue
-            # percent_complete is NULL in DB — compare as normal
-            old_str = "0.0"
-            new_str = str(new_val) if new_val is not None else None
-            if old_str != new_str:
-                changes.append({
-                    "field": field_name,
-                    "old": None,
-                    "new": new_val,
-                })
-        else:
-            # Compare against old value
-            try:
-                old_val = old_row[field_name]
-            except (IndexError, KeyError):
-                old_val = None
+            # New row — every non-empty value is a change
+            if new_val not in (None, ""):
+                changes.append({"field": field_name, "old": None, "new": new_val})
+            continue
 
-            old_str = str(old_val) if old_val is not None else None
-            new_str = str(new_val) if new_val is not None else None
+        try:
+            old_val = old_row[field_name]
+        except (IndexError, KeyError):
+            old_val = None
 
-            if old_str != new_str:
-                changes.append({
-                    "field": field_name,
-                    "old": old_val,
-                    "new": new_val,
-                })
+        if field_name == "percent_complete" and old_val is not None:
+            # The import only sets percent_complete when it is currently NULL
+            continue
+        if field_name == "unit_state" and not new_val:
+            # The import never clears unit_state
+            continue
+
+        if not _same_value(old_val, new_val):
+            changes.append({"field": field_name, "old": old_val, "new": new_val})
 
     return changes
 

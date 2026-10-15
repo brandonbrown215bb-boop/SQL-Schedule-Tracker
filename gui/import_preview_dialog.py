@@ -255,6 +255,13 @@ class ImportPreviewDialog(QDialog):
             self._detail_text.setPlainText(f"COM {row_diff.com_number} has no changes.")
             return
 
+        if row_diff.status == "error":
+            details = "\n".join(f"  {c['field']}: {c['new']}" for c in row_diff.changes)
+            self._detail_text.setPlainText(
+                f"COM {row_diff.com_number}\n\nThis row will be skipped:\n{details}"
+            )
+            return
+
         lines = []
         for change in row_diff.changes:
             field = change["field"]

@@ -63,7 +63,6 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── onboarding.py             # First-run wizard
 │   ├── reference_dialog.py       # Reference guide dialog (glossary, legend, shortcuts)
 │   ├── theme.py                  # Dark/light theme + CVD modes
-│   ├── batch_edit_dialog.py      # Bulk edit dialog
 │   ├── inline_edit_bar.py        # Inline editing bar
 │   ├── audit_dialog.py           # Audit trail viewer
 │   ├── a11y_dialog.py            # Accessibility settings
@@ -100,7 +99,9 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── test_pre_save_hooks.py    # ★ Pre-save hook tests (date order, target hours, non-negative)
 │   ├── test_migration_registry.py # ★ Schema migration registry tests
 │   ├── test_sanitizer.py         # ★ InputSanitizer tests (clean_date, clean_percent, clean_com)
-│   ├── test_batch_edit_dialog.py # ★ Batch edit dialog tests (8 tests)
+│   ├── test_assignment.py        # ★ Right-click Assign/Cancel rules + batch save summary
+│   ├── test_multi_select.py      # ★ Multi-row selection survives Ctrl/Shift-click, sort, reload
+│   ├── test_open_items.py        # ★ Backup retention, SSRS cancel/limit, reload debounce, Alerts filters, busy timeout, updater
 │   ├── test_inline_edit_bar.py   # ★ Inline edit bar tests
 │   ├── test_no_scroll_filter.py  # Mouse wheel event filter tests
 │   ├── test_update_service.py    # Auto-update service & version check tests
@@ -387,7 +388,8 @@ Tests use pytest with a SQLite database fixture (`db_path`, `db_with_units`). Th
 | `test_pre_save_hooks.py` | ★ Pre-save hooks (12 tests): date order, target hours, non-negative, percent range |
 | `test_migration_registry.py` | ★ Schema migration registry (5 tests) |
 | `test_sanitizer.py` | ★ InputSanitizer (14 tests): clean_date, clean_percent, clean_com, clean_string |
-| `test_batch_edit_dialog.py` | ★ Batch edit dialog (8 tests): apply, emit, get_updated_units |
+| `test_assignment.py` | ★ Right-click Assign to / Mark as Cancelled (copies, start date, notes, confirm) and batch save summary |
+| `test_multi_select.py` | ★ Multi-row selection: Ctrl/Shift-click, sorting and reloads keep it |
 | `test_inline_edit_bar.py` | ★ Inline edit bar (10 tests): load, save, dirty, clear |
 | `test_tag_parser.py` | `parse_description`, `UnitTagRepository`, novelty detection |
 | `test_list_panel.py` | List panel filtering, sorting, column visibility |

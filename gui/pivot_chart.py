@@ -12,11 +12,14 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
+
+from data.db import UI_BUSY_TIMEOUT_MS, DatabaseBusyError, is_busy_error
 
 # ── Segment color keys (computed from theme in _load_theme_colors) ────
 # These are theme-relative token names resolved at runtime so dark mode
@@ -402,7 +405,13 @@ class PivotChartWidget(QDialog):
         self.refresh()
 
     def refresh(self) -> None:
-        data = self._query_data()
+        try:
+            data = self._query_data()
+        except sqlite3.OperationalError as e:
+            if not is_busy_error(e):
+                raise
+            QMessageBox.information(self, "Database Busy", str(DatabaseBusyError()))
+            return
         self.table_view.set_data(data)
 
     @staticmethod
@@ -413,7 +422,8 @@ class PivotChartWidget(QDialog):
     def _query_data(self) -> list:
         start = self.start_date.date().toPyDate().isoformat()
         end = self.end_date.date().toPyDate().isoformat()
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        # Runs on the UI thread: fail fast if an import holds the lock (see UI_BUSY_TIMEOUT_MS)
+        conn = sqlite3.connect(self.db_path, timeout=UI_BUSY_TIMEOUT_MS / 1000)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute(

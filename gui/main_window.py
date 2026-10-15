@@ -99,6 +99,7 @@ class PullSSRSWorker(QThread):
 
     finished = pyqtSignal(object, str)  # (ImportDiff, temp_csv_path)
     error = pyqtSignal(str)
+    cancelled = pyqtSignal()
 
     def __init__(
         self,
@@ -109,13 +110,22 @@ class PullSSRSWorker(QThread):
         ssrs_summary_url: str | None = None,
     ):
         super().__init__()
+        import threading
+
         self._import_service = import_service
         self.url = url
         self.lookback_days = lookback_days
         self.lookahead_days = lookahead_days
         self.ssrs_summary_url = ssrs_summary_url
+        self._cancel = threading.Event()
+
+    def cancel(self) -> None:
+        """Ask the pull to stop (safe to call from the UI thread)."""
+        self._cancel.set()
 
     def run(self):
+        from automation.import_atomsvc import SSRSFetchCancelledError
+
         temp_path = None
         try:
             temp_path = self._import_service.download_ssrs(
@@ -123,8 +133,11 @@ class PullSSRSWorker(QThread):
                 ssrs_summary_url=self.ssrs_summary_url,
                 lookback_days=self.lookback_days,
                 lookahead_days=self.lookahead_days,
+                cancel=self._cancel,
             )
             diff = self._import_service.diff_before_import(temp_path)
+            if self._cancel.is_set():
+                raise SSRSFetchCancelledError("SSRS pull cancelled.")
             self.finished.emit(diff, temp_path)
         except Exception as e:
             if temp_path:
@@ -134,7 +147,10 @@ class PullSSRSWorker(QThread):
                         os.remove(temp_path)
                 except Exception:
                     pass
-            self.error.emit(str(e))
+            if isinstance(e, SSRSFetchCancelledError):
+                self.cancelled.emit()
+            else:
+                self.error.emit(str(e))
 
 
 class CSVDiffWorker(QThread):
@@ -278,6 +294,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._services = services
         self._svc = services.unit_service
+        # The UI thread only reads; fail fast (not freeze 30 s) while an import holds the lock
+        from data.db import UI_BUSY_TIMEOUT_MS, set_thread_busy_timeout
+        set_thread_busy_timeout(UI_BUSY_TIMEOUT_MS)
         self.units: list[Unit] = []
         self.current_unit: Unit | None = None
         self._alert_critical_count: int = 0
@@ -292,7 +311,9 @@ class MainWindow(QMainWindow):
         self._presence_poll_timer: QTimer | None = None
         self._retired_save_workers: list[SaveWorker] = []
         self._save_worker_errors: dict[SaveWorker, str] = {}
-        self._file_poll_timer: QTimer | None = None
+        # Batch save in progress: (com, reason) per failed unit; None when no batch
+        self._batch_errors: list[tuple[str, str]] | None = None
+        self._batch_saved: int = 0
         self._auto_refresh_timer: QTimer | None = None
         self._config_debounce_timer: QTimer | None = None
         self._io_busy: bool = False
@@ -303,7 +324,7 @@ class MainWindow(QMainWindow):
         from collections import deque
         self._sync_unit_durations: deque[float] = deque(maxlen=50)
         self._save_queue: list[Unit] = []
-        self._search_single_match: Unit | None = None
+        self._search_matches: list[Unit] = []
         self._current_unit_save_started_at: float = 0.0
         self._close_progress = None
         self._close_poll_timer: QTimer | None = None
@@ -403,6 +424,7 @@ class MainWindow(QMainWindow):
         action_refresh.setToolTip("Reload data from SQLite database")
         action_refresh.triggered.connect(self._refresh_data)
         toolbar.addAction(action_refresh)
+        self._refresh_action = action_refresh
 
         # ── Export Excel ──
         action_export = QAction("💾 Export Excel", self)
@@ -440,38 +462,43 @@ class MainWindow(QMainWindow):
         self._search_timer.start()
 
     def _on_global_search(self) -> None:
-        """Execute the global search after debounce fires."""
+        """Count matches after the debounce fires.
+
+        Typing never changes the view or moves the cursor; the user acts with Enter.
+        """
         query = self._search_edit.text().strip().lower()
-        if not query:
-            self._search_single_match = None
-            return
-        if not self.units:
+        self._search_matches: list[Unit] = []
+        if not query or not self.units:
             return
 
-        matches = [
+        self._search_matches = [
             u for u in self.units
             if query in u.com_number.lower()
             or query in u.job_name.lower()
             or query in u.contract_number.lower()
         ]
-
-        if len(matches) == 1:
-            # Single match — select it (but don't auto-navigate; wait for Enter)
-            self._search_single_match = matches[0]
-        elif len(matches) > 1:
-            # Multi-match — switch to List view and apply filter
-            self._switch_view("list")
-            self.list_panel.com_search.setText(self._search_edit.text().strip())
-            self.list_panel.com_search.setFocus()
-            self._search_single_match = None
+        count = len(self._search_matches)
+        if count == 1:
+            u = self._search_matches[0]
+            self.status_bar.showMessage(f"1 match: COM {u.com_number} — press Enter to open it", 5000)
+        elif count > 1:
+            self.status_bar.showMessage(f"{count} matches — press Enter to list them", 5000)
         else:
-            self._search_single_match = None
+            self.status_bar.showMessage("No matches", 3000)
 
     def _on_search_entered(self) -> None:
-        """Handle Enter key in the search bar — auto-select single match."""
-        if hasattr(self, "_search_single_match") and self._search_single_match is not None:
-            self.on_unit_selected(self._search_single_match)
-            self._search_single_match = None
+        """Enter in the search bar: open a single match, or list several in the List view."""
+        if self._search_timer.isActive():
+            self._search_timer.stop()
+            self._on_global_search()
+        matches = getattr(self, "_search_matches", [])
+        if len(matches) == 1:
+            self.on_unit_selected(matches[0])
+        elif len(matches) > 1:
+            # Show them in the List, but leave the cursor in the search bar
+            self._switch_view("list")
+            self.list_panel.com_search.setText(self._search_edit.text().strip())
+            self._search_edit.setFocus()
 
     def _init_central_layout(self) -> None:
         central = QWidget()
@@ -539,6 +566,7 @@ class MainWindow(QMainWindow):
         )
         self.list_panel.unit_selected.connect(self.on_unit_selected)
         self.list_panel.unit_saved.connect(self.on_save_unit)
+        self.list_panel.units_saved.connect(self.on_save_units)
         self.list_panel.inline_dirty_changed.connect(self._on_inline_dirty_changed)
         self.list_panel.show_inline_edit_changed.connect(self._on_show_inline_edit_changed)
         self.list_panel.stale_changed.connect(self._on_stale_changed)
@@ -813,8 +841,12 @@ class MainWindow(QMainWindow):
     def _on_batch_mode_changed(self, count: int) -> None:
         """Show/hide batch banner in right panel and dim edit form (P8)."""
         if count >= 2:
-            self._batch_banner.setText(f"📦 Batch Mode — {count} units selected")
+            self._batch_banner.setText(f"📦 {count} units selected — right-click in the list for actions")
             self._batch_banner.setVisible(True)
+            # Fires after unit_selected, so this replaces the single-unit message
+            coms = [u.com_number for u in self.list_panel._get_selected_units()]
+            shown = ", ".join(coms[:5]) + (f", … (+{len(coms) - 5} more)" if len(coms) > 5 else "")
+            self.status_bar.showMessage(f"Selected: {count} units — COM {shown}")
             self.edit_form.setEnabled(False)
             self.timeline_panel.setEnabled(False)
         else:
@@ -896,6 +928,56 @@ class MainWindow(QMainWindow):
     def on_save_unit(self, unit: Unit):
         self._start_save_worker(unit)
 
+    def on_save_units(self, units: list[Unit]) -> None:
+        """Save several units as one batch: failures are collected into a single
+        summary instead of one dialog per unit."""
+        if not units:
+            return
+        if self._services.sync_service.is_save_blocked():
+            QMessageBox.warning(
+                self,
+                "Save Blocked",
+                "Multi-user sync is unavailable. Saves are disabled until sync is available "
+                "or multi_user.enabled is false.",
+            )
+            return
+        if self._batch_errors is None:
+            self._batch_errors = []
+            self._batch_saved = 0
+        for unit in units:
+            self._start_save_worker(unit)
+
+    def _finish_batch_if_done(self) -> None:
+        """Report a finished batch once the save queue has drained."""
+        if self._batch_errors is None or self._save_queue or self._active_save_worker_running():
+            return
+        errors, saved = self._batch_errors, self._batch_saved
+        self._batch_errors = None
+        self._batch_saved = 0
+        if not errors:
+            self._notify(f"Saved {saved} unit{'s' if saved != 1 else ''}", "success")
+            return
+        lines = "\n".join(f"  COM {com}: {reason}" for com, reason in errors[:15])
+        if len(errors) > 15:
+            lines += f"\n  … and {len(errors) - 15} more"
+        QMessageBox.warning(
+            self,
+            "Some Units Were Not Saved",
+            f"Saved {saved} of {saved + len(errors)} units.\n\n"
+            f"Not saved (left unchanged):\n{lines}\n\n"
+            "Units changed by another user have been reloaded; check them and try again.",
+        )
+        self._notify(f"{len(errors)} unit(s) not saved", "error")
+        # Show other users' latest values for the units that conflicted
+        self._load_data_async()
+
+    def _report_save_result(self, com_number: str, ok: bool) -> None:
+        """Tell the edit form and inline bar how a background save ended."""
+        self.edit_form.show_save_result(com_number, ok)
+        inline_bar = getattr(self.list_panel, "_inline_edit_bar", None)
+        if inline_bar is not None:
+            inline_bar.show_save_result(com_number, ok)
+
     def _start_save_worker(self, unit: Unit) -> None:
         if self._services.sync_service.is_save_blocked():
             QMessageBox.warning(
@@ -904,6 +986,7 @@ class MainWindow(QMainWindow):
                 "Multi-user sync is unavailable. Saves are disabled until sync is available "
                 "or multi_user.enabled is false.",
             )
+            self._report_save_result(unit.com_number, False)
             return
         if self._active_save_worker_running():
             logger.info("Save already in progress — queuing unit %s", unit.com_number)
@@ -929,7 +1012,15 @@ class MainWindow(QMainWindow):
                 self._sync_unit_durations.append(elapsed)
             self._retire_save_worker(worker)
         self._sync_status_widget.reset()
+        # Our own commit: its file-change event must not trigger a full reload
+        self._record_own_commit()
         if unit:
+            # Check before the form is re-pointed below, so "✓ Saved" only shows
+            # on the form that actually holds this unit
+            form_showed_unit = bool(
+                self.edit_form.current_unit and self.edit_form.current_unit.com_number == unit.com_number
+            )
+            is_current = bool(self.current_unit and self.current_unit.com_number == unit.com_number)
             self._commit_unit_to_memory(unit)
             # During a batch, rebuild the views once when the queue drains
             # instead of once per saved unit.
@@ -939,27 +1030,35 @@ class MainWindow(QMainWindow):
                 self._views_stale = False
                 self.calendar_panel.refresh(self.units)
                 self.list_panel.refresh(self.units)
-            self.timeline_panel.set_unit(unit)
+            # Only follow the saved unit if it is the one the user is looking at;
+            # batch saves must not jump the timeline or edit form to other units
+            if is_current:
+                self.timeline_panel.set_unit(unit)
 
             # Keep side edit form and inline edit bar in sync
-            if self.edit_form.current_unit and self.edit_form.current_unit.com_number == unit.com_number:
+            if form_showed_unit:
                 self.edit_form.set_unit(unit)
-            else:
-                self.edit_form.current_unit = unit
+                self.edit_form.show_save_result(unit.com_number, True)
 
             if hasattr(self.list_panel, "_inline_edit_bar"):
                 inline_bar = self.list_panel._inline_edit_bar
-                if inline_bar.isVisible() and inline_bar._unit and inline_bar._unit.com_number == unit.com_number:
-                    inline_bar.set_unit(unit)
+                if inline_bar._unit and inline_bar._unit.com_number == unit.com_number:
+                    if inline_bar.isVisible():
+                        inline_bar.set_unit(unit)
+                    inline_bar.show_save_result(unit.com_number, True)
 
             self._pending_save_unit = None
-            self._notify(f"Saved COM {unit.com_number}", "success")
+            if self._batch_errors is not None:
+                self._batch_saved += 1  # one summary toast when the batch finishes
+            else:
+                self._notify(f"Saved COM {unit.com_number}", "success")
             self._feed_export_timer.start()
 
         # Drain save queue
         if self._save_queue:
             next_unit = self._save_queue.pop(0)
             self._start_save_worker(next_unit)
+        self._finish_batch_if_done()
 
     def _on_save_error(self, error_msg: str) -> None:
         worker = self.sender()
@@ -973,7 +1072,19 @@ class MainWindow(QMainWindow):
             self._retire_save_worker(worker)
         self._sync_status_widget.reset()
         logger.error("Save error: %s", error_msg)
-        if "was modified by another user" in error_msg:
+        if failed_unit:
+            self._report_save_result(failed_unit.com_number, False)
+        if self._batch_errors is not None:
+            # Part of a batch: collect for one summary at the end instead of a
+            # dialog per unit. The live unit was never modified, so nothing to undo.
+            if "was modified by another user" in error_msg:
+                reason = "changed by another user"
+            elif is_validation:
+                reason = f"invalid — {error_msg}"
+            else:
+                reason = error_msg
+            self._batch_errors.append((failed_unit.com_number if failed_unit else "?", reason))
+        elif "was modified by another user" in error_msg:
             self._show_conflict_dialog(error_msg, failed_unit)
         else:
             hint = "Please correct the highlighted fields and try again." if is_validation else "Check your network connection and try saving again."
@@ -993,6 +1104,7 @@ class MainWindow(QMainWindow):
             self._views_stale = False
             self.calendar_panel.refresh(self.units)
             self.list_panel.refresh(self.units)
+        self._finish_batch_if_done()
 
     def _show_conflict_dialog(self, error_msg: str, local_unit: Unit | None = None) -> None:
         local_unit = local_unit or self.current_unit
@@ -1089,7 +1201,8 @@ class MainWindow(QMainWindow):
                 break
         else:
             self.units.append(unit)
-        self.current_unit = unit
+        if self.current_unit is not None and self.current_unit.com_number == unit.com_number:
+            self.current_unit = unit
 
     # ── Data loading ───────────────────────────────────────────────────
 
@@ -1155,17 +1268,6 @@ class MainWindow(QMainWindow):
             )
             dlg.exec_()
 
-        if self._pending_reload_count > 0:
-            self._pending_reload_count = 0
-            logger.info("MainWindow: Pending file change detected — scheduling follow-up reload")
-            QTimer.singleShot(1000, self._trigger_pending_reload)
-
-    def _trigger_pending_reload(self):
-        if getattr(self, "_io_busy", False):
-            return
-        if self._active_save_worker_running():
-            return
-        self._load_data_async()
 
     def _should_suppress_error_dialog(self) -> bool:
         now = time.monotonic()
@@ -1205,72 +1307,72 @@ class MainWindow(QMainWindow):
 
     # ── File watcher ───────────────────────────────────────────────────
 
+    # Reload once this long after the *last* change in a burst of saves
+    RELOAD_DEBOUNCE_MS = 1500
+    # Give up waiting for a busy app / unreadable file after this many retries
+    RELOAD_MAX_RETRIES = 20
+
     def _setup_file_watcher(self) -> None:
         self._file_watcher = QFileSystemWatcher()
         self._file_watcher.fileChanged.connect(self._on_file_changed)
-        self._pending_reload_count = 0
+        self._reload_timer = QTimer(self)
+        self._reload_timer.setSingleShot(True)
+        self._reload_timer.setInterval(self.RELOAD_DEBOUNCE_MS)
+        self._reload_timer.timeout.connect(self._on_reload_debounced)
+        self._reload_retries = 0
+        self._own_commit_stat: tuple[int, int] | None = None
         if self._services.db_path and os.path.exists(self._services.db_path):
             self._file_watcher.addPath(self._services.db_path)
 
-    def _on_file_changed(self, path: str):
-        logger.info("MainWindow: Detected change in %s", path)
-        if getattr(self, "_io_busy", False):
-            return
-        if self._active_save_worker_running():
-            return
-        now = time.monotonic()
-        if now - getattr(self, "_last_file_change", 0) < 5.0:
-            self._pending_reload_count += 1
-            return
-        self._last_file_change = now
-        self._pending_reload_count = 0
-        self._file_change_path = path
-        self._file_deadline = now + 8.0
-        self._stop_file_poll_timer()
-        self._file_poll_timer = QTimer(self)
-        self._file_poll_timer.setSingleShot(False)
-        self._file_poll_timer.setInterval(500)
-        self._file_poll_timer.timeout.connect(self._check_file_ready)
-        self._file_poll_timer.start()
-        self.status_bar.showMessage("File changed — waiting...", 2000)
-
-    def _check_file_ready(self):
-        path = self._file_change_path
-        deadline = self._file_deadline
-        if time.monotonic() > deadline:
-            logger.info("MainWindow: File not ready after timeout, skipping reload")
-            self._stop_file_poll_timer()
-            return
+    def _db_file_stat(self) -> tuple[int, int] | None:
+        """(mtime_ns, size) of the database file, or None if unreadable."""
         try:
-            if not os.path.exists(path):
-                return
-            size = os.path.getsize(path)
-            if size < 100:
-                return
-            with open(path, "rb") as f:
-                header = f.read(16)
-            if header.startswith(SQLITE_HEADER):
-                self._stop_file_poll_timer()
-                self._load_data_async()
-                return
-            if header[:4] == b"PK\x03\x04":
-                self._stop_file_poll_timer()
-                self._load_data_async()
-                return
-            return
+            st = os.stat(self._services.db_path)
         except OSError:
-            return
+            return None
+        return (st.st_mtime_ns, st.st_size)
 
-    def _stop_file_poll_timer(self):
-        timer = self._file_poll_timer
-        self._file_poll_timer = None
-        if timer is None:
+    def _record_own_commit(self) -> None:
+        """Remember the file state our own save left, so its change event is ignored."""
+        self._own_commit_stat = self._db_file_stat()
+
+    def _on_file_changed(self, path: str):
+        """Debounce: every change restarts the timer, so a burst gives one reload."""
+        logger.info("MainWindow: Detected change in %s", path)
+        # QFileSystemWatcher can drop a path after the file is replaced; re-add it
+        if path not in self._file_watcher.files() and os.path.exists(path):
+            self._file_watcher.addPath(path)
+        self._reload_retries = 0
+        self._reload_timer.start()
+
+    def _on_reload_debounced(self) -> None:
+        # Busy (loading, importing, saving)? Try again shortly — never drop the change.
+        if getattr(self, "_io_busy", False) or self._active_save_worker_running() or self._save_queue:
+            self._retry_reload_later()
             return
+        stat = self._db_file_stat()
+        if stat is None or stat[1] < 100 or not self._db_header_ok():
+            self._retry_reload_later()  # file mid-write on the share
+            return
+        if stat == self._own_commit_stat:
+            # Our own save; the views were already updated from memory.
+            logger.info("MainWindow: Change was our own save — no reload")
+            return
+        self._load_data_async()
+
+    def _retry_reload_later(self) -> None:
+        self._reload_retries += 1
+        if self._reload_retries > self.RELOAD_MAX_RETRIES:
+            logger.info("MainWindow: Giving up on deferred reload")
+            return
+        self._reload_timer.start()
+
+    def _db_header_ok(self) -> bool:
         try:
-            timer.stop()
-            timer.deleteLater()
-        except RuntimeError:
-            pass
+            with open(self._services.db_path, "rb") as f:
+                return f.read(16).startswith(SQLITE_HEADER)
+        except OSError:
+            return False
 
     def _set_io_busy(self, busy: bool):
         self._io_busy = busy
@@ -1298,33 +1400,23 @@ class MainWindow(QMainWindow):
 
     # ── Refresh cooldown ───────────────────────────────────────────────
 
+    REFRESH_COOLDOWN_MS = 3000
+
     def _apply_refresh_cooldown(self) -> None:
-        COOLDOWN = 3
-        buttons: list[QPushButton] = []
-        for name in ("refresh_btn",):
-            btn = self.findChild(QPushButton, name)
-            if btn:
-                buttons.append(btn)
-        for btn in buttons:
-            btn.setEnabled(False)
-        remaining = [COOLDOWN]
+        """Disable the toolbar Refresh action briefly so repeated clicks don't stack reloads."""
+        action = getattr(self, "_refresh_action", None)
+        if action is None or not action.isEnabled():
+            return
+        action.setEnabled(False)
+        action.setToolTip("Refreshing — ready again in a few seconds")
 
-        def tick():
-            remaining[0] -= 1
-            if remaining[0] > 0:
-                for btn in buttons:
-                    btn.setToolTip(f"Refresh ready in {remaining[0]}s...")
-            else:
-                timer.stop()
-                for btn in buttons:
-                    btn.setEnabled(True)
-                    btn.setToolTip("Reload data from SQLite database")
+        def _ready() -> None:
+            with contextlib.suppress(RuntimeError):  # window already closed
+                action.setEnabled(True)
+                action.setToolTip("Reload data from SQLite database")
 
-        timer = QTimer(self)
-        timer.setInterval(1000)
-        timer.timeout.connect(tick)
-        timer.start()
-        tick()
+        # singleShot owns no QTimer object, so nothing is left behind
+        QTimer.singleShot(self.REFRESH_COOLDOWN_MS, _ready)
 
     def _setup_multi_user_sync(self):
         sync = self._services.sync_service
@@ -1448,6 +1540,7 @@ class MainWindow(QMainWindow):
         self.notification_panel.flush_queue()
         self._set_io_busy(False)
         self._notify(f"Imported {result.total_affected} rows successfully", "success")
+        self._record_own_commit()  # we reload right here; skip the watcher's reload
         self._refresh_data()
         self._trigger_background_feed_export()
 
@@ -1489,7 +1582,6 @@ class MainWindow(QMainWindow):
 
         self._set_io_busy(True)
         ssrs_summary_url = self._services.config.get("ssrs_summary_url", "")
-        self.loading_overlay.show_with_message("Fetching SSRS data & computing diff...")
         self._pull_ssrs_worker = PullSSRSWorker(
             self._services.import_service,
             ssrs_url,
@@ -1499,7 +1591,23 @@ class MainWindow(QMainWindow):
         )
         self._pull_ssrs_worker.finished.connect(self._on_pull_ssrs_finished)
         self._pull_ssrs_worker.error.connect(self._on_pull_ssrs_error)
+        self._pull_ssrs_worker.cancelled.connect(self._on_pull_ssrs_cancelled)
+        self.loading_overlay.show_with_message(
+            "Fetching SSRS data & computing diff...", on_cancel=self._cancel_pull_ssrs
+        )
         self._pull_ssrs_worker.start()
+
+    def _cancel_pull_ssrs(self) -> None:
+        worker = getattr(self, "_pull_ssrs_worker", None)
+        if worker is not None:
+            worker.cancel()
+        self.loading_overlay.show_with_message("Cancelling…")
+
+    def _on_pull_ssrs_cancelled(self) -> None:
+        self.loading_overlay.hide()
+        self.notification_panel.flush_queue()
+        self._set_io_busy(False)
+        self._notify("SSRS pull cancelled", "info")
 
     def _on_pull_ssrs_finished(self, diff, temp_csv_path):
         self.loading_overlay.hide()
@@ -1541,6 +1649,7 @@ class MainWindow(QMainWindow):
         self.notification_panel.flush_queue()
         self._set_io_busy(False)
         self._notify(f"Imported {result.total_affected} rows successfully", "success")
+        self._record_own_commit()  # we reload right here; skip the watcher's reload
         self._refresh_data()
 
         temp_path = getattr(self, "_temp_ssrs_path", None)
@@ -2030,7 +2139,22 @@ class MainWindow(QMainWindow):
 
         self._real_close()
 
+    # Background workers that write data: let them finish (bounded) before exit
+    # so a CSV/feed export or import is never cut off half-way.
+    _CLOSE_WAIT_WRITERS = ("_csv_import_worker", "_ssrs_import_worker", "_feed_export_worker", "_excel_export_worker")
+    # Read-only workers: brief wait so Qt doesn't destroy a running thread at exit
+    _CLOSE_WAIT_READERS = ("_load_worker", "_pull_ssrs_worker", "_csv_diff_worker", "_update_worker", "_interactive_worker")
+
+    def _wait_for_background_workers(self, writer_ms: int = 30000, reader_ms: int = 2000) -> None:
+        for names, timeout in ((self._CLOSE_WAIT_WRITERS, writer_ms), (self._CLOSE_WAIT_READERS, reader_ms)):
+            for name in names:
+                worker = getattr(self, name, None)
+                with contextlib.suppress(RuntimeError):  # C++ object already deleted
+                    if worker is not None and worker.isRunning() and not worker.wait(timeout):
+                        logger.warning("Close: %s still running after %d ms", name, timeout)
+
     def _cleanup_before_close(self) -> None:
+        self._wait_for_background_workers()
         self._services.sync_service.stop_heartbeat()
         if self._presence_poll_timer is not None:
             with contextlib.suppress(RuntimeError):

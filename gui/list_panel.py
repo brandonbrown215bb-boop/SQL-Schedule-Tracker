@@ -19,11 +19,12 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from PyQt5.QtCore import QDate, Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QDate, QItemSelection, QItemSelectionModel, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QFont
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QAction,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -49,6 +50,7 @@ from PyQt5.QtWidgets import (
 from data.models import Unit
 from data.tag_parser import UnitTagRepository, parse_description
 from gui.inline_edit_bar import InlineEditBar
+from services.assignment import UNASSIGNED, UNASSIGNED_LABELS, assign_detailer, mark_cancelled
 
 
 def get_week_of_month(friday_date: date) -> int:
@@ -166,6 +168,8 @@ class UnitListModel:
         self._current_date_to: date | None = None
         self._current_com_search: str = ""
         self._current_alert_filter: str = "All"
+        self._current_show_cancelled: bool = False
+        self._current_unit_state_filter: str = "All"
 
     @property
     def all_units(self) -> list[Unit]:
@@ -304,6 +308,8 @@ class UnitListModel:
             date_to=self._current_date_to,
             com_search=self._current_com_search,
             alert_filter=self._current_alert_filter,
+            show_cancelled=self._current_show_cancelled,
+            unit_state_filter=self._current_unit_state_filter,
         )
 
     def _filter_by_date(self, units: list[Unit], preset: str, today: date) -> list[Unit]:
@@ -548,6 +554,7 @@ class ListPanel(QWidget):
 
     unit_selected = pyqtSignal(object)  # Unit
     unit_saved = pyqtSignal(object)  # Unit (from inline edit bar)
+    units_saved = pyqtSignal(list)  # list[Unit] (right-click actions; saved as one batch)
     inline_dirty_changed = pyqtSignal(bool)
     stale_changed = pyqtSignal(bool)  # show_stale
     column_order_changed = pyqtSignal(list)  # list of column keys in full order
@@ -811,9 +818,12 @@ class ListPanel(QWidget):
             self._inline_edit_bar.setVisible(False)
         layout.addWidget(self._inline_edit_bar)
 
-        # ── Batch Edit Bar ──
-        self._batch_bar = self._build_batch_bar()
-        layout.addWidget(self._batch_bar)
+        # ── Multi-selection hint (themed; actions live in the right-click menu) ──
+        self._selection_label = QLabel("")
+        self._selection_label.setObjectName("list_selection_label")
+        self._selection_label.setStyleSheet("font-weight: bold; padding-left: 4px;")
+        self._selection_label.setVisible(False)
+        layout.addWidget(self._selection_label)
 
         # ── Status label ──
         self.status_label = QLabel("No units loaded")
@@ -884,8 +894,8 @@ class ListPanel(QWidget):
             self.set_units(units)
             return
 
-        # Save current selection, scroll position, visible columns, and column order
-        selected_com = self._get_selected_com()
+        # Save scroll position, visible columns, and column order
+        # (the table rebuild preserves the selection itself)
         scroll_pos = self.table.verticalScrollBar().value()
         old_visible = self._model.visible_columns
         old_order = self._model.column_order
@@ -938,9 +948,8 @@ class ListPanel(QWidget):
                     self._inline_edit_bar.set_unit(u)
                     break
 
-        # Restore selection and scroll position
-        if selected_com:
-            self._select_com(selected_com)
+        # The rebuild above already restored the (possibly multi-row) selection;
+        # re-selecting a single COM here would collapse it. Restore scroll only.
         self.table.verticalScrollBar().setValue(scroll_pos)
 
     def _format_cell(self, key: str, value) -> str:
@@ -1064,8 +1073,10 @@ class ListPanel(QWidget):
 
         self._emitting_order = True
         try:
-            # Capture currently selected COM before rebuilding
+            # Capture the selection before rebuilding: every selected COM (so a
+            # multi-selection survives sorting/reloads) and the current one
             selected_com = self._get_selected_com()
+            selected_coms = {u.com_number for u in self._get_selected_units()}
 
             # Rebuild silently: a live itemSelectionChanged here would clear the
             # inline edit bar (losing unsaved edits) and re-emit unit_selected.
@@ -1308,10 +1319,8 @@ class ListPanel(QWidget):
                 f" {'asc' if self._sort_ascending else 'desc'}"
             )
 
-            # Restore selection if the previously selected COM is still present in the filtered view
-            row = self._row_for_com(selected_com) if selected_com else -1
-            if row >= 0:
-                self.table.selectRow(row)
+            # Restore the selection for the COMs still present in the filtered view
+            row = self._restore_selection(selected_coms, selected_com)
             self.table.blockSignals(False)
 
             if row >= 0 and self._last_emitted_com == selected_com:
@@ -1344,6 +1353,40 @@ class ListPanel(QWidget):
             return
         if bar._unit is None or bar._unit is not unit:
             bar.set_unit(unit)
+
+    def _select_only_row(self, row: int) -> None:
+        """Select exactly *row* and make it current.
+
+        Unlike QTableWidget.selectRow(), this ignores held Ctrl/Shift keys, which
+        would otherwise toggle the row or extend the selection.
+        """
+        index = self.table.model().index(row, 0)
+        self.table.selectionModel().setCurrentIndex(
+            index, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows
+        )
+
+    def _restore_selection(self, coms: set[str], current_com: str) -> int:
+        """Select every row whose COM is in *coms* and make *current_com* current.
+
+        Returns the row of *current_com*, or -1 if it is no longer shown.
+        """
+        if not coms:
+            return -1
+        model = self.table.model()
+        selection = QItemSelection()
+        current_row = -1
+        for r in range(self.table.rowCount()):
+            unit = self._get_unit_at_row(r)
+            if unit is not None and unit.com_number in coms:
+                index = model.index(r, 0)
+                selection.select(index, index)
+                if unit.com_number == current_com:
+                    current_row = r
+        sel_model = self.table.selectionModel()
+        sel_model.select(selection, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+        if current_row >= 0:
+            sel_model.setCurrentIndex(model.index(current_row, 0), QItemSelectionModel.NoUpdate)
+        return current_row
 
     def _row_for_com(self, com_number: str) -> int:
         """Return the table row showing *com_number*, or -1."""
@@ -1548,11 +1591,17 @@ class ListPanel(QWidget):
 
     def _on_cell_clicked(self, row: int, column: int) -> None:
         """Handle cell click to ensure unit is selected even if row was already considered selected by Qt."""
+        # Ctrl/Shift-clicks build a multi-selection; Qt has already applied them.
+        # Re-selecting here would toggle the clicked row back off.
+        if QApplication.keyboardModifiers() & (Qt.ControlModifier | Qt.ShiftModifier):
+            return
+        if len(self._get_selected_units()) >= 2:
+            return
         unit = self._get_unit_at_row(row)
         if unit is None:
             return
         if self._get_selected_com() != unit.com_number:
-            self.table.selectRow(row)
+            self._select_only_row(row)
         needs_sync = (
             self._last_emitted_com != unit.com_number
             or (self._show_inline_edit and (self._inline_edit_bar._unit is None or self._inline_edit_bar._unit.com_number != unit.com_number))
@@ -1595,51 +1644,20 @@ class ListPanel(QWidget):
         """Handle save from inline edit bar — emit unit_saved for MainWindow."""
         self.unit_saved.emit(unit)
 
-    # ── Batch Edit Bar ────────────────────────────────────────────────
-
-    def _build_batch_bar(self) -> QWidget:
-        """Create the batch edit bar (hidden by default)."""
-        from PyQt5.QtWidgets import QPushButton
-
-        bar = QWidget()
-        bar.setObjectName("batch_edit_bar")
-        bar.setStyleSheet("#batch_edit_bar { background: #1e293b; border-radius: 4px; }")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(6)
-
-        self._batch_count_label = QLabel("")
-        self._batch_count_label.setStyleSheet("color: #e2e8f0; font-weight: bold;")
-        layout.addWidget(self._batch_count_label)
-
-        layout.addStretch(1)
-
-        batch_edit_btn = QPushButton("📝 Batch Edit...")
-        batch_edit_btn.setStyleSheet(
-            "color: #e2e8f0; background: #334155; border: 1px solid #475569; "
-            "border-radius: 3px; padding: 3px 10px;"
-        )
-        batch_edit_btn.clicked.connect(self._on_batch_edit_clicked)
-        layout.addWidget(batch_edit_btn)
-
-        batch_clear_btn = QPushButton("✕ Clear Selection")
-        batch_clear_btn.setStyleSheet("color: #94a3b8; background: transparent; border: none;")
-        batch_clear_btn.clicked.connect(self.table.clearSelection)
-        layout.addWidget(batch_clear_btn)
-
-        bar.setVisible(False)
-        return bar
+    # ── Multi-selection ───────────────────────────────────────────────
 
     def _update_batch_bar(self) -> None:
-        """Show/hide batch bar based on selection count."""
+        """Show the multi-selection hint / inline bar based on selection count."""
         selected = self._get_selected_units()
         count = len(selected)
         if count >= 2:
-            self._batch_count_label.setText(f"{count} units selected")
-            self._batch_bar.setVisible(True)
+            self._selection_label.setText(
+                f"{count} units selected — right-click to assign or cancel them"
+            )
+            self._selection_label.setVisible(True)
             self._inline_edit_bar.setVisible(False)
         else:
-            self._batch_bar.setVisible(False)
+            self._selection_label.setVisible(False)
             if self._show_inline_edit and count == 1:
                 self._inline_edit_bar.set_unit(selected[0])
                 self._inline_edit_bar.setVisible(True)
@@ -1672,25 +1690,56 @@ class ListPanel(QWidget):
         from PyQt5.QtWidgets import QMenu
 
         menu = QMenu(self.table)
-        cancel_action = menu.addAction("🚫 Mark as Cancelled")
+        noun = f"{len(selected)} units" if len(selected) > 1 else f"COM {selected[0].com_number}"
+        assign_menu = menu.addMenu(f"👤 Assign {noun} to")
+        assign_actions = {}
+        for name in self._default_detailers:
+            if name == "Cancelled" or name.strip() in UNASSIGNED_LABELS:
+                continue
+            assign_actions[assign_menu.addAction(name)] = name
+        assign_menu.addSeparator()
+        assign_actions[assign_menu.addAction("— Unassign —")] = UNASSIGNED
 
-        action = menu.exec_(self.table.mapToGlobal(pos))
-        if action == cancel_action:
-            for u in selected:
-                u.detailer = "Cancelled"
-                u.target_department_hours = 0.0
-                self.unit_saved.emit(u)
+        # Kept apart from Assign so a misclick is less likely; it also asks first
+        menu.addSeparator()
+        cancel_action = menu.addAction("🚫 Mark as Cancelled…")
 
-    def _on_batch_edit_clicked(self) -> None:
-        """Open batch edit dialog for selected units."""
-        from gui.batch_edit_dialog import BatchEditDialog
+        action = menu.exec_(self.table.viewport().mapToGlobal(pos))
+        if action in assign_actions:
+            self._assign_units(selected, assign_actions[action])
+        elif action == cancel_action:
+            self._cancel_units(selected)
 
-        selected = self._get_selected_units()
-        if len(selected) < 2:
+    def _assign_units(self, units: list[Unit], detailer: str) -> None:
+        """Assign (or unassign) detailer on copies of *units* and save them as one batch."""
+        updated = [u2 for u in units if (u2 := assign_detailer(u, detailer)) is not None]
+        if updated:
+            self.units_saved.emit(updated)
+
+    def _cancel_units(self, units: list[Unit]) -> None:
+        """Confirm, then mark *units* as Cancelled (target hours 0)."""
+        from PyQt5.QtWidgets import QMessageBox
+
+        to_cancel = [u for u in units if u.detailer != "Cancelled"]
+        if not to_cancel:
             return
-        dlg = BatchEditDialog(selected, self._default_detailers, self._tag_repo, parent=self)
-        dlg.unit_saved.connect(self._on_inline_save)  # reuse same save handler
-        dlg.exec_()
+        coms = ", ".join(u.com_number for u in to_cancel[:10])
+        if len(to_cancel) > 10:
+            coms += f", … (+{len(to_cancel) - 10} more)"
+        noun = "this unit" if len(to_cancel) == 1 else f"these {len(to_cancel)} units"
+        answer = QMessageBox.question(
+            self,
+            "Mark as Cancelled",
+            f"Mark {noun} as Cancelled?\n\n{coms}\n\n"
+            "The detailer is set to Cancelled and target hours to 0.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        updated = [u2 for u in to_cancel if (u2 := mark_cancelled(u)) is not None]
+        if updated:
+            self.units_saved.emit(updated)
 
     def _on_double_clicked(self, index) -> None:
         """Double-click also selects (redundant with single-click but clear)."""
@@ -1707,7 +1756,16 @@ class ListPanel(QWidget):
         return None
 
     def _get_selected_unit(self) -> Unit | None:
-        """Return the Unit for the currently selected row, or None."""
+        """Return the Unit for the current (last clicked) selected row, or None.
+
+        With several rows selected this is the row the user clicked last, not
+        whichever selected item Qt happens to list first.
+        """
+        current = self.table.currentRow()
+        if current >= 0:
+            item = self.table.item(current, 0)
+            if item is not None and item.isSelected():
+                return item.data(Qt.UserRole)
         items = self.table.selectedItems()
         if not items:
             return None
@@ -1723,7 +1781,7 @@ class ListPanel(QWidget):
         row = self._row_for_com(com_number)
         if row < 0:
             return False
-        self.table.selectRow(row)
+        self._select_only_row(row)
         if self._last_emitted_com != com_number:
             self._on_selection_changed()
         return True

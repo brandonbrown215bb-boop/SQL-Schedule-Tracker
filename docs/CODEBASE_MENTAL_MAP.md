@@ -148,7 +148,7 @@ The unit synchronizes with plant-wide Order Management manufacturing states:
 │   [PRESENTATION LAYER] (PyQt5 GUI)                                                        │
 │   ┌───────────────────────────────────────────────────────────────────────────────────┐   │
 │   │ MainWindow  •  ListPanel  •  CalendarPanel  •  TimelinePanel  •  InlineEditBar    │   │
-│   │ EditForm    •  BatchEdit  •  AuditDialog    •  Theme / CVD Engine  •  7 QThreads  │   │
+│   │ EditForm    •  RightClick •  AuditDialog    •  Theme / CVD Engine  •  7 QThreads  │   │
 │   └─────────────────────────────────────────┬─────────────────────────────────────────┘   │
 │                                             │ Signals / Slots                             │
 │                                             ▼                                             │
@@ -303,7 +303,7 @@ Schedulers can right-click any unit in the UI and click **View Audit History** t
 
 ## Subsystem 3: The Presentation Layer
 
-**Primary Modules:** `gui/main_window.py`, `gui/list_panel.py`, `gui/inline_edit_bar.py`, `gui/batch_edit_dialog.py`, `gui/calendar_panel.py`, `gui/timeline_panel.py`, `gui/edit_form.py`, `gui/audit_dialog.py`, `gui/theme.py`, `gui/a11y_dialog.py`, `gui/no_scroll_filter.py`
+**Primary Modules:** `gui/main_window.py`, `gui/list_panel.py`, `gui/inline_edit_bar.py`, `gui/calendar_panel.py`, `gui/timeline_panel.py`, `gui/edit_form.py`, `gui/audit_dialog.py`, `gui/theme.py`, `gui/a11y_dialog.py`, `gui/no_scroll_filter.py`
 
 The Presentation Layer is built on PyQt5, providing a responsive desktop interface.
 
@@ -337,7 +337,7 @@ The Presentation Layer is built on PyQt5, providing a responsive desktop interfa
 * **`TimelinePanel`:** Milestone bar chart visualizing drafting progress, checking duration, due dates, and a red dashed "TODAY" marker.
 * **`EditForm`:** Deep inspection panel with categorized identity, numeric, and date inputs. Uses signal blocking during population to prevent false dirty triggers.
 * **`InlineEditBar`:** 16-field rapid-editing bar docked at the bottom of the List table allowing schedulers to make single-keystroke updates with Enter-key saving.
-* **`BatchEditDialog`:** Bulk-editing modal triggered when multiple units are selected, allowing simultaneous reassignment of detailers, due dates, and percentages.
+* **List right-click menu:** "Assign to ▸" and "Mark as Cancelled…" act on one or many selected rows (Ctrl/Shift-click). Changes are built as copies by `services/assignment.py` and saved as one batch with a single error summary.
 
 ### 2. Theme & CVD Accessibility Engine (`gui/theme.py`)
 The system provides comprehensive visual accessibility compliant with WCAG AA contrast standards:

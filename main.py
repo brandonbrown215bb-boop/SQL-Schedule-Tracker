@@ -38,13 +38,24 @@ def main():
             with contextlib.suppress(Exception):
                 windll.user32.SetProcessDPIAware()
 
-    # When running as PyInstaller --windowed, sys.stderr is None which crashes faulthandler.
+    # Crash details always go to ~/.unit_tracker/error.log, also when running from a
+    # console (whose output is lost when the window closes with the app).
+    # When running as PyInstaller --windowed, sys.stderr is None, so it becomes the log.
+    error_log = _open_error_log()
     if sys.stderr is None:
-        _log_dir = os.path.join(os.path.expanduser("~"), ".unit_tracker")
-        os.makedirs(_log_dir, exist_ok=True)
-        sys.stderr = open(os.path.join(_log_dir, "error.log"), "a", encoding="utf-8")  # noqa: SIM115
+        sys.stderr = error_log
 
-    faulthandler.enable()
+    faulthandler.enable(file=error_log or sys.stderr)
+    import logging
+
+    # Console/stderr logging at INFO. (Set it up here: once any handler exists,
+    # the basicConfig() calls in other modules do nothing, leaving WARNING.)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if error_log is not None and sys.stderr is not error_log:
+        # Running from a console: also keep the app's log lines next to any crash
+        handler = logging.StreamHandler(error_log)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logging.getLogger().addHandler(handler)
 
     if getattr(sys, "frozen", False):
         application_path = os.path.dirname(sys.executable)
@@ -56,7 +67,13 @@ def main():
     config_path = os.path.join(application_path, "config.yaml")
     _safe_print(f"Looking for config.yaml at: {config_path}")
 
+    # Windows adds a "?" (What's This) button to every dialog's title bar; the app
+    # has no context help, so the button did nothing. Must be set before QApplication.
+    from PyQt5.QtCore import Qt
+
+    QApplication.setAttribute(Qt.AA_DisableWindowContextHelpButton)
     app = QApplication(sys.argv)
+    _install_excepthook(error_log)
     _safe_print("QApplication created.")
 
     from gui.no_scroll_filter import install_no_scroll_filter
@@ -112,7 +129,8 @@ def main():
     from services.config_service import ConfigService
 
     try:
-        config = ConfigService.load(config_path)
+        # Installed builds take shared settings from the network template
+        config = ConfigService.load(config_path, prefer_template=getattr(sys, "frozen", False))
     except Exception as e:
         _safe_print(f"Error loading config.yaml: {e}")
         QMessageBox.critical(
@@ -130,14 +148,16 @@ def main():
     else:
         config["multi_user"]["enabled"] = True
 
-    username = config["multi_user"].get("username", "").strip()
+    import getpass
+
+    sys_username = getpass.getuser()
+    username = (config["multi_user"].get("username") or "").strip()
+    if username and not ConfigService.username_belongs_to(config["multi_user"], sys_username):
+        # Inherited from someone else's config (e.g. an old shared template): ask again
+        username = ""
 
     if not username:
-        import getpass
-
         from PyQt5.QtWidgets import QInputDialog
-
-        sys_username = getpass.getuser()
 
         username, ok = QInputDialog.getText(
             None,
@@ -151,6 +171,9 @@ def main():
             username = sys_username or "User"
 
         config["multi_user"]["username"] = username
+
+    # Remember which Windows login this username belongs to
+    config["multi_user"]["os_user"] = sys_username
 
     # Always save back on startup to ensure config.yaml contains all keys
     try:
@@ -208,6 +231,79 @@ def main():
     sys.exit(exit_code)
 
 
+def _open_error_log():
+    """Open ~/.unit_tracker/error.log for appending, or None if that fails."""
+    try:
+        log_dir = os.path.join(os.path.expanduser("~"), ".unit_tracker")
+        os.makedirs(log_dir, exist_ok=True)
+        return open(os.path.join(log_dir, "error.log"), "a", encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _install_excepthook(error_log=None) -> None:
+    """Report uncaught exceptions instead of letting PyQt abort the app.
+
+    Since PyQt 5.5 an exception escaping a slot calls qFatal() and the whole
+    app closes, losing unsaved edits. Log the traceback and show a dialog;
+    the event loop keeps running.
+
+    PyQt also calls this hook on the *worker* thread when a QThread.run()
+    raises. Widgets may only be created on the GUI thread (doing it elsewhere
+    is an access violation on Windows), so the dialog is always shown on the
+    GUI thread via a queued signal.
+    """
+    import threading
+    from datetime import datetime
+
+    from PyQt5.QtCore import QObject, pyqtSignal
+
+    showing = False
+
+    class _Reporter(QObject):
+        report = pyqtSignal(str, str)  # (summary, details); queued across threads
+
+    def _show(summary: str, details: str) -> None:
+        nonlocal showing
+        if showing:
+            return  # don't stack dialogs if the error repeats while one is open
+        showing = True
+        try:
+            box = QMessageBox(QMessageBox.Critical, "Unexpected Error",
+                              "Something went wrong, but the app is still running.\n\n"
+                              f"{summary}\n\n"
+                              "If anything looks wrong, save your work and restart the app.")
+            box.setDetailedText(details)
+            box.exec_()
+        finally:
+            showing = False
+
+    reporter = _Reporter()  # lives on the GUI thread (created here)
+    reporter.report.connect(_show)
+
+    def _hook(exc_type, exc_value, exc_tb) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        thread = threading.current_thread().name
+        details = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for stream in {sys.stderr, error_log} - {None}:
+            with contextlib.suppress(Exception):
+                stream.write(f"{stamp} Uncaught exception in thread {thread}:\n{details}")
+                stream.flush()
+        if QApplication.instance() is None:
+            return
+        summary = f"{exc_type.__name__}: {exc_value}"
+        if threading.current_thread() is threading.main_thread():
+            _show(summary, details)
+        else:
+            reporter.report.emit(summary, details)
+
+    _install_excepthook._reporter = reporter  # keep the QObject alive
+    sys.excepthook = _hook
+
+
 def _startup_backup(db_path: str, application_path: str) -> None:
     """Create a startup backup with retention: 7 daily, 4 weekly, 3 monthly.
 
@@ -215,7 +311,7 @@ def _startup_backup(db_path: str, application_path: str) -> None:
     a ``backups/`` subdirectory next to the database file.
     """
     import glob
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
     backup_dir = os.path.join(os.path.dirname(db_path), "backups")
     os.makedirs(backup_dir, exist_ok=True)
@@ -243,55 +339,11 @@ def _startup_backup(db_path: str, application_path: str) -> None:
 
     _safe_print(f"Startup backup: {backup_path}")
 
-    # ── Retention policy ────────────────────────────────────────────────
-    # 7 daily, 4 weekly, 3 monthly
-    all_backups = sorted(glob.glob(os.path.join(backup_dir, "*_startup_backup.db")))
-    if not all_backups:
-        return
+    # ── Retention policy: 7 daily, 4 weekly, 3 monthly ──────────────────
+    from data.db import startup_backups_to_prune
 
-    now = datetime.now()
-    daily_cutoff = now - timedelta(days=7)
-    weekly_cutoff = now - timedelta(weeks=4)
-    monthly_cutoff = now - timedelta(days=90)
-
-    # Parse timestamps from filenames
-    def _parse_ts(path: str) -> datetime | None:
-        name = os.path.basename(path)
-        try:
-            return datetime.strptime(name[:15], "%Y%m%d_%H%M%S")
-        except (ValueError, IndexError):
-            return None
-
-    # Categorize backups
-    daily: list[str] = []
-    weekly: list[str] = []
-    monthly: list[str] = []
-    older: list[str] = []
-
-    for b in all_backups:
-        ts = _parse_ts(b)
-        if ts is None:
-            continue
-        if ts >= daily_cutoff:
-            daily.append(b)
-        elif ts >= weekly_cutoff:
-            weekly.append(b)
-        elif ts >= monthly_cutoff:
-            monthly.append(b)
-        else:
-            older.append(b)
-
-    # Keep: 7 daily, 4 weekly, 3 monthly. Delete the rest.
-    to_delete: list[str] = []
-
-    if len(daily) > 7:
-        to_delete.extend(daily[: len(daily) - 7])
-    if len(weekly) > 4:
-        to_delete.extend(weekly[: len(weekly) - 4])
-    if len(monthly) > 3:
-        to_delete.extend(monthly[: len(monthly) - 3])
-    # Delete all older backups (they've exceeded retention)
-    to_delete.extend(older)
+    all_backups = glob.glob(os.path.join(backup_dir, "*_startup_backup.db"))
+    to_delete = startup_backups_to_prune(all_backups)
 
     for path in to_delete:
         with contextlib.suppress(OSError):

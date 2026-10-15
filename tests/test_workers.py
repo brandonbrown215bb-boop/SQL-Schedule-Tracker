@@ -1,7 +1,7 @@
 # tests/test_workers.py
 """Tests for background QThread workers (SSRS, CSV, Excel operations)."""
 
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 from gui.main_window import CSVDiffWorker, CSVImportWorker, ExcelExportWorker, PullSSRSWorker
 
@@ -34,6 +34,7 @@ class TestBackgroundWorkers:
             ssrs_summary_url=None,
             lookback_days=15,
             lookahead_days=90,
+            cancel=ANY,
         )
         mock_import_service.diff_before_import.assert_called_once_with("temp_ssrs.csv")
 

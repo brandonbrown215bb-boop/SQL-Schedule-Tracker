@@ -25,9 +25,15 @@ class InputSanitizer:
         "%d-%m-%Y",  # 15-01-2026 (European)
     ]
 
+    # Trailing time-of-day that SSRS/Excel may append to a date, e.g.
+    # "1/15/2026 12:00:00 AM" or "2026-01-15T00:00:00.000"
+    _TIME_SUFFIX = re.compile(r"[ T]\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:\s*[AaPp][Mm])?$")
+
     @staticmethod
     def clean_date(raw: str | None) -> str | None:
         """Parse and normalize a date string to ISO format YYYY-MM-DD.
+
+        A trailing time of day is ignored.
 
         Args:
             raw: Raw date string from CSV/SSRS.
@@ -40,7 +46,7 @@ class InputSanitizer:
         """
         if not raw or not raw.strip():
             return None
-        raw = raw.strip()
+        raw = InputSanitizer._TIME_SUFFIX.sub("", raw.strip()).strip()
         for fmt in InputSanitizer.DATE_FORMATS:
             try:
                 return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
@@ -82,6 +88,20 @@ class InputSanitizer:
         if not raw or not raw.strip():
             return None
         return float(raw.strip().replace(",", ""))
+
+    @staticmethod
+    def clean_int(raw: str | None) -> int | None:
+        """Parse a whole number, accepting "3", "3.0" and "1,200"; None for empty.
+
+        Raises:
+            ValueError: If unparseable or not a whole number (e.g. "3.5").
+        """
+        if not raw or not raw.strip():
+            return None
+        value = float(raw.strip().replace(",", ""))
+        if not value.is_integer():
+            raise ValueError(f"Not a whole number: {raw.strip()!r}")
+        return int(value)
 
     @staticmethod
     def clean_com_number(raw: str) -> str:

@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
-from data.db import get_audit_trail
+from data.db import DatabaseBusyError, get_audit_trail, is_busy_error
 
 
 class AuditDialog(QDialog):
@@ -136,11 +136,17 @@ class AuditDialog(QDialog):
         """Load audit entries with current filters."""
         field = self.field_filter.currentData() or None
 
-        entries = get_audit_trail(
-            self._db_path,
-            com_number=self._com_number,
-            limit=1000,
-        )
+        try:
+            entries = get_audit_trail(
+                self._db_path,
+                com_number=self._com_number,
+                limit=1000,
+            )
+        except Exception as e:
+            if not is_busy_error(e):
+                raise
+            self.status_label.setText(str(DatabaseBusyError()))
+            return
 
         # Apply field filter in Python (get_audit_trail doesn't support field filter yet)
         if field:

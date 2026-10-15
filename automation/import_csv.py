@@ -10,6 +10,7 @@ Usage:
 """
 
 import csv
+import io
 import logging
 import sys
 import time
@@ -45,9 +46,13 @@ def _parse_week_ending(raw: str):
     raw = raw.strip()
     if not raw:
         return None
-    if ":" in raw:
-        raw = raw.split(":", 1)[1].strip()
-    return InputSanitizer.clean_date(raw)
+    try:
+        return InputSanitizer.clean_date(raw)
+    except ValueError:
+        if ":" not in raw:
+            raise
+    # Labelled value such as "Week Ending: 1/16/2026"
+    return InputSanitizer.clean_date(raw.split(":", 1)[1])
 
 
 # Map DB field names to InputSanitizer methods
@@ -58,13 +63,74 @@ SANITIZE_FUNCS = {
     "top_level_number": lambda v: InputSanitizer.clean_string(v, max_length=50),
     "description": lambda v: InputSanitizer.clean_string(v, max_length=500),
     "build_date": InputSanitizer.clean_date,
-    "build_cycle": lambda v: int(v.strip()) if v and v.strip() else None,
+    "build_cycle": InputSanitizer.clean_int,
     "department_hours": InputSanitizer.clean_number,
     "percent_complete": lambda v: InputSanitizer.clean_percent(v) / 100.0,
     "week_ending_friday": _parse_week_ending,
     "com_number": InputSanitizer.clean_com_number,
     "unit_state": lambda v: InputSanitizer.clean_string(v, max_length=50),
 }
+
+
+def read_csv_text(csv_path: str) -> str:
+    """Read a CSV export as text whatever its encoding.
+
+    Handles UTF-16 (Excel "Unicode Text"), UTF-8 with or without BOM, and
+    falls back to cp1252 (Excel's plain "CSV" on Windows).
+    """
+    with open(csv_path, "rb") as fh:
+        data = fh.read()
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("cp1252")
+
+
+def csv_dict_reader(csv_path: str) -> csv.DictReader:
+    """DictReader over *csv_path*, decoded with ``read_csv_text``.
+
+    Tab-separated files (Excel "Unicode Text") are detected from the header line.
+    """
+    text = read_csv_text(csv_path)
+    header = text.split("\n", 1)[0]
+    delimiter = "\t" if "\t" in header and "," not in header else ","
+    return csv.DictReader(io.StringIO(text, newline=""), delimiter=delimiter)
+
+
+def parse_row(csv_row: dict) -> dict:
+    """Sanitize one CSV row into DB field values. Raises ValueError on bad data."""
+    row_data: dict = {}
+    for csv_col, db_col in CSV_TO_DB.items():
+        if csv_col in csv_row:
+            raw_val = csv_row.get(csv_col) or ""
+            if raw_val or db_col not in row_data or not row_data[db_col]:
+                sanitizer = SANITIZE_FUNCS.get(db_col, lambda v: v)
+                try:
+                    row_data[db_col] = sanitizer(raw_val)
+                except ValueError as e:
+                    raise ValueError(f"{csv_col}: {e}") from e
+    return row_data
+
+
+def validate_row(row_data: dict) -> list[str]:
+    """Row-level validation of parsed import data. Returns error messages."""
+    unit_for_validation = Unit(
+        com_number=row_data.get("com_number", ""),
+        job_name=row_data.get("job_name", ""),
+        contract_number=row_data.get("top_level_number", ""),
+        description=row_data.get("description", ""),
+        detailer="— Unassigned —",
+        checking_status="",
+        department_hours=row_data.get("department_hours", 0) or 0,
+        target_department_hours=0,
+        iec_internal_hours=0,
+        percent_complete=((row_data.get("percent_complete", 0) or 0) * 100),
+        actual_hours=0,
+    )
+    valid, val_errors = validate_unit(unit_for_validation)
+    return [] if valid else list(val_errors)
 
 
 def _same_value(old, new) -> bool:
@@ -228,61 +294,42 @@ def _import_rows(csv_path: str, cursor, stats: dict) -> None:
     """Parse, validate and upsert every CSV row using *cursor* (no commit)."""
     import sqlite3
 
-    with open(csv_path, encoding="utf-8-sig", newline="") as fh:
-        reader = csv.DictReader(fh)
-        if "COMNumber" not in (reader.fieldnames or []):
-            raise ValueError(
-                f"{csv_path} has no COMNumber column — not an SSRS detailing export "
-                "(the report server may have returned an error page)."
-            )
-        for line_num, csv_row in enumerate(reader, start=2):
-            if all((v or "").strip() == "" for v in csv_row.values()):
-                stats["skipped"] += 1
-                continue
-            try:
-                row_data = {}
-                for csv_col, db_col in CSV_TO_DB.items():
-                    if csv_col in csv_row:
-                        raw_val = csv_row.get(csv_col, "")
-                        if raw_val or db_col not in row_data or not row_data[db_col]:
-                            sanitizer = SANITIZE_FUNCS.get(db_col, lambda v: v)
-                            row_data[db_col] = sanitizer(raw_val)
-
-                # Build a minimal Unit for row-level validation
-                unit_for_validation = Unit(
-                    com_number=row_data.get("com_number", ""),
-                    job_name=row_data.get("job_name", ""),
-                    contract_number=row_data.get("top_level_number", ""),
-                    description=row_data.get("description", ""),
-                    detailer="— Unassigned —",
-                    checking_status="",
-                    department_hours=row_data.get("department_hours", 0) or 0,
-                    target_department_hours=0,
-                    iec_internal_hours=0,
-                    percent_complete=(
-                        (row_data.get("percent_complete", 0) or 0) * 100
-                    ),
-                    actual_hours=0,
-                )
-                valid, val_errors = validate_unit(unit_for_validation)
-                if not valid:
-                    stats["errors"] += 1
-                    log.error(
-                        "Line %d: validation failed: %s",
-                        line_num,
-                        "; ".join(val_errors),
-                    )
-                    continue
-
-                result = upsert_row(cursor, row_data, line_num)
-                stats[result] += 1
-            except sqlite3.OperationalError:
-                # "database is locked" etc. — abort the whole import instead of
-                # waiting out the busy timeout once per row.
-                raise
-            except Exception as e:
+    reader = csv_dict_reader(csv_path)
+    require_com_column(reader, csv_path)
+    for line_num, csv_row in enumerate(reader, start=2):
+        if all((v or "").strip() == "" for v in csv_row.values()):
+            stats["skipped"] += 1
+            continue
+        try:
+            row_data = parse_row(csv_row)
+            val_errors = validate_row(row_data)
+            if val_errors:
                 stats["errors"] += 1
-                log.error(f"Line {line_num}: {e}")
+                log.error(
+                    "Line %d: validation failed: %s",
+                    line_num,
+                    "; ".join(val_errors),
+                )
+                continue
+
+            result = upsert_row(cursor, row_data, line_num)
+            stats[result] += 1
+        except sqlite3.OperationalError:
+            # "database is locked" etc. — abort the whole import instead of
+            # waiting out the busy timeout once per row.
+            raise
+        except Exception as e:
+            stats["errors"] += 1
+            log.error(f"Line {line_num}: {e}")
+
+
+def require_com_column(reader: csv.DictReader, csv_path: str) -> None:
+    """Reject files that are not SSRS detailing exports (e.g. a saved error page)."""
+    if "COMNumber" not in (reader.fieldnames or []):
+        raise ValueError(
+            f"{csv_path} has no COMNumber column — not an SSRS detailing export "
+            "(the report server may have returned an error page)."
+        )
 
 
 def import_csv(db_path: str, csv_path: str) -> int:

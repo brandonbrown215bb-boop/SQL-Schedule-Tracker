@@ -536,8 +536,23 @@ class InlineEditBar(QWidget):
         if was_dirty:
             self.dirty_changed.emit(False)
 
-        self._set_status_text('<span style="color: green;">✓ Saved</span>')
+        # The save runs in the background; MainWindow reports the outcome via
+        # show_save_result(). Show "Saving…" until then.
+        self._set_status_text('<span style="color: gray;">Saving…</span>')
         self.unit_saved.emit(unit)
+
+    def show_save_result(self, com_number: str, ok: bool) -> None:
+        """Show the outcome of a background save if this bar still shows that unit."""
+        if self._unit is None or self._unit.com_number != com_number:
+            return
+        if ok:
+            self._set_status_text('<span style="color: green;">✓ Saved</span>')
+        else:
+            self._set_status_text('<span style="color: red;">✗ Save failed — not saved</span>')
+            # The edits are still in the bar; keep them protected and re-savable
+            if not self._dirty:
+                self._dirty = True
+                self.dirty_changed.emit(True)
 
 
     def _on_revert(self) -> None:

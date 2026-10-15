@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import logging
 import time as _time
+from collections.abc import Callable
 
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QPainter, QPen
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 logger = logging.getLogger(__name__)
 
@@ -56,20 +57,53 @@ class LoadingOverlay(QWidget):
         """)
         layout.addWidget(self._label)
 
+        # Optional Cancel button (only shown when the caller supports cancelling)
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.setCursor(Qt.PointingHandCursor)
+        self._cancel_btn.setStyleSheet("""
+            QPushButton {
+                color: #e2e8f0;
+                background: #334155;
+                border: 1px solid #475569;
+                border-radius: 6px;
+                padding: 6px 18px;
+                font-weight: 500;
+            }
+            QPushButton:hover { background: #475569; }
+        """)
+        self._cancel_btn.clicked.connect(self._on_cancel_clicked)
+        self._cancel_btn.setVisible(False)
+        layout.addWidget(self._cancel_btn, alignment=Qt.AlignHCenter)
+        self._on_cancel: Callable[[], None] | None = None
+
         # Spinner animation state
         self._angle: float = 0.0  # current rotation in degrees
         self._spinner_timer: QTimer | None = None
         self._show_timestamp: float = 0.0
+        self._show_generation: int = 0
 
-    def show_with_message(self, message: str = "Loading...") -> None:
-        """Show the overlay and start the spinner animation."""
+    def show_with_message(
+        self, message: str = "Loading...", on_cancel: Callable[[], None] | None = None
+    ) -> None:
+        """Show the overlay and start the spinner animation.
+
+        If *on_cancel* is given, a Cancel button is shown that calls it once.
+        """
         self._label.setText(message)
+        self._on_cancel = on_cancel
+        self._cancel_btn.setEnabled(True)
+        self._cancel_btn.setVisible(on_cancel is not None)
         parent = self.parent()
         if parent is not None:
             self.setGeometry(parent.rect())
+        # Cancels any delayed hide still pending from the previous operation
+        self._show_generation += 1
+        if not self.isVisible():
+            # Only a fresh show starts the minimum-visible window; changing the
+            # message of an overlay that is already up must not extend it.
+            self._show_timestamp = _time.monotonic()
         self.show()
         self.raise_()
-        self._show_timestamp = _time.monotonic()
 
         # Start spinner animation (30fps)
         if self._spinner_timer is None:
@@ -86,9 +120,19 @@ class LoadingOverlay(QWidget):
         elapsed_ms = (_time.monotonic() - self._show_timestamp) * 1000
         if elapsed_ms < self._MIN_VISIBLE_MS:
             # Delay hide via timer so the overlay is visible long enough
-            QTimer.singleShot(int(self._MIN_VISIBLE_MS - elapsed_ms), self._do_hide)
+            generation = self._show_generation
+            QTimer.singleShot(
+                int(self._MIN_VISIBLE_MS - elapsed_ms),
+                lambda: self._do_hide() if generation == self._show_generation else None,
+            )
         else:
             self._do_hide()
+
+    def _on_cancel_clicked(self) -> None:
+        callback, self._on_cancel = self._on_cancel, None
+        self._cancel_btn.setEnabled(False)
+        if callback is not None:
+            callback()
 
     def _do_hide(self) -> None:
         """Actually hide the overlay and stop the spinner."""

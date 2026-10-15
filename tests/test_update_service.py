@@ -169,12 +169,13 @@ class TestUpdateService:
 
         # Assert remote new keys & empty string default fallback incorporated
         assert merged["new_feature_key"] == "some_value"
-        assert merged["ui"]["new_ui_setting"] == 42
+        # ui.* is personal: never taken from the shared template
+        assert "new_ui_setting" not in merged["ui"]
         assert merged["ssrs_summary_url"] == "http://j030m1p3/ReportServer?SummaryReport"
 
         # Assert lists were merged smartly (user items preserved, missing remote items appended)
         assert merged["default_detailers"] == ["— Unassigned —", "Jackie H", "Tommy N", "Cancelled", "New Person"]
-        assert merged["ui"]["list_visible_columns"] == ["com_number", "job_name", "unit_state"]
+        assert merged["ui"]["list_visible_columns"] == ["com_number", "job_name"]
 
     def test_config_service_load_syncs_network_template(self, temp_dir):
         from services.config_service import ConfigService
@@ -251,7 +252,11 @@ class TestUpdateService:
 
         # Check that it contains robocopy targeting ONLY specific application binaries
         assert "robocopy" in content
-        assert f'robocopy "{update_source}" "{local_app}" "Detailing Schedule.exe" "version.txt"' in content
+        # Exe first, version.txt only after the exe copy succeeded
+        exe_cmd = f'robocopy "{update_source}" "{local_app}" "Detailing Schedule.exe" /R:3'
+        version_cmd = f'robocopy "{update_source}" "{local_app}" "version.txt" /R:3'
+        assert exe_cmd in content and version_cmd in content
+        assert content.index(exe_cmd) < content.index(version_cmd)
 
         # CRITICAL SAFETY: /MIR and /PURGE must NEVER be present!
         assert "/MIR" not in content

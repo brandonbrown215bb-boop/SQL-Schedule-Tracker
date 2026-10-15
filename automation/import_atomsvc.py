@@ -75,14 +75,76 @@ def build_ssrs_url(
 
 # ── Fetch + import pipeline ──────────────────────────────────────────
 
+# Overall time budget for one SSRS pull (all auth fallbacks together)
+SSRS_PULL_TIME_LIMIT_S = 120
 
-def fetch_csv_from_ssrs(url: str, timeout: int = 60, filename_prefix: str = "_ssrs_pull") -> str:
+
+class SSRSFetchCancelledError(Exception):
+    """The user cancelled the SSRS pull."""
+
+
+class SSRSFetchTimeoutError(Exception):
+    """The SSRS pull ran past its overall time limit."""
+
+
+def _budget(per_method: float, deadline: float | None, cancel) -> float:
+    """Seconds this auth method may use; raises if cancelled or out of time."""
+    if cancel is not None and cancel.is_set():
+        raise SSRSFetchCancelledError("SSRS pull cancelled.")
+    if deadline is None:
+        return per_method
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise SSRSFetchTimeoutError(
+            "The report server did not respond in time. Check the network/VPN connection and try again."
+        )
+    return min(per_method, remaining)
+
+
+def _run_cancellable(cmd: list[str], timeout: float, cancel, text: bool = False):
+    """subprocess.run(capture_output=True) that can be cancelled mid-way.
+
+    Returns (returncode, stdout, stderr). Raises subprocess.TimeoutExpired or
+    SSRSFetchCancelledError (after killing the process).
+    """
+    import subprocess
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text)
+    end = time.monotonic() + timeout
+    while True:
+        try:
+            out, err = proc.communicate(timeout=0.25)
+            return proc.returncode, out, err
+        except subprocess.TimeoutExpired:
+            if cancel is not None and cancel.is_set():
+                proc.kill()
+                proc.communicate()
+                raise SSRSFetchCancelledError("SSRS pull cancelled.") from None
+            if time.monotonic() >= end:
+                proc.kill()
+                proc.communicate()
+                raise
+
+
+def fetch_csv_from_ssrs(
+    url: str,
+    timeout: int = 60,
+    filename_prefix: str = "_ssrs_pull",
+    deadline: float | None = None,
+    cancel=None,
+) -> str:
     """Fetch CSV from SSRS URL, return path to temp file.
 
     Tries multiple auth methods:
       1. requests + requests-ntlm (Windows NTLM auth)
       2. requests with explicit credentials (Basic/Digest)
       3. urllib (no auth, for open endpoints)
+
+    Args:
+        timeout: Max seconds per auth method.
+        deadline: time.monotonic() value after which the whole pull gives up
+            (SSRSFetchTimeoutError), so the fallbacks can't add up to minutes.
+        cancel: threading.Event; when set, the pull stops (SSRSFetchCancelledError).
     """
     log.info(f"Fetching SSRS CSV ({filename_prefix}): {url[:120]}...")
     target_filename = f"{filename_prefix}.csv"
@@ -90,8 +152,7 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60, filename_prefix: str = "_ss
     # Try PowerShell with -UseDefaultCredentials (built into Windows 10/11, native Windows SSO/NTLM)
     if os.name == "nt":
         try:
-            import subprocess
-
+            t = _budget(timeout, deadline, cancel)
             tmp_path = os.path.join(tempfile.gettempdir(), target_filename)
             ps_cmd = [
                 "powershell",
@@ -101,32 +162,31 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60, filename_prefix: str = "_ss
                 "-Command",
                 f"$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '{url}' -UseDefaultCredentials -OutFile '{tmp_path}'",
             ]
-            res = subprocess.run(ps_cmd, capture_output=True, text=True, timeout=timeout)
-            if res.returncode == 0 and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+            rc, _out, err = _run_cancellable(ps_cmd, t, cancel, text=True)
+            if rc == 0 and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
                 log.info(f"Downloaded {os.path.getsize(tmp_path)} bytes (PowerShell UseDefaultCredentials)")
                 return tmp_path
             else:
-                log.warning(f"PowerShell fetch failed (rc={res.returncode}): {res.stderr[:200]}")
+                log.warning(f"PowerShell fetch failed (rc={rc}): {(err or '')[:200]}")
+        except (SSRSFetchCancelledError, SSRSFetchTimeoutError):
+            raise
         except Exception as e:
             log.warning(f"PowerShell fetch failed: {e}")
 
     # Try curl with NTLM negotiation (Windows 10+ has curl built in)
     try:
-        import subprocess
-
-        result = subprocess.run(
-            ["curl", "-s", "--ntlm", "--negotiate", "-u", ":", url],
-            capture_output=True,
-            timeout=timeout,
-        )
-        if result.returncode == 0 and result.stdout:
+        t = _budget(timeout, deadline, cancel)
+        rc, out, err = _run_cancellable(["curl", "-s", "--ntlm", "--negotiate", "-u", ":", url], t, cancel)
+        if rc == 0 and out:
             tmp_path = os.path.join(tempfile.gettempdir(), target_filename)
             with open(tmp_path, "wb") as tmp:
-                tmp.write(result.stdout)
-            log.info(f"Downloaded {len(result.stdout)} bytes (curl NTLM)")
+                tmp.write(out)
+            log.info(f"Downloaded {len(out)} bytes (curl NTLM)")
             return tmp_path
         else:
-            log.warning(f"curl failed (rc={result.returncode}): {result.stderr[:200]}")
+            log.warning(f"curl failed (rc={rc}): {(err or b'')[:200]}")
+    except (SSRSFetchCancelledError, SSRSFetchTimeoutError):
+        raise
     except FileNotFoundError:
         pass  # curl not available
     except Exception as e:
@@ -137,13 +197,15 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60, filename_prefix: str = "_ss
         import requests
         from requests_ntlm import HttpNtlmAuth
 
+        t = _budget(timeout, deadline, cancel)
         # Use current Windows credentials
         session = requests.Session()
         # Try without explicit credentials first (uses current user's token)
-        resp = session.get(url, timeout=timeout)
+        resp = session.get(url, timeout=t)
         if resp.status_code == 401:
             # Fall back to NTLM with empty creds (uses current Windows session)
-            resp = session.get(url, timeout=timeout, auth=HttpNtlmAuth("", ""))
+            t = _budget(timeout, deadline, cancel)
+            resp = session.get(url, timeout=t, auth=HttpNtlmAuth("", ""))
         resp.raise_for_status()
 
         tmp_path = os.path.join(tempfile.gettempdir(), target_filename)
@@ -151,6 +213,8 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60, filename_prefix: str = "_ss
             tmp.write(resp.content)
         log.info(f"Downloaded {len(resp.content)} bytes (requests+ntlm)")
         return tmp_path
+    except (SSRSFetchCancelledError, SSRSFetchTimeoutError):
+        raise
     except ImportError:
         pass  # requests or requests_ntlm not installed
     except Exception as e:
@@ -161,9 +225,12 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60, filename_prefix: str = "_ss
         import pythoncom
         import win32com.client
 
+        t = _budget(timeout, deadline, cancel)
         pythoncom.CoInitialize()
         try:
             xmlhttp = win32com.client.Dispatch("WinHttp.WinHttpRequest.5.1")
+            ms = int(t * 1000)
+            xmlhttp.SetTimeouts(ms, ms, ms, ms)  # resolve, connect, send, receive
             xmlhttp.Open("GET", url, False)
             xmlhttp.SetRequestHeader("Accept", "text/csv")
             xmlhttp.Send()
@@ -179,14 +246,17 @@ def fetch_csv_from_ssrs(url: str, timeout: int = 60, filename_prefix: str = "_ss
                 log.warning(f"win32com returned status {xmlhttp.Status}")
         finally:
             pythoncom.CoUninitialize()
+    except (SSRSFetchCancelledError, SSRSFetchTimeoutError):
+        raise
     except ImportError:
         pass  # win32com not available
     except Exception as e:
         log.warning(f"win32com failed: {e}")
 
     # Last resort: plain urllib
+    t = _budget(timeout, deadline, cancel)
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        with urllib.request.urlopen(url, timeout=t) as resp:
             data = resp.read()
         tmp_path = os.path.join(tempfile.gettempdir(), target_filename)
         with open(tmp_path, "wb") as tmp:
@@ -202,20 +272,19 @@ def merge_summary_states_into_csv(detailing_csv_path: str, summary_csv_path: str
     """Merge LineItemStateDesc from SCHSchedulingSummaryReport CSV into SCHDetailingReport CSV in-place."""
     import csv
 
+    from automation.import_csv import csv_dict_reader
     from services.sanitizer import InputSanitizer
 
     # Read summary states keyed by COM number
     state_map: dict[str, str] = {}
     try:
-        with open(summary_csv_path, encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            for r in reader:
-                raw_com = (r.get("COMNumber1") or r.get("COMNumber") or "").strip()
-                state = (r.get("LineItemState") or r.get("LineItemStateDesc") or r.get("UnitState") or "").strip()
-                if raw_com and state:
-                    com_key = InputSanitizer.clean_com_number(raw_com)
-                    if com_key:
-                        state_map[com_key] = state
+        for r in csv_dict_reader(summary_csv_path):
+            raw_com = (r.get("COMNumber1") or r.get("COMNumber") or "").strip()
+            state = (r.get("LineItemState") or r.get("LineItemStateDesc") or r.get("UnitState") or "").strip()
+            if raw_com and state:
+                com_key = InputSanitizer.clean_com_number(raw_com)
+                if com_key:
+                    state_map[com_key] = state
     except Exception as e:
         log.warning(f"Could not read summary CSV states: {e}")
         return
@@ -227,18 +296,17 @@ def merge_summary_states_into_csv(detailing_csv_path: str, summary_csv_path: str
     rows = []
     fieldnames = []
     try:
-        with open(detailing_csv_path, encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            fieldnames = list(reader.fieldnames or [])
-            if "LineItemStateDesc" not in fieldnames:
-                fieldnames.append("LineItemStateDesc")
-            for r in reader:
-                raw_com = (r.get("COMNumber") or "").strip()
-                com_key = InputSanitizer.clean_com_number(raw_com) if raw_com else ""
-                current_state = (r.get("LineItemStateDesc") or r.get("UnitState") or "").strip()
-                if com_key and com_key in state_map and not current_state:
-                    r["LineItemStateDesc"] = state_map[com_key]
-                rows.append(r)
+        reader = csv_dict_reader(detailing_csv_path)
+        fieldnames = list(reader.fieldnames or [])
+        if "LineItemStateDesc" not in fieldnames:
+            fieldnames.append("LineItemStateDesc")
+        for r in reader:
+            raw_com = (r.get("COMNumber") or "").strip()
+            com_key = InputSanitizer.clean_com_number(raw_com) if raw_com else ""
+            current_state = (r.get("LineItemStateDesc") or r.get("UnitState") or "").strip()
+            if com_key and com_key in state_map and not current_state:
+                r["LineItemStateDesc"] = state_map[com_key]
+            rows.append(r)
     except Exception as e:
         log.warning(f"Could not process detailing CSV for state merge: {e}")
         return

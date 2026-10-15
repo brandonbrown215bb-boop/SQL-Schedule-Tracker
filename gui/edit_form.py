@@ -546,10 +546,24 @@ class EditForm(QWidget):
             if hard_errors:
                 return
 
-        self.saved.emit(updated)
-        self.status_label.setText("<span style='color: green;'>✓ Saved</span>")
+        # The save runs in the background; MainWindow reports the outcome via
+        # show_save_result(). Show "Saving…" until then.
+        self.status_label.setText("<span style='color: gray;'>Saving…</span>")
         self._dirty = False
         self.dirty_changed.emit(False)
+        self.saved.emit(updated)
+
+    def show_save_result(self, com_number: str, ok: bool) -> None:
+        """Show the outcome of a background save if this form still shows that unit."""
+        if not self.current_unit or self.current_unit.com_number != com_number:
+            return
+        if ok:
+            self.status_label.setText("<span style='color: green;'>✓ Saved</span>")
+        else:
+            self.status_label.setText("<span style='color: red;'>✗ Save failed — not saved</span>")
+            # The edits are still in the form; keep them protected and re-savable
+            self._dirty = True
+            self.dirty_changed.emit(True)
 
     @property
     def is_dirty(self) -> bool:

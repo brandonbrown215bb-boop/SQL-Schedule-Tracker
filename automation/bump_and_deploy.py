@@ -8,11 +8,17 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 import sys
 
 import yaml
+
+# Allow running as a script (deploy.bat) as well as a module
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+from automation.deploy import copy_atomic, prepare_production_config  # noqa: E402
 
 
 def parse_version(v_str: str) -> list[int] | None:
@@ -26,20 +32,6 @@ def parse_version(v_str: str) -> list[int] | None:
 def format_version(v_parts: list[int]) -> str:
     """Format version parts list back to a string."""
     return f"{v_parts[0]}.{v_parts[1]}.{v_parts[2]}"
-
-
-def prepare_production_config(template_config_path: str, dest_config_path: str, deploy_dir: str) -> None:
-    """Read local dev template config.yaml and write production config.yaml to deployment folder with P: drive paths."""
-    with open(template_config_path, encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
-
-    config["sqlite_path"] = r"P:\Detailing Schedule 2019\schedule.db"
-    config["excel_path"] = r"P:\Detailing Schedule 2019\SCHDetailingReport_all_plants_MASTER.xlsm"
-    config["unedited_reports_dir"] = r"P:\Detailing Schedule 2019\Unedited Reports"
-    config["update_source_dir"] = deploy_dir
-
-    with open(dest_config_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(config, f, default_flow_style=False, sort_keys=True)
 
 
 def main():
@@ -205,24 +197,24 @@ def main():
 
     print("\nCopying files to network share...")
     try:
-        # Copy executable
+        # Copy executable (atomically: clients never see a half-written exe)
         print(f"Copying '{dist_exe}' -> '{dest_exe}'")
-        shutil.copy2(dist_exe, dest_exe)
+        copy_atomic(dist_exe, dest_exe)
 
         # Generate production config.yaml template with P: drive paths
         print(f"Writing production template config -> '{dest_config}'")
         prepare_production_config(template_config, dest_config, deploy_dir)
-
-        # Copy version.txt
-        print(f"Copying '{local_version_path}' -> '{dest_version}'")
-        shutil.copy2(local_version_path, dest_version)
 
         # Copy installer script if present
         installer_src = os.path.join(script_dir, "Install Detailing Schedule.bat")
         if os.path.exists(installer_src):
             dest_installer = os.path.join(deploy_dir, "Install Detailing Schedule.bat")
             print(f"Copying '{installer_src}' -> '{dest_installer}'")
-            shutil.copy2(installer_src, dest_installer)
+            copy_atomic(installer_src, dest_installer)
+
+        # Copy version.txt last: it is what tells clients an update is ready
+        print(f"Copying '{local_version_path}' -> '{dest_version}'")
+        copy_atomic(local_version_path, dest_version)
 
         print("\n============================================================")
         print("                 DEPLOYMENT SUCCESSFUL!")

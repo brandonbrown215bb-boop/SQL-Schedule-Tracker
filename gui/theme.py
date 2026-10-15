@@ -792,10 +792,53 @@ def apply_theme(
         widget.setPalette(widget.style().standardPalette())
 
     # Set global application stylesheet for modal popups (QMessageBox, QDialog, etc.)
+    # The QDialog descendant rules are a baseline for dialogs whose widgets are
+    # created after the dialog calls apply_theme() (so the per-widget handlers
+    # never see them). Widget-level stylesheets still take precedence.
     global_app_styles = f"""
         QDialog, QMessageBox {{
             background-color: {tokens['bg_primary']};
             color: {tokens['text_primary']};
+        }}
+        QDialog QPushButton {{
+            background: {tokens['bg_tertiary']};
+            color: {tokens['text_primary']};
+            border: 1px solid {tokens['border']};
+            border-radius: 6px;
+            padding: 6px 14px;
+            min-width: 65px;
+            font-weight: 500;
+        }}
+        QDialog QPushButton:hover {{
+            background: {tokens['border']};
+        }}
+        QDialog QPushButton:pressed {{
+            background: {tokens['accent']};
+            color: {tokens['text_on_accent']};
+        }}
+        QDialog QPushButton:disabled {{
+            color: {tokens['text_secondary']};
+        }}
+        QDialog QTableWidget, QDialog QTableView {{
+            background-color: {tokens['bg_primary']};
+            color: {tokens['text_primary']};
+            border: 1px solid {tokens['border']};
+            selection-background-color: {tokens['bg_selected']};
+            selection-color: {tokens['text_primary']};
+            alternate-background-color: {tokens['bg_tertiary']};
+            gridline-color: {tokens['border']};
+        }}
+        QDialog QHeaderView::section {{
+            background: {tokens['bg_secondary']};
+            color: {tokens['text_secondary']};
+            border: none;
+            border-bottom: 2px solid {tokens['border_strong']};
+            padding: 6px 8px;
+            font-weight: 600;
+        }}
+        QDialog QTableCornerButton::section {{
+            background: {tokens['bg_secondary']};
+            border: none;
         }}
         QMessageBox QLabel {{
             color: {tokens['text_primary']};

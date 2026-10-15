@@ -175,9 +175,13 @@ class NotificationPanel(QWidget):
         self._theme_name = theme_name
         self._cvd_mode = cvd_mode
 
-    def show_notification(self, message: str, level: str = "info") -> None:
+    def _overlay_visible(self) -> bool:
         main_win = self.window()
-        if hasattr(main_win, "loading_overlay") and main_win.loading_overlay is not None and main_win.loading_overlay.isVisible():
+        overlay = getattr(main_win, "loading_overlay", None)
+        return overlay is not None and overlay.isVisible()
+
+    def show_notification(self, message: str, level: str = "info") -> None:
+        if self._overlay_visible():
             self.queue_notification(message, level)
             return
 
@@ -194,9 +198,24 @@ class NotificationPanel(QWidget):
     def queue_notification(self, message: str, level: str = "info") -> None:
         self._queue.append((message, level))
 
+    # How often to retry flushing while the loading overlay is still showing
+    FLUSH_RETRY_MS = 250
+
     def flush_queue(self) -> None:
-        while self._queue:
-            message, level = self._queue.pop(0)
+        """Show queued notifications once the loading overlay is gone.
+
+        The overlay can stay up briefly after the caller hides it (it has a
+        minimum display time). Showing a toast then would just re-queue it, and
+        the old ``while self._queue`` loop spun forever and froze the app. So
+        wait and retry instead.
+        """
+        if not self._queue:
+            return
+        if self._overlay_visible():
+            QTimer.singleShot(self.FLUSH_RETRY_MS, self.flush_queue)
+            return
+        pending, self._queue = self._queue, []
+        for message, level in pending:
             self.show_notification(message, level)
 
     def remove_toast(self, toast: ToastWidget) -> None:

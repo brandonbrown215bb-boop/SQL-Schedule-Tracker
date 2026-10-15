@@ -11,7 +11,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from copy import deepcopy
 
 import yaml
 
@@ -355,8 +354,9 @@ class UpdateService:
                 with open(local_config_path, encoding="utf-8") as f:
                     local_cfg = yaml.safe_load(f) or {}
 
-            # Perform deep merge: start with remote network template, merge local user config on top
-            merged_cfg = deepcopy(remote_cfg)
+            # Perform deep merge: start with remote network template (minus anyone's
+            # personal settings), merge local user config on top
+            merged_cfg = ConfigService.strip_personal(remote_cfg)
             ConfigService._deep_merge(merged_cfg, local_cfg)
 
             # Save merged config back locally
@@ -456,12 +456,24 @@ echo Destination: "{local_app_dir}" >> "%LOG_FILE%"
 
 echo Waiting for application to exit...
 
+rem Give the app up to 60 seconds to close, then give up rather than wait forever.
+rem (No parenthesized block here: %WAIT_COUNT% would be expanded only once.)
+set WAIT_COUNT=0
 :wait_loop
 tasklist /FI "IMAGENAME eq Detailing Schedule.exe" 2>NUL | find /I /N "Detailing Schedule.exe">NUL
-if "%ERRORLEVEL%"=="0" (
-    timeout /t 1 /nobreak >nul
-    goto wait_loop
-)
+if not "%ERRORLEVEL%"=="0" goto wait_done
+set /a WAIT_COUNT+=1
+if %WAIT_COUNT% GEQ 60 goto wait_timeout
+timeout /t 1 /nobreak >nul
+goto wait_loop
+
+:wait_timeout
+echo ERROR: Detailing Schedule.exe was still running after 60 seconds. >> "%LOG_FILE%"
+echo Detailing Schedule is still running. Close it and run the update again.
+pause
+exit /b 1
+
+:wait_done
 
 rem Extra pause to guarantee process file locks & PyInstaller cleanup complete
 timeout /t 2 /nobreak >nul
@@ -474,20 +486,29 @@ if exist "{local_app_dir}\\Detailing Schedule.exe" (
 echo.
 echo Copying new version files from network share...
 rem Explicitly target ONLY application binaries. Never mirror or purge destination.
-robocopy "{update_source_dir}" "{local_app_dir}" "Detailing Schedule.exe" "version.txt" /R:3 /W:5 >> "%LOG_FILE%" 2>&1
+rem Copy the exe first; version.txt is only updated once the exe copy succeeded,
+rem so a failed update is retried instead of looking already installed.
+robocopy "{update_source_dir}" "{local_app_dir}" "Detailing Schedule.exe" /R:3 /W:5 >> "%LOG_FILE%" 2>&1
 
 rem Robocopy exit codes 0-7 indicate success or no changes; 8+ indicates serious failure
-if %ERRORLEVEL% GEQ 8 (
-    echo. >> "%LOG_FILE%"
-    echo ERROR: Robocopy failed with error code %ERRORLEVEL%. >> "%LOG_FILE%"
-    echo Update failed! Restoring backup...
-    if exist "{local_app_dir}\\Detailing Schedule.exe.bak" (
-        copy /y "{local_app_dir}\\Detailing Schedule.exe.bak" "{local_app_dir}\\Detailing Schedule.exe" >nul 2>&1
-    )
-    echo Update could not be completed. Please check "%LOG_FILE%".
-    pause
-    exit /b 1
+if %ERRORLEVEL% GEQ 8 goto copy_failed
+
+robocopy "{update_source_dir}" "{local_app_dir}" "version.txt" /R:3 /W:5 >> "%LOG_FILE%" 2>&1
+if %ERRORLEVEL% GEQ 8 goto copy_failed
+goto copy_ok
+
+:copy_failed
+echo. >> "%LOG_FILE%"
+echo ERROR: Robocopy failed with error code %ERRORLEVEL%. >> "%LOG_FILE%"
+echo Update failed! Restoring backup...
+if exist "{local_app_dir}\\Detailing Schedule.exe.bak" (
+    copy /y "{local_app_dir}\\Detailing Schedule.exe.bak" "{local_app_dir}\\Detailing Schedule.exe" >nul 2>&1
 )
+echo Update could not be completed. Please check "%LOG_FILE%".
+pause
+exit /b 1
+
+:copy_ok
 
 rem Success - remove backup
 if exist "{local_app_dir}\\Detailing Schedule.exe.bak" (

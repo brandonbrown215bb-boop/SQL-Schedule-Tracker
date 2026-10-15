@@ -5,8 +5,10 @@ Zero Qt dependencies. Used by main.py and MainWindow.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
+import tempfile
 from copy import deepcopy
 
 import yaml
@@ -71,6 +73,7 @@ DEFAULTS: dict = {
         "fallback_mode": "block",
         "machine": "",
         "username": "",
+        "os_user": "",
     },
     "ui": {
         "theme": "light",
@@ -133,6 +136,14 @@ DEFAULTS: dict = {
     },
 }
 
+# Per-user settings. They live only in the user's local config.yaml and are
+# never taken from (or written to) the shared network template.
+# A value of None means the whole section is personal.
+PERSONAL_KEYS: dict[str, tuple[str, ...] | None] = {
+    "multi_user": ("username", "machine", "os_user"),
+    "ui": None,
+}
+
 # Mandatory keys that must be present (but may be empty)
 MANDATORY_KEYS = ["sqlite_path"]
 
@@ -156,11 +167,18 @@ class ConfigService:
     """
 
     @staticmethod
-    def load(path: str) -> dict:
+    def load(path: str, prefer_template: bool = False) -> dict:
         """Load config from YAML file, merging with defaults.
+
+        Personal keys (see ``PERSONAL_KEYS``) are always ignored in the network
+        template, so one user's name or UI settings can never spread to others.
 
         Args:
             path: Path to config.yaml.
+            prefer_template: When True (installed builds), shared settings from the
+                network template override the local file, so template changes such as
+                ``ssrs_url`` or the detailer list reach every install. When False
+                (development), the local file wins.
 
         Returns:
             Config dict with defaults merged in.
@@ -186,7 +204,8 @@ class ConfigService:
         base_defaults = deepcopy(DEFAULTS)
 
         # If update_source_dir points to an accessible network folder with config.yaml,
-        # merge network template into base_defaults so new network settings take precedence over hardcoded DEFAULTS
+        # read its shared (non-personal) settings
+        template: dict = {}
         update_dir = raw.get("update_source_dir") or DEFAULTS.get("update_source_dir", "")
         if update_dir and os.path.isdir(update_dir):
             remote_config_path = os.path.join(update_dir, "config.yaml")
@@ -195,13 +214,19 @@ class ConfigService:
                     with open(remote_config_path, encoding="utf-8") as rf:
                         remote_raw = yaml.safe_load(rf) or {}
                     if isinstance(remote_raw, dict):
-                        ConfigService._deep_merge(base_defaults, remote_raw)
+                        template = ConfigService.strip_personal(remote_raw)
                 except Exception as e:
                     logger.warning(f"Could not sync network config template from {remote_config_path}: {e}")
 
-        # Deep merge local user config on top of base defaults
         config = base_defaults
-        ConfigService._deep_merge(config, raw)
+        if prefer_template:
+            # Local file first, then the shared template on top
+            ConfigService._deep_merge(config, raw)
+            ConfigService._overlay(config, template)
+        else:
+            # Template fills in over defaults, local user config on top
+            ConfigService._deep_merge(config, template)
+            ConfigService._deep_merge(config, raw)
 
         try:
             from services.validation import update_allowed_detailers
@@ -265,10 +290,45 @@ class ConfigService:
         if dir_name:
             os.makedirs(dir_name, exist_ok=True)
 
-        with open(path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(save_config, f, default_flow_style=False, allow_unicode=True)
+        # Write to a temp file in the same folder, then swap it in, so a crash
+        # or AV lock mid-write can never leave a truncated config.yaml behind
+        fd, tmp_path = tempfile.mkstemp(prefix=".config.", suffix=".tmp", dir=dir_name or None)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.safe_dump(save_config, f, default_flow_style=False, allow_unicode=True)
+            os.replace(tmp_path, path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.remove(tmp_path)
+            raise
 
         logger.info("Config saved to %s", path)
+
+    @staticmethod
+    def username_belongs_to(multi_user: dict, os_user: str) -> bool:
+        """Return True if ``multi_user.username`` was set by this Windows login.
+
+        ``multi_user.os_user`` records the login that chose the username. Configs
+        written before it existed are trusted only when the username *is* the
+        login, which catches usernames inherited from someone else's template.
+        """
+        username = (multi_user.get("username") or "").strip()
+        recorded = (multi_user.get("os_user") or "").strip()
+        if recorded:
+            return recorded.lower() == os_user.lower()
+        return username.lower() == os_user.lower()
+
+    @staticmethod
+    def strip_personal(config: dict) -> dict:
+        """Return a copy of config without per-user keys (see ``PERSONAL_KEYS``)."""
+        result = deepcopy(config)
+        for section, keys in PERSONAL_KEYS.items():
+            if keys is None:
+                result.pop(section, None)
+            elif isinstance(result.get(section), dict):
+                for key in keys:
+                    result[section].pop(key, None)
+        return result
 
     @staticmethod
     def merge_ui_defaults(config: dict) -> dict:
@@ -305,6 +365,20 @@ class ConfigService:
         return schedules
 
     # ── Internal ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _overlay(base: dict, override: dict) -> dict:
+        """Apply override on top of base. Unlike ``_deep_merge``, lists and scalars
+        are replaced outright (so an entry removed from the template disappears);
+        None values are skipped. Modifies base in-place."""
+        for key, value in override.items():
+            if value is None:
+                continue
+            if isinstance(base.get(key), dict) and isinstance(value, dict):
+                ConfigService._overlay(base[key], value)
+            else:
+                base[key] = deepcopy(value)
+        return base
 
     @staticmethod
     def _deep_merge(base: dict, override: dict, fill_empty_scalars: bool = True) -> dict:

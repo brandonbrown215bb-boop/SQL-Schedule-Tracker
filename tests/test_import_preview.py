@@ -38,14 +38,14 @@ def temp_csv_and_db(tmp_path):
     conn.execute(
         """
         INSERT INTO units (com_number, job_name, detailing_due_date, percent_complete, department_hours)
-        VALUES ('100', 'Existing Job', '2026-08-01', 0.5, 40.0)
+        VALUES ('1000', 'Existing Job', '2026-08-01', 0.5, 40.0)
         """
     )
     # Insert initial DB row with NULL percent_complete
     conn.execute(
         """
         INSERT INTO units (com_number, job_name, detailing_due_date, percent_complete, department_hours)
-        VALUES ('200', 'Null Pct Job', '2026-08-01', NULL, 30.0)
+        VALUES ('2000', 'Null Pct Job', '2026-08-01', NULL, 30.0)
         """
     )
     conn.commit()
@@ -60,9 +60,9 @@ def temp_csv_and_db(tmp_path):
         "DeptDueDate", "BuildDate", "DepartmentHours", "PercentComplete"
     ]
     rows = [
-        ["100", "Existing Job", "TL-100", "Desc 100", "2026-08-15", "2026-09-01", "40", "0.5"],
-        ["200", "Null Pct Job", "TL-200", "Desc 200", "2026-08-01", "2026-09-01", "30", "0.0"],
-        ["300", "Brand New Job", "TL-300", "Desc 300", "2026-08-20", "2026-09-10", "25", "0.0"],
+        ["1000", "Existing Job", "TL-100", "Desc 100", "2026-08-15", "2026-09-01", "40", "0.5"],
+        ["2000", "Null Pct Job", "TL-200", "Desc 200", "2026-08-01", "2026-09-01", "30", "0.0"],
+        ["3000", "Brand New Job", "TL-300", "Desc 300", "2026-08-20", "2026-09-10", "25", "0.0"],
     ]
 
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
@@ -80,14 +80,14 @@ def test_compute_diff_no_row_get_error(temp_csv_and_db):
     diff = compute_diff(csv_path, db_path)
 
     assert len(diff.new_rows) == 1
-    assert diff.new_rows[0].com_number == "300"
+    assert diff.new_rows[0].com_number == "3000"
 
     assert len(diff.updated_rows) == 2
     updated_coms = {r.com_number for r in diff.updated_rows}
-    assert updated_coms == {"100", "200"}
+    assert updated_coms == {"1000", "2000"}
 
-    # 100 should show detailing_due_date change (and not crash on percent_complete)
-    com100_diff = next(r for r in diff.updated_rows if r.com_number == "100")
+    # 1000 should show detailing_due_date change (and not crash on percent_complete)
+    com100_diff = next(r for r in diff.updated_rows if r.com_number == "1000")
     changed_fields = [c["field"] for c in com100_diff.changes]
     assert "detailing_due_date" in changed_fields
 
@@ -100,7 +100,7 @@ def test_import_service_diff_before_import(temp_csv_and_db):
     diff = svc.diff_before_import(csv_path)
 
     assert len(diff.new_rows) == 1
-    assert diff.new_rows[0].com_number == "300"
+    assert diff.new_rows[0].com_number == "3000"
 
 
 def test_format_change_summary():

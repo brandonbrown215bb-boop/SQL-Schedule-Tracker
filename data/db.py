@@ -120,6 +120,35 @@ def _is_network_drive(path: str) -> bool:
         return False
 
 
+# Busy timeout for the UI thread. It only reads (saves and imports run on worker
+# threads with the full 30 s), so while an import holds the write lock a click
+# fails fast with DatabaseBusyError instead of freezing the window for 30 s.
+UI_BUSY_TIMEOUT_MS = 5000
+
+
+class DatabaseBusyError(RuntimeError):
+    """The shared database is locked by another writer (usually an import)."""
+
+    def __init__(self) -> None:
+        super().__init__("The database is busy (an import or save is running). Try again in a moment.")
+
+
+def is_busy_error(exc: BaseException) -> bool:
+    """True if *exc* is SQLite's "database is locked/busy" error."""
+    return isinstance(exc, DatabaseBusyError) or (
+        isinstance(exc, sqlite3.OperationalError)
+        and any(s in str(exc).lower() for s in ("database is locked", "database is busy"))
+    )
+
+
+def set_thread_busy_timeout(ms: int) -> None:
+    """Use a busy timeout of *ms* for this thread's connection (now and if recreated)."""
+    _local.busy_timeout_ms = int(ms)
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        conn.execute(f"PRAGMA busy_timeout = {int(ms)}")
+
+
 def get_db(db_path: str | None = None) -> sqlite3.Connection:
     """Get a per-thread SQLite connection.
 
@@ -137,6 +166,8 @@ def get_db(db_path: str | None = None) -> sqlite3.Connection:
     if conn is None or getattr(_local, "db_path", None) != _db_path:
         conn = sqlite3.connect(_db_path, timeout=30.0)
         _safe_journal_mode(conn, _db_path)
+        if getattr(_local, "busy_timeout_ms", None) is not None:
+            conn.execute(f"PRAGMA busy_timeout = {_local.busy_timeout_ms}")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.row_factory = sqlite3.Row
         _local.conn = conn
@@ -397,6 +428,49 @@ def get_audit_trail(
         ).fetchall()
 
     return [dict(row) for row in rows]
+
+
+def startup_backups_to_prune(
+    paths: list[str], *, daily: int = 7, weekly: int = 4, monthly: int = 3
+) -> list[str]:
+    """Pick startup backups to delete, keeping a grandfather-father-son spread.
+
+    Keeps the newest backup of each of the last *daily* days, the oldest backup
+    of each of the last *weekly* ISO weeks and the oldest of each of the last
+    *monthly* months, so history reaches back about *monthly* months instead of
+    just the most recent files. Files whose name doesn't start with a
+    ``YYYYmmdd_HHMMSS`` timestamp are never deleted.
+    """
+    import os
+    from datetime import datetime
+
+    stamped: list[tuple[datetime, str]] = []
+    for p in paths:
+        try:
+            stamped.append((datetime.strptime(os.path.basename(p)[:15], "%Y%m%d_%H%M%S"), p))
+        except ValueError:
+            continue
+    stamped.sort(reverse=True)  # newest first
+
+    keep: set[str] = set()
+
+    def _keep_per_bucket(key, limit: int, oldest: bool) -> None:
+        chosen: dict = {}
+        for ts, p in stamped:
+            k = key(ts)
+            if k not in chosen:
+                if len(chosen) >= limit:
+                    break
+                chosen[k] = p
+            elif oldest:
+                chosen[k] = p  # later in newest-first order = older
+        keep.update(chosen.values())
+
+    _keep_per_bucket(lambda ts: ts.date(), daily, oldest=False)
+    _keep_per_bucket(lambda ts: ts.isocalendar()[:2], weekly, oldest=True)
+    _keep_per_bucket(lambda ts: (ts.year, ts.month), monthly, oldest=True)
+
+    return [p for _, p in stamped if p not in keep]
 
 
 def backup_db(db_path: str, backup_dir: str | None = None, *, keep_count: int = 30) -> str:

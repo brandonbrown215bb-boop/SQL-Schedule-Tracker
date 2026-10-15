@@ -34,6 +34,7 @@ from PyQt5.QtWidgets import (
 )
 
 from data.models import Unit
+from services.assignment import UNASSIGNED_LABELS
 
 # ─── Color Map ────────────────────────────────────────────────────────
 # Same mapping as list_panel.py STATUS_COLORS_FALLBACK
@@ -51,6 +52,10 @@ STATUS_COLORS: dict[str, QColor] = {
 # ─── Capacity Threshold ───────────────────────────────────────────────
 
 CAPACITY_HOURS_THRESHOLD: float = 160.0  # 4 weeks x 40 hrs/week
+
+# Detailer picker entries that are filters rather than detailer names
+ALL_DETAILERS = "All Detailers"
+UNASSIGNED_FILTER = "— Unassigned —"
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────
@@ -176,7 +181,7 @@ class AlertPanel(QWidget):
         super().__init__(parent)
         self._all_units: list[Unit] = list(units) if units else []
         self._filtered_units: list[Unit] = []
-        self._current_detailer: str = "All Detailers"
+        self._current_detailer: str = ALL_DETAILERS
         self._surge_coms: set[str] = set()
         self._needs_rebuild: bool = False
         self._theme_name: str = "light"
@@ -208,7 +213,8 @@ class AlertPanel(QWidget):
 
     def set_detailer(self, name: str) -> None:
         """Filter to a specific detailer ("All" for everyone)."""
-        self._current_detailer = name
+        self._current_detailer = ALL_DETAILERS if name in ("", "All") else name
+        name = self._current_detailer
         # Sync combo box without re-emitting signals
         idx = self.detailer_combo.findText(name)
         if idx >= 0:
@@ -258,7 +264,8 @@ class AlertPanel(QWidget):
         top_row.addWidget(QLabel("Detailer:"))
         self.detailer_combo = QComboBox()
         self.detailer_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.detailer_combo.addItem("All Detailers")
+        self.detailer_combo.addItem(ALL_DETAILERS)
+        self.detailer_combo.addItem(UNASSIGNED_FILTER)
         self.detailer_combo.currentTextChanged.connect(self._on_detailer_changed)
         top_row.addWidget(self.detailer_combo, stretch=1)
 
@@ -297,18 +304,27 @@ class AlertPanel(QWidget):
     # ── Internal: populate detailer combo ───────────────────────────
 
     def _populate_detailer_combo(self) -> None:
-        """Refill the detailer combo from all units."""
+        """Refill the detailer combo from all units, keeping the current choice."""
         detailers = set()
         for u in self._all_units:
-            if u.detailer and u.detailer.strip():
-                detailers.add(u.detailer.strip())
+            name = (u.detailer or "").strip()
+            if name and name not in UNASSIGNED_LABELS and name != "Cancelled":
+                detailers.add(name)
         sorted_detailers = sorted(detailers, key=str.lower)
 
         self.detailer_combo.blockSignals(True)
         self.detailer_combo.clear()
-        self.detailer_combo.addItem("All Detailers")
+        self.detailer_combo.addItem(ALL_DETAILERS)
+        self.detailer_combo.addItem(UNASSIGNED_FILTER)
         for d in sorted_detailers:
             self.detailer_combo.addItem(d)
+        # Keep the combo showing the filter that is actually applied; if that
+        # detailer has no units any more, fall back to everyone.
+        idx = self.detailer_combo.findText(self._current_detailer)
+        if idx < 0:
+            self._current_detailer = ALL_DETAILERS
+            idx = 0
+        self.detailer_combo.setCurrentIndex(idx)
         self.detailer_combo.blockSignals(False)
 
     # ── Internal: filtering + sorting ───────────────────────────────
@@ -318,7 +334,9 @@ class AlertPanel(QWidget):
         # Filter: non-stale, non-cancelled, matching detailer
         units = [u for u in self._all_units if not u.is_stale and not u.is_cancelled]
 
-        if self._current_detailer and self._current_detailer != "All Detailers":
+        if self._current_detailer == UNASSIGNED_FILTER:
+            units = [u for u in units if not u.is_assigned]
+        elif self._current_detailer and self._current_detailer != ALL_DETAILERS:
             units = [u for u in units if u.detailer == self._current_detailer]
 
         # Detect checking surge (multi-unit bottleneck)
@@ -456,7 +474,7 @@ class AlertPanel(QWidget):
 
     def _update_capacity_warning(self) -> None:
         """Show warning if selected detailer is over capacity."""
-        if not self._current_detailer or self._current_detailer == "All Detailers":
+        if self._current_detailer in ("", ALL_DETAILERS, UNASSIGNED_FILTER):
             self.capacity_label.hide()
             return
 
@@ -480,8 +498,7 @@ class AlertPanel(QWidget):
 
     def _on_detailer_changed(self, text: str) -> None:
         """Handle detailer combo selection."""
-        name = text if text != "All Detailers" else "All Detailers"
-        self._current_detailer = name
+        self._current_detailer = text or ALL_DETAILERS
         self._rebuild()
 
     def _on_selection_changed(self) -> None:

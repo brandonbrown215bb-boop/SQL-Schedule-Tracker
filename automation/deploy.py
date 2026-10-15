@@ -6,6 +6,7 @@ and deploys all required files to the shared network drive.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
@@ -14,16 +15,43 @@ import sys
 
 import yaml
 
+# Allow running as a script as well as a module
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+from services.config_service import ConfigService  # noqa: E402
+
 
 def validate_version(version: str) -> bool:
     """Validate version string format (semantic versioning)."""
     return bool(re.match(r"^\d+\.\d+\.\d+$", version.strip()))
 
 
+def copy_atomic(src: str, dest: str) -> None:
+    """Copy *src* to *dest* via a temp file in the same folder, then rename.
+
+    A client copying *dest* from the share sees either the old file or the
+    complete new one — never a partially written file.
+    """
+    tmp = dest + ".deploying"
+    shutil.copy2(src, tmp)
+    try:
+        os.replace(tmp, dest)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        raise
+
+
 def prepare_production_config(template_config_path: str, dest_config_path: str, deploy_dir: str) -> None:
-    """Read local dev template config.yaml and write production config.yaml to deployment folder with P: drive paths."""
+    """Read local dev template config.yaml and write production config.yaml to deployment folder with P: drive paths.
+
+    Personal keys (username, ui settings) are stripped so the developer's own
+    settings never end up in every user's install.
+    """
     with open(template_config_path, encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+        config = ConfigService.strip_personal(yaml.safe_load(f) or {})
 
     config["sqlite_path"] = r"P:\Detailing Schedule 2019\schedule.db"
     config["excel_path"] = r"P:\Detailing Schedule 2019\SCHDetailingReport_all_plants_MASTER.xlsm"
@@ -129,17 +157,17 @@ def main():
 
     print("\nCopying files to network share...")
     try:
-        # Copy executable
+        # Copy executable (atomically: clients never see a half-written exe)
         print(f"Copying '{dist_exe}' -> '{dest_exe}'")
-        shutil.copy2(dist_exe, dest_exe)
+        copy_atomic(dist_exe, dest_exe)
 
         # Generate production config.yaml template with P: drive paths
         print(f"Writing production template config -> '{dest_config}'")
         prepare_production_config(template_config, dest_config, dest_dir)
 
-        # Copy version.txt
+        # Copy version.txt last: it is what tells clients an update is ready
         print(f"Copying '{local_version_path}' -> '{dest_version}'")
-        shutil.copy2(local_version_path, dest_version)
+        copy_atomic(local_version_path, dest_version)
 
         # Copy installer script if present
         installer_src = os.path.join(script_dir, "Install Detailing Schedule.bat")

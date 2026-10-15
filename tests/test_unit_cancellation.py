@@ -7,9 +7,9 @@ from PyQt5.QtCore import QDate
 
 from data.models import Unit
 from gui.alert_panel import AlertPanel
-from gui.batch_edit_dialog import BatchEditDialog
 from gui.calendar_panel import EventCalendarWidget
 from gui.list_panel import UnitListModel
+from services.assignment import mark_cancelled
 from services.pre_save_hooks import target_hours_hook
 
 
@@ -136,22 +136,13 @@ def test_calendar_widget_cancelled_filtering():
     assert len(cal.events_by_date[qtoday]) == 2
 
 
-def test_batch_edit_dialog_cancel_units(qtbot):
+def test_mark_cancelled_units():
     u1 = Unit(com_number="101", job_name="Job 1", contract_number="C1", description="D1", detailer="Jackie H", checking_status="", department_hours=20.0, target_department_hours=20.0)
     u2 = Unit(com_number="102", job_name="Job 2", contract_number="C2", description="D2", detailer="Tommy N", checking_status="", department_hours=30.0, target_department_hours=30.0)
 
-    dlg = BatchEditDialog([u1, u2], ["— Unassigned —", "Cancelled", "Jackie H", "Tommy N"])
-    qtbot.addWidget(dlg)
+    updated = [mark_cancelled(u) for u in (u1, u2)]
 
-    # Check detailer and select Cancelled
-    dlg.detailer_check.setChecked(True)
-    idx = dlg.detailer_combo.findText("Cancelled")
-    assert idx >= 0
-    dlg.detailer_combo.setCurrentIndex(idx)
-
-    dlg._apply()
-
-    assert u1.detailer == "Cancelled"
-    assert u1.target_department_hours == 0.0
-    assert u2.detailer == "Cancelled"
-    assert u2.target_department_hours == 0.0
+    # Changes go into copies to be saved; the live units only change once saved
+    assert [(u.detailer, u.target_department_hours) for u in updated] == [("Cancelled", 0.0), ("Cancelled", 0.0)]
+    assert u1.detailer == "Jackie H"
+    assert u2.detailer == "Tommy N"

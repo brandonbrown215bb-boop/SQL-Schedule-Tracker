@@ -107,6 +107,8 @@ class ImportService:
         ssrs_summary_url: str | None = None,
         lookback_days: int = 30,
         lookahead_days: int = 365,
+        cancel=None,
+        time_limit_s: float | None = None,
     ) -> str:
         """Fetch CSV from SSRS ReportServer to a temporary file.
 
@@ -115,32 +117,50 @@ class ImportService:
             ssrs_summary_url: Optional legacy summary report URL.
             lookback_days: Number of days to look back in the report.
             lookahead_days: Number of days to look forward in the report.
+            cancel: Optional threading.Event that aborts the pull when set.
+            time_limit_s: Overall limit for the whole pull (default
+                SSRS_PULL_TIME_LIMIT_S).
 
         Returns:
             The path to the downloaded temporary CSV file.
+
+        Raises:
+            SSRSFetchCancelledError / SSRSFetchTimeoutError (automation.import_atomsvc).
         """
         import os
+        import time
 
         from automation.import_atomsvc import (
+            SSRS_PULL_TIME_LIMIT_S,
+            SSRSFetchCancelledError,
+            SSRSFetchTimeoutError,
             build_date_params,
             build_ssrs_url,
             fetch_csv_from_ssrs,
             merge_summary_states_into_csv,
         )
 
+        deadline = time.monotonic() + (time_limit_s or SSRS_PULL_TIME_LIMIT_S)
         start_date, end_date = build_date_params(lookback_days, lookahead_days)
         full_url = build_ssrs_url(url, start_date, end_date)
-        csv_path = fetch_csv_from_ssrs(full_url, filename_prefix="_ssrs_detailing_pull")
+        csv_path = fetch_csv_from_ssrs(
+            full_url, filename_prefix="_ssrs_detailing_pull", deadline=deadline, cancel=cancel
+        )
 
         if ssrs_summary_url:
             try:
                 summary_full_url = build_ssrs_url(ssrs_summary_url, start_date, end_date)
-                summary_csv_path = fetch_csv_from_ssrs(summary_full_url, filename_prefix="_ssrs_summary_pull")
+                summary_csv_path = fetch_csv_from_ssrs(
+                    summary_full_url, filename_prefix="_ssrs_summary_pull", deadline=deadline, cancel=cancel
+                )
                 if summary_csv_path and os.path.exists(summary_csv_path):
                     merge_summary_states_into_csv(csv_path, summary_csv_path)
                     with contextlib.suppress(OSError):
                         os.remove(summary_csv_path)
-            except Exception as e:
+            except SSRSFetchCancelledError:
+                raise
+            except (SSRSFetchTimeoutError, Exception) as e:
+                # The optional summary report is not worth failing the pull over
                 logger.warning("Summary report merge failed: %s", e)
 
         return csv_path
