@@ -115,20 +115,25 @@ def date_order_hook(unit: Unit, context: dict) -> list[str]:
 
 
 def non_primary_identical_hook(unit: Unit, context: dict) -> list[str]:
-    """Enforce non-primary identical rules: target hours must be 0."""
-    if unit.is_non_primary_identical and unit.target_department_hours != 0:
-        unit.target_department_hours = 0
-        return []  # Auto-corrected, no warning needed
+    """Enforce non-primary identical rules: counted target hours must be 0."""
+    if unit.is_non_primary_identical:
+        unit.target_department_hours = 0.0
     return []
 
 
 def target_hours_hook(unit: Unit, context: dict) -> list[str]:
-    """Enforce target_department_hours rules: zero for non-primary identicals and cancelled units, preserve manual overrides for active units."""
-    if unit.is_non_primary_identical or unit.is_cancelled:
-        unit.target_department_hours = 0.0
-        return []
-    if unit.target_department_hours is None or unit.target_department_hours == 0.0:
-        unit.target_department_hours = max(0.0, unit.department_hours - unit.iec_internal_hours)
+    """Derive target_department_hours: Dept - IEC + adjustment, 0 for cancelled units and non-primary identicals.
+
+    Target hours are never typed directly; a correction goes in target_adjustment_hours.
+    """
+    unit.target_department_hours = unit.counted_target_hours
+    return []
+
+
+def target_adjustment_reason_hook(unit: Unit, context: dict) -> list[str]:
+    """A target adjustment must say why (fatal if not)."""
+    if abs(unit.target_adjustment_hours or 0.0) > 1e-9 and not (unit.target_adjustment_reason or "").strip():
+        raise ValidationError(["target_adjustment_reason: required when Target Adjustment is not 0"])
     return []
 
 

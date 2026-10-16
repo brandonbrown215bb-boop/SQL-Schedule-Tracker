@@ -16,20 +16,38 @@ _local = threading.local()
 _audit_user = "local"
 
 
-# SQL twin of data.loader._apply_identicals: true for every unit except the
-# primary of a contract group (earliest due date, undated last, then lowest
-# COM). Non-primary identicals aren't detailed again, so they report 0 target
-# hours; the real value stays in units.target_dept_hours in case the primary
-# changes.
-NON_PRIMARY_IDENTICAL_SQL = """(
-    TRIM(COALESCE(top_level_number, '')) <> ''
-    AND ROW_NUMBER() OVER (
-        PARTITION BY TRIM(top_level_number)
+# Target hours rules (twin of Unit.unit_target_hours / data.loader._apply_identicals):
+#   unit target    = MAX(0, dept - IEC + adjustment)   (stored in units.target_dept_hours)
+#   counted target = unit target for the one unit per contract that gets detailed,
+#                    0 for the other identicals and for cancelled units.
+# The primary of a contract is the earliest unit on the schedule: earliest due
+# date, undated last, then lowest COM. Cancelled units are never the primary.
+UNIT_TARGET_SQL = (
+    "MAX(0.0, COALESCE(department_hours, 0) - COALESCE(iec_internal_hours, 0)"
+    " + COALESCE(target_adjustment_hours, 0))"
+)
+IS_CANCELLED_SQL = "(TRIM(COALESCE(detailer, '')) = 'Cancelled')"
+_IDENTICALS_WINDOW = f"""(
+        PARTITION BY TRIM(top_level_number), {IS_CANCELLED_SQL}
         ORDER BY date(detailing_due_date) IS NULL, date(detailing_due_date), com_number
-    ) > 1
+    )"""
+# True for every identical except the primary. A window function: use it in a
+# SELECT list, not in WHERE.
+NON_PRIMARY_IDENTICAL_SQL = f"""(
+    TRIM(COALESCE(top_level_number, '')) <> ''
+    AND ROW_NUMBER() OVER {_IDENTICALS_WINDOW} > 1
 )"""
+COUNTED_TARGET_SQL = (
+    f"CASE WHEN {IS_CANCELLED_SQL} OR {NON_PRIMARY_IDENTICAL_SQL} THEN 0.0"
+    f" ELSE {UNIT_TARGET_SQL} END"
+)
+# COM of the unit that carries a non-primary identical's hours ('' otherwise).
+DETAILED_ON_COM_SQL = (
+    f"CASE WHEN {NON_PRIMARY_IDENTICAL_SQL} AND NOT {IS_CANCELLED_SQL}"
+    f" THEN FIRST_VALUE(com_number) OVER {_IDENTICALS_WINDOW} ELSE '' END"
+)
 
-_REPORTING_VIEW_VERSION = "v_reporting_export:identicals-v1"
+_REPORTING_VIEW_VERSION = "v_reporting_export:target-adjustment-v2"
 _REPORTING_VIEW_SQL = (
     f"""CREATE VIEW v_reporting_export AS
             -- {_REPORTING_VIEW_VERSION}
@@ -48,9 +66,7 @@ _REPORTING_VIEW_SQL = (
                 u.percent_complete,
                 u.remaining_hours,
                 u.department_hours,
-                CASE WHEN {NON_PRIMARY_IDENTICAL_SQL} THEN 0.0
-                     ELSE COALESCE(u.target_dept_hours, u.department_hours)
-                END AS target_dept_hours,
+                {COUNTED_TARGET_SQL} AS target_dept_hours,
                 u.checking_status,
                 u.unit_detailing_start_date,
                 u.unit_moved_to_checking_date,
@@ -62,8 +78,13 @@ _REPORTING_VIEW_SQL = (
                 COALESCE(u.same_as, '') AS same_as,
                 COALESCE(u.dr_checks, '') AS dr_checks,
                 COALESCE(u.dvl_checks, '') AS dvl_checks,
-                u.updated_at
+                u.updated_at,
+                {UNIT_TARGET_SQL} AS unit_target_hours,
+                COALESCE(u.target_adjustment_hours, 0.0) AS target_adjustment_hours,
+                COALESCE(u.target_adjustment_reason, '') AS target_adjustment_reason,
+                {DETAILED_ON_COM_SQL} AS detailed_on_com
             FROM units u
+            WHERE NOT {IS_CANCELLED_SQL}
 """
 )
 
@@ -205,6 +226,32 @@ def _working_days_between(start_str: str | None, end_str: str | None) -> int | N
     return count
 
 
+def _migrate_target_adjustment(conn: sqlite3.Connection) -> None:
+    """Replace hand-typed target hours with dept - IEC + adjustment.
+
+    Open units whose stored target differs from dept - IEC keep that value as
+    an adjustment. Everything else (closed units, 0 or blank targets) drops the
+    old override. units.target_dept_hours is then recomputed for every row.
+    """
+    conn.execute("ALTER TABLE units ADD COLUMN target_adjustment_hours REAL DEFAULT 0.0")
+    conn.execute("ALTER TABLE units ADD COLUMN target_adjustment_reason TEXT DEFAULT ''")
+    carried = conn.execute(
+        f"""UPDATE units SET
+                target_adjustment_hours = ROUND(target_dept_hours - MAX(0.0,
+                    COALESCE(department_hours, 0) - COALESCE(iec_internal_hours, 0)), 2),
+                target_adjustment_reason = 'Carried over from manually entered target hours'
+            WHERE COALESCE(percent_complete, 0) < 1.0
+              AND NOT {IS_CANCELLED_SQL}
+              AND target_dept_hours IS NOT NULL AND target_dept_hours <> 0
+              AND ABS(target_dept_hours - MAX(0.0,
+                    COALESCE(department_hours, 0) - COALESCE(iec_internal_hours, 0))) > 0.01"""
+    ).rowcount
+    conn.execute(f"UPDATE units SET target_dept_hours = {UNIT_TARGET_SQL}")
+    logger.info(
+        "Migration: added target_adjustment columns (%d open override(s) carried over)", carried
+    )
+
+
 def _migrate_schema(conn: sqlite3.Connection) -> None:
     """Add columns to existing databases that were created before these migrations."""
     try:
@@ -245,6 +292,9 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         if "same_as" not in cols:
             conn.execute("ALTER TABLE units ADD COLUMN same_as TEXT")
             logger.info("Migration: added same_as column")
+
+        if "target_adjustment_hours" not in cols:
+            _migrate_target_adjustment(conn)
 
         # ── Database indexes for common query filters ────────────
         desired_indexes = {
@@ -531,7 +581,7 @@ def backup_db(db_path: str, backup_dir: str | None = None, *, keep_count: int = 
 def row_to_unit(row: sqlite3.Row) -> Unit:
     """Convert a SQLite row to a Unit dataclass."""
     row_keys = set(row.keys())
-    return Unit(
+    unit = Unit(
         com_number=row["com_number"] or "",
         job_name=row["job_name"] or "",
         contract_number=row["top_level_number"] or "",
@@ -544,12 +594,13 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         dvl_checks=(row["dvl_checks"] or "") if "dvl_checks" in row_keys else "",
         status_color=row["status_color"] or "gray",  # persisted from last computed value
         department_hours=row["department_hours"] or 0.0,
-        target_department_hours=(
-            row["target_dept_hours"]
-            if "target_dept_hours" in row_keys and row["target_dept_hours"] is not None
-            else max(0.0, (row["department_hours"] or 0.0) - (row["iec_internal_hours"] or 0.0))
-        ),
         iec_internal_hours=row["iec_internal_hours"] or 0.0,
+        target_adjustment_hours=(row["target_adjustment_hours"] or 0.0)
+        if "target_adjustment_hours" in row_keys
+        else 0.0,
+        target_adjustment_reason=(row["target_adjustment_reason"] or "")
+        if "target_adjustment_reason" in row_keys
+        else "",
         percent_complete=(row["percent_complete"] or 0.0) * 100,
         actual_hours=row["actual_hours"] or 0.0,
         actual_hours_to_detail_unit=row["actual_hours_to_detail_unit"]
@@ -579,6 +630,10 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         else None,
         updated_at=row["updated_at"] or "",
     )
+    # Target hours are derived, never read back: the identicals rule is applied
+    # on top of this by data.loader._apply_identicals.
+    unit.target_department_hours = unit.counted_target_hours
+    return unit
 
 
 def _parse_date(val) -> date | None:

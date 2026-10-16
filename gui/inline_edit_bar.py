@@ -66,8 +66,6 @@ class InlineEditBar(QWidget):
         self._notes: str = ""
         self._dirty = False
         self._loading = False
-        self._updating_target_hours = False
-        self._target_hours_manually_edited = False
         self._theme_name = "light"
 
         self._enter_filter = EnterKeySaveFilter(self._on_save, self)
@@ -121,10 +119,11 @@ class InlineEditBar(QWidget):
         self.target_hours_spin.setDecimals(2)
         self.target_hours_spin.setMinimumWidth(65)
         self.target_hours_spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.target_hours_spin.setToolTip("Target Hours (Auto-calculated from Dept Hours - IEC Hours, or manually editable)")
-        self.target_hours_spin.valueChanged.connect(self._on_field_changed)
-        self.target_hours_spin.valueChanged.connect(self._on_target_hours_changed)
-        self.target_hours_spin.installEventFilter(self._enter_filter)
+        self.target_hours_spin.setReadOnly(True)
+        self.target_hours_spin.setToolTip(
+            "Target Hours = Dept Hours - IEC Hours + Target Adjustment (calculated).\n"
+            "Change the adjustment in the full edit form."
+        )
         row1_layout.addWidget(self.target_hours_spin)
 
         # IEC Hours
@@ -340,20 +339,12 @@ class InlineEditBar(QWidget):
             self._set_date(self.completion_date_edit, unit.unit_detailing_completion_date)
             self._set_date(self.due_date_edit, unit.detailing_due_date)
 
-            self.target_hours_spin.setValue(unit.target_department_hours)
             self.iec_hours_spin.setValue(unit.iec_internal_hours)
+            self._update_target_hours()
             self.actual_hours_to_detail_spin.setValue(unit.actual_hours_to_detail_unit)
             self.hour_variance_spin.setValue(unit.hour_variance)
             self.remaining_demand_spin.setValue(unit.remaining_demand)
             self.hours_checking_spin.setValue(unit.hours_checking)
-
-            self._target_hours_manually_edited = False
-            if not unit.is_non_primary_identical and unit.detailer != "Cancelled":
-                dept = unit.department_hours or 0.0
-                iec = unit.iec_internal_hours or 0.0
-                expected = max(0.0, dept - iec)
-                if abs(unit.target_department_hours - expected) > 0.001:
-                    self._target_hours_manually_edited = True
 
             self.setVisible(True)
         finally:
@@ -371,39 +362,30 @@ class InlineEditBar(QWidget):
 
     def _on_field_changed(self) -> None:
         if not self._loading:
-            if self.detailer_combo.currentText().strip() == "Cancelled":
-                self._updating_target_hours = True
-                self.target_hours_spin.setValue(0.0)
-                self._updating_target_hours = False
+            self._update_target_hours()
             if not self._dirty:
                 self._dirty = True
                 self.dirty_changed.emit(True)
 
-    def _on_target_hours_changed(self) -> None:
-        if self._loading or self._updating_target_hours or self._unit is None:
+    def _update_target_hours(self) -> None:
+        """Show Target Hours = Dept Hours - IEC Hours + Adjustment; 0 if cancelled or a non-primary identical."""
+        if self._unit is None:
             return
-        dept = self._unit.department_hours or 0.0
-        iec = self.iec_hours_spin.value()
-        expected = max(0.0, dept - iec)
-        if abs(self.target_hours_spin.value() - expected) > 0.001:
-            self._target_hours_manually_edited = True
+        if self._unit.is_non_primary_identical or self.detailer_combo.currentText().strip() == "Cancelled":
+            value = 0.0
         else:
-            self._target_hours_manually_edited = False
+            value = max(
+                0.0,
+                (self._unit.department_hours or 0.0)
+                - self.iec_hours_spin.value()
+                + (self._unit.target_adjustment_hours or 0.0),
+            )
+        self.target_hours_spin.setValue(value)
 
     def _on_iec_changed(self) -> None:
         if self._loading or self._unit is None:
             return
-        if self._unit.is_non_primary_identical or self.detailer_combo.currentText().strip() == "Cancelled":
-            self._updating_target_hours = True
-            self.target_hours_spin.setValue(0.0)
-            self._updating_target_hours = False
-            return
-        if not self._target_hours_manually_edited:
-            dept = self._unit.department_hours or 0.0
-            iec = self.iec_hours_spin.value()
-            self._updating_target_hours = True
-            self.target_hours_spin.setValue(max(0.0, dept - iec))
-            self._updating_target_hours = False
+        self._update_target_hours()
 
     def _on_actual_detail_changed(self) -> None:
         if self._loading or self._unit is None:
@@ -456,9 +438,6 @@ class InlineEditBar(QWidget):
                 if field == "percent_complete":
                     self.pct_spin.setStyleSheet(invalid_style)
                     self.pct_spin.setToolTip(err)
-                elif field == "target_department_hours":
-                    self.target_hours_spin.setStyleSheet(invalid_style)
-                    self.target_hours_spin.setToolTip(err)
                 elif field == "actual_hours_to_detail_unit":
                     self.actual_hours_to_detail_spin.setStyleSheet(invalid_style)
                     self.actual_hours_to_detail_spin.setToolTip(err)
@@ -500,6 +479,8 @@ class InlineEditBar(QWidget):
             department_hours=self._unit.department_hours,
             target_department_hours=self.target_hours_spin.value(),
             iec_internal_hours=self.iec_hours_spin.value(),
+            target_adjustment_hours=self._unit.target_adjustment_hours,
+            target_adjustment_reason=self._unit.target_adjustment_reason,
             percent_complete=self.pct_spin.value(),
             actual_hours=self._unit.actual_hours,
             actual_hours_to_detail_unit=self.actual_hours_to_detail_spin.value(),
@@ -523,6 +504,8 @@ class InlineEditBar(QWidget):
         unit.fingerprint = self._unit.fingerprint
         unit.base_revision = self._unit.base_revision
         unit.working_days = self._unit.working_days
+        unit.is_non_primary_identical = self._unit.is_non_primary_identical
+        unit.detailed_on_com = self._unit.detailed_on_com
 
         errors = self._validate_fields(unit)
         if errors:

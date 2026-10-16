@@ -24,7 +24,9 @@ The primary entity is the `Unit` dataclass (defined in [models.py](file:///c:/Us
 | `dvl_checks` | `dvl_checks` | `TEXT` | Assignment | Status/log comments for Design Verification Log checks. |
 | `status_color` | `status_color` | `TEXT` | Status | Persisted capacity-aware status color. |
 | `department_hours` | `department_hours` | `REAL` | Hours | Total allocated detailing hours for the department. |
-| `target_dept_hours` | `target_department_hours` | `REAL` | Hours | Net department hours assigned to the detailer. |
+| `target_dept_hours` | `unit_target_hours` | `REAL` | Hours | The unit's own target: `MAX(0, department_hours - iec_internal_hours + target_adjustment_hours)`. Derived; rewritten on every import and save. In memory, `target_department_hours` holds the *counted* value (see §2.6). |
+| `target_adjustment_hours` | `target_adjustment_hours` | `REAL` | Hours | Scheduler correction for wrong imported Dept Hours. May be negative. Never touched by the import. |
+| `target_adjustment_reason` | `target_adjustment_reason` | `TEXT` | Hours | Why the adjustment was made. Required when the adjustment is not 0. |
 | `iec_internal_hours` | `iec_internal_hours` | `REAL` | Hours | Detailing hours performed internally by the IEC team. |
 | `percent_complete` | `percent_complete` | `REAL` | Hours | Detailing completion percentage (stored as 0.0–1.0 in DB, scaled 0–100 in Python). |
 | `actual_hours` | `actual_hours` | `REAL` | Hours | Actual hours charged (typically imported from SSRS). |
@@ -49,7 +51,7 @@ The primary entity is the `Unit` dataclass (defined in [models.py](file:///c:/Us
 * **`due_date_changed`** (`bool`) — High-priority visual alert trigger set on load if the detailing due date was modified during import. Cleared when selected.
 * **`previous_detailing_due_date`** (`date` | `None`) — Holds the pre-pushed due date for display in warning dialogs.
 * **`is_non_primary_identical`** (`bool`) — Indicates if the unit is a non-primary identical under the Identicals rule.
-* **`_original_target_department_hours`** (`float` | `None`) — Caches the original target hours before they are forced to 0.0 under the Identicals rule.
+* **`detailed_on_com`** (`str`) — For a non-primary identical, the COM of the primary that carries its target hours.
 * **`excel_row`** (`int` | `None`) — Row index for legacy Excel spreadsheet synchronization.
 * **`fingerprint`** (`str`) — Stable SHA-256 hash representation of the editable fields.
 * **`base_revision`** (`int`) — Base revision number for multi-user sync.
@@ -84,12 +86,11 @@ The primary visual indicator. Recalculated at runtime by `Unit.calculated_status
 ### 2.2 The Identicals Rule
 * **Trigger:** Executed during `load_units()` in [loader.py](file:///c:/Users/jbrow263/Downloads/Code%20Projects/SQL-Schedule-App/SQL-Schedule-Tracker/data/loader.py).
 * **Logic:**
-  * Groups units by `contract_number` (ignoring blanks).
-  * Within each group, the unit with the earliest `detailing_due_date` is marked as **primary** (tie-breaks by lowest `com_number` for determinism).
-  * Non-primary units are flagged as `is_non_primary_identical = True`, their `target_department_hours` is forced to `0.0` in-memory to prevent double-counting load on a single order, and their original target hours are cached in `_original_target_department_hours`.
-  * **Database Persistence Guard:** On save, `save_unit()` writes the **original cached target hours** back to the database (`target_dept_hours = MAX(0, _original_target_department_hours)`). This preserves the underlying data should the identicals grouping or primary assignment change later.
-  * **Exports apply the rule too:** `v_reporting_export` and the workbook export (column V) report `target_dept_hours = 0.0` for non-primary identicals, using `NON_PRIMARY_IDENTICAL_SQL` in `data/db.py` (the SQL twin of `_apply_identicals()`: earliest `date(detailing_due_date)`, undated last, then lowest `com_number`). The view carries a version marker and is recreated automatically when its definition changes.
-  * **Audit:** saves of non-primary identicals do not log `target_dept_hours`, because the unit carries no target hours.
+  * Units sharing a `contract_number` are detailed once. Groups units by `contract_number` (ignoring blanks), **leaving out cancelled units**.
+  * Within each group, the earliest unit on the schedule (earliest `detailing_due_date`, undated last, then lowest `com_number`) is the **primary**. A cancelled unit is never the primary.
+  * Non-primary units are flagged `is_non_primary_identical = True`, count `0.0` target hours, and get `detailed_on_com` = the primary's COM.
+  * **The DB keeps each unit's own target** (`units.target_dept_hours`); the rule is applied whenever target hours are read, so it follows due-date changes automatically.
+  * **SQL twin:** `COUNTED_TARGET_SQL` / `NON_PRIMARY_IDENTICAL_SQL` / `DETAILED_ON_COM_SQL` in `data/db.py`, used by `v_reporting_export` and the workbook export (column V). The view carries a version marker and is recreated automatically when its definition changes.
 
 ### 2.3 Working Days in Checking (`working_days_in_checking`)
 * **Trigger:** Calculated during CSV import, manual unit saves, or database migrations.
@@ -108,10 +109,13 @@ The primary visual indicator. Recalculated at runtime by `Unit.calculated_status
 * **Correction:** *Unlike early system notes, the SQLite writer does update this value dynamically during manual save execution to guarantee synchronicity.*
 
 ### 2.6 Target Department Hours (`target_department_hours`)
-* **Trigger:** Calculated automatically in the Main Edit Form and Inline Edit Bar when `department_hours` or `iec_internal_hours` is changed.
-* **Formula:**
-  $$\text{target\_department\_hours} = \max(0.0, \text{department\_hours} - \text{iec\_internal\_hours})$$
-* **Guard:** Auto-calculation is bypassed, and the field is forced to `0.0` if `is_non_primary_identical` is `True`.
+* **Never typed directly.** Inputs: `department_hours` (SSRS only), `iec_internal_hours` (scheduler), `target_adjustment_hours` + reason (scheduler).
+* **Unit target** (`Unit.unit_target_hours`, stored in `units.target_dept_hours`):
+  $$\max(0.0, \text{department\_hours} - \text{iec\_internal\_hours} + \text{target\_adjustment\_hours})$$
+* **Counted target** (`Unit.counted_target_hours`, held in `target_department_hours` after load/save, reported as `target_dept_hours` in the feed): the unit target, or `0.0` for cancelled units and non-primary identicals (§2.2).
+* **Import:** recomputes `target_dept_hours` from the new Dept Hours and the stored IEC/adjustment; it never changes IEC or the adjustment.
+* **Feed (`v_reporting_export`):** leaves out cancelled units. Columns: `target_dept_hours` (counted), `unit_target_hours`, `target_adjustment_hours`, `target_adjustment_reason`, `detailed_on_com`.
+* **Migration (2026-10):** open units whose old hand-typed target differed from Dept − IEC kept the difference as an adjustment; all other old overrides were dropped.
 
 ### 2.7 Hour Variance (`hour_variance`)
 * **Trigger:** Auto-calculated in the Inline Edit Bar when `actual_hours_to_detail_unit` changes.
@@ -149,9 +153,10 @@ Operators can edit scheduling details through two interfaces: the **Main Edit Fo
 | **DVL Check** | **Editable** | **Editable** | Free text. |
 | **Notes** | **Editable** | Read-Only | Free text. |
 | **Status Color** | Read-Only | Read-Only | Recalculated dynamically at runtime/save. |
-| **Dept Hours** | **Editable** | Read-Only | Must be non-negative. |
+| **Dept Hours** | Read-Only | Read-Only | From the SSRS import only. |
 | **IEC Hours** | **Editable** | **Editable** | Must be non-negative. Modifies `target_department_hours`. |
-| **Target Hrs** | **Editable** | **Editable** | Must be non-negative. Overridable manually, but forced to `0.0` for non-primary identicals. |
+| **Target Adjustment** | **Editable** | Read-Only | May be negative. Requires an Adjustment Reason when not 0. |
+| **Target Hrs** | Read-Only | Read-Only | Calculated: Dept − IEC + Adjustment; `0.0` for cancelled units and non-primary identicals. |
 | **% Complete** | **Editable** | **Editable** | Must be in range `0.0` to `100.0`. |
 | **Actual Hours** | **Editable** | Read-Only | Must be non-negative. Represents SSRS actual hours. |
 | **Actual Hours to Detail** | Read-Only | **Editable** | Must be non-negative. Represents manually tracked detail hours. |

@@ -62,8 +62,14 @@ class Unit:
 
     # Numeric fields
     department_hours: float = 0.0
+    # Counted target hours: unit_target_hours, or 0 for cancelled units and
+    # non-primary identicals. Derived — set by the loader and the save hooks;
+    # what's stored in the DB is unit_target_hours.
     target_department_hours: float = 0.0
     iec_internal_hours: float = 0.0
+    # Scheduler correction for wrong imported Dept Hours (may be negative).
+    target_adjustment_hours: float = 0.0
+    target_adjustment_reason: str = ""
     percent_complete: float = 0.0
     actual_hours: float = 0.0
     actual_hours_to_detail_unit: float = 0.0
@@ -97,9 +103,9 @@ class Unit:
 
     # Transient: set to True by _apply_identicals when this unit is a non-primary
     # identical (shares contract_number with other units and has a later due date).
-    # When True, the edit form should NOT auto-calculate target_department_hours.
+    # Its target hours are carried by the primary, whose COM is detailed_on_com.
     is_non_primary_identical: bool = field(default=False, compare=False, repr=False)
-    _original_target_department_hours: float | None = field(default=None, compare=False, repr=False)
+    detailed_on_com: str = field(default="", compare=False, repr=False)
 
     # Persisted computed field: working days in the checking pipeline.
     # Stored in SQLite but treated as a regular field (not transient).
@@ -136,6 +142,23 @@ class Unit:
     def is_cancelled(self) -> bool:
         """True if unit is assigned to 'Cancelled'."""
         return bool(self.detailer and self.detailer.strip() == "Cancelled")
+
+    @property
+    def unit_target_hours(self) -> float:
+        """This unit's own target: Dept Hours - IEC Hours + adjustment, never below 0."""
+        return max(
+            0.0,
+            (self.department_hours or 0.0)
+            - (self.iec_internal_hours or 0.0)
+            + (self.target_adjustment_hours or 0.0),
+        )
+
+    @property
+    def counted_target_hours(self) -> float:
+        """Target hours this unit contributes to totals (0 if cancelled or a non-primary identical)."""
+        if self.is_cancelled or self.is_non_primary_identical:
+            return 0.0
+        return self.unit_target_hours
 
     @property
     def is_assigned(self) -> bool:

@@ -231,7 +231,7 @@ Prior to applying imports, the system executes an atomic `VACUUM INTO` command:
 When updating an existing unit, the upsert engine follows strict non-destructive rules:
 * **Due Date Shift History:** If the ERP pushed the due date (`new_due != current_due`), the old due date is preserved into `dept_due_date_previous`.
 * **Manual Progress Protection:** `percent_complete` from CSV is applied **only if the database value is currently NULL**. If a scheduler already recorded progress in the application, the human progress is never overwritten.
-* **Manual Override Protection:** If a scheduler manually adjusted `target_dept_hours`, the user's override is preserved.
+* **Target Hours Recomputed:** `target_dept_hours` is rebuilt as Dept − IEC + `target_adjustment_hours`. The scheduler's IEC hours and adjustment are never touched, so a correction survives new Dept Hours.
 * **Protected Human Fields:** Scheduler notes, detailer assignments, checking statuses, and milestone dates are completely untouched by imports.
 
 ---
@@ -258,7 +258,8 @@ The Data and Business Logic layer guarantees mathematical consistency, schema in
 │   ├── Priority 10: percent_complete_range (Enforces 0.0 <= percent_complete <= 100.0)     │
 │   ├── Priority 20: non_negative_hours (Rejects negative department/actual/target hours)   │
 │   ├── Priority 30: non_primary_identical (Forces target_department_hours = 0.0)           │
-│   ├── Priority 40: target_hours (Auto-computes dept_hours - iec_hours, handles cancel)   │
+│   ├── Priority 40: target_hours (dept - iec + adjustment; 0 if cancelled/identical)      │
+│   ├── Priority 45: target_adjustment_reason (Adjustment needs a reason)                  │
 │   └── Priority 50: date_order (Validates Detailing Start <= Checking <= Complete)        │
 │                                                                                           │
 │   Concurrency & Integrity Safeguards                                                      │

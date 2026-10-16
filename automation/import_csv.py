@@ -160,7 +160,9 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
 
     # Check if row exists
     cursor.execute(
-        "SELECT detailing_due_date, percent_complete, target_dept_hours, iec_internal_hours, department_hours FROM units WHERE com_number = ?", (com,)
+        "SELECT detailing_due_date, percent_complete, iec_internal_hours, target_adjustment_hours"
+        " FROM units WHERE com_number = ?",
+        (com,),
     )
     existing = cursor.fetchone()
 
@@ -168,9 +170,7 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
     dept_hrs = row_data.get("department_hours") or 0
 
     if existing:
-        current_due_date, current_pct, current_target, current_iec, old_dept = existing
-        current_iec = current_iec or 0.0
-        old_dept = old_dept or 0.0
+        current_due_date, current_pct, current_iec, current_adj = existing
 
         # Column B: if due date changed, push old date to dept_due_date_previous
         if new_due_date and current_due_date and str(current_due_date) != str(new_due_date):
@@ -192,12 +192,11 @@ def upsert_row(cursor, row_data: dict, csv_line: int) -> str:
         if current_pct is None:
             update_cols.append("percent_complete")
 
-        # target_dept_hours: only update if not manually overridden
-        expected_target = max(0.0, old_dept - current_iec)
-        if current_target is None or current_target == 0.0 or abs(current_target - expected_target) <= 0.01:
-            row_data["target_dept_hours"] = max(0.0, dept_hrs - current_iec)
-            if "target_dept_hours" not in update_cols:
-                update_cols.append("target_dept_hours")
+        # target_dept_hours is derived: Dept - IEC + the scheduler's adjustment.
+        # IEC and the adjustment are manual fields, so new Dept Hours flow through
+        # without losing either. Cancelled/identicals are applied when read.
+        row_data["target_dept_hours"] = max(0.0, dept_hrs - (current_iec or 0.0) + (current_adj or 0.0))
+        update_cols.append("target_dept_hours")
 
         # Compute remaining_hours from effective percent_complete
         effective_pct = current_pct if current_pct is not None else csv_pct
@@ -274,8 +273,9 @@ def run_import(csv_path: str, db_path: str) -> dict:
     stats = {"inserted": 0, "updated": 0, "unchanged": 0, "skipped": 0, "errors": 0}
 
     conn = sqlite3.connect(db_path, timeout=30.0)
-    from data.db import _safe_journal_mode
+    from data.db import _migrate_schema, _safe_journal_mode
     _safe_journal_mode(conn, db_path)
+    _migrate_schema(conn)  # the import reads target_adjustment_hours
     cursor = conn.cursor()
 
     try:

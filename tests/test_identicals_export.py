@@ -89,7 +89,7 @@ def test_old_view_definition_is_upgraded(tmp_path):
         "COALESCE(target_dept_hours, department_hours) AS target_dept_hours FROM units"
     )
     conn.executemany(
-        "INSERT INTO units (com_number, top_level_number, detailing_due_date, target_dept_hours) "
+        "INSERT INTO units (com_number, top_level_number, detailing_due_date, department_hours) "
         "VALUES (?, 'CN-9', ?, 20.0)",
         [("9001", "2026-11-01"), ("9002", "2026-11-08")],
     )
@@ -133,7 +133,7 @@ def test_saving_non_primary_identical_does_not_audit_target_hours(db):
 
 def test_saving_primary_still_audits_target_hours(db):
     unit = next(u for u in load_units(db) if u.com_number == "1001")
-    unit.target_department_hours = 25.0
+    unit.iec_internal_hours = 5.0
     save_unit(db, unit)
 
     conn = get_db(db)

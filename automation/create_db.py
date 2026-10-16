@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS units (
     checking_status TEXT,
     target_dept_hours REAL DEFAULT 0.0,
     iec_internal_hours REAL DEFAULT 0.0,
+    target_adjustment_hours REAL DEFAULT 0.0,
+    target_adjustment_reason TEXT DEFAULT '',
     unit_detailing_start_date TEXT,
     unit_moved_to_checking_date TEXT,
     unit_detailing_completion_date TEXT,

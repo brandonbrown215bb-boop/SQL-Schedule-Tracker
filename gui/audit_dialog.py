@@ -75,6 +75,8 @@ class AuditDialog(QDialog):
             "actual_hours",
             "target_dept_hours",
             "iec_internal_hours",
+            "target_adjustment_hours",
+            "target_adjustment_reason",
             "status_color",
         ]:
             self.field_filter.addItem(field.replace("_", " ").title(), field)

@@ -117,7 +117,13 @@ UNIT_FIELD_RULES: dict[str, FieldRule] = {
         type_check=(int, float),
         min_value=0,
         max_value=99999,
-        description="Target hours, auto-calculated, 0 for non-primary identicals",
+        description="Counted target hours (Dept - IEC + adjustment), 0 for non-primary identicals",
+    ),
+    "target_adjustment_hours": FieldRule(
+        type_check=(int, float),
+        min_value=-99999,
+        max_value=99999,
+        description="Scheduler correction to target hours (may be negative)",
     ),
     "iec_internal_hours": FieldRule(
         type_check=(int, float),

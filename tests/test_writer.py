@@ -180,16 +180,33 @@ class TestValidation:
         with pytest.raises(ValidationError, match="target_department_hours: minimum 0"):
             save_unit(db_with_units, unit)
 
-    def test_manual_target_hours_override_persists_across_reload(self, db_with_units):
+    def test_target_adjustment_persists_across_reload(self, db_with_units):
         from data.loader import load_units
         units = load_units(db_with_units)
-        unit = units[0]
-        unit.target_department_hours = 55.0
+        unit = next(u for u in units if not u.is_non_primary_identical and not u.is_cancelled)
+        base = max(0.0, unit.department_hours - unit.iec_internal_hours)
+        unit.target_adjustment_hours = 15.0
+        unit.target_adjustment_reason = "Dept hours missing the coil section"
         save_unit(db_with_units, unit)
 
-        reloaded = load_units(db_with_units)
-        reloaded_target = next(u for u in reloaded if u.com_number == unit.com_number).target_department_hours
-        assert reloaded_target == 55.0
+        reloaded = next(u for u in load_units(db_with_units) if u.com_number == unit.com_number)
+        assert reloaded.target_adjustment_hours == 15.0
+        assert reloaded.target_adjustment_reason == "Dept hours missing the coil section"
+        assert reloaded.target_department_hours == pytest.approx(base + 15.0)
+
+    def test_typed_target_hours_are_ignored(self, db_with_units):
+        """Target hours are derived; a value typed into the field is not stored."""
+        from data.loader import load_units
+        unit = next(u for u in load_units(db_with_units) if not u.is_non_primary_identical)
+        expected = unit.unit_target_hours
+        unit.target_department_hours = 999.0
+        save_unit(db_with_units, unit)
+        conn = sqlite3.connect(db_with_units)
+        stored = conn.execute(
+            "SELECT target_dept_hours FROM units WHERE com_number = ?", (unit.com_number,)
+        ).fetchone()[0]
+        conn.close()
+        assert stored == pytest.approx(expected)
 
     def test_week_ending_friday_calculated_on_save(self, db_with_units, unit_to_save):
         """Saving updates the week_ending_friday column in DB based on detailing_due_date."""

@@ -16,7 +16,7 @@ import time
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
 
-from data.db import NON_PRIMARY_IDENTICAL_SQL
+from data.db import COUNTED_TARGET_SQL, _migrate_schema
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -92,17 +92,15 @@ def export_to_workbook(db_path: str, excel_path: str) -> int:
     """
     # Read all columns from SQLite
     db_fields = [col[1] for col in EXPORT_COLUMNS]
-    # Non-primary identicals report 0 target hours (same rule as the app and
-    # the reporting view); the DB keeps the real value.
+    # Counted target hours: same rule as the app and the reporting view
+    # (0 for cancelled units and non-primary identicals).
     select_cols = ", ".join(
-        f"CASE WHEN {NON_PRIMARY_IDENTICAL_SQL} THEN 0.0 ELSE target_dept_hours END"
-        " AS target_dept_hours"
-        if field == "target_dept_hours"
-        else field
+        f"{COUNTED_TARGET_SQL} AS target_dept_hours" if field == "target_dept_hours" else field
         for field in db_fields
     )
 
     conn = sqlite3.connect(db_path)
+    _migrate_schema(conn)  # COUNTED_TARGET_SQL needs target_adjustment_hours
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute(f"SELECT {select_cols} FROM units ORDER BY detailing_due_date")

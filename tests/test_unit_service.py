@@ -255,7 +255,7 @@ class TestIdenticals:
             description="Desc",
             detailer="Alice",
             checking_status="",
-            target_department_hours=40.0,
+            department_hours=40.0,
             detailing_due_date=date(2025, 7, 1),
         )
         secondary = Unit(
@@ -265,7 +265,7 @@ class TestIdenticals:
             description="Desc",
             detailer="Bob",
             checking_status="",
-            target_department_hours=40.0,
+            department_hours=40.0,
             detailing_due_date=date(2025, 7, 15),
         )
         units = [primary, secondary]
@@ -284,7 +284,7 @@ class TestIdenticals:
             description="Desc",
             detailer="Alice",
             checking_status="",
-            target_department_hours=40.0,
+            department_hours=40.0,
         )
         UnitService.apply_identicals([unit])
         assert unit.target_department_hours == 40.0

@@ -42,6 +42,8 @@ def unit_fingerprint(unit: Unit) -> str:
         "hours_checking": unit.hours_checking,
         "target_department_hours": unit.target_department_hours,
         "iec_internal_hours": unit.iec_internal_hours,
+        "target_adjustment_hours": unit.target_adjustment_hours,
+        "target_adjustment_reason": unit.target_adjustment_reason,
         "percent_complete": unit.percent_complete,
         "unit_detailing_start_date": _date_to_str(unit.unit_detailing_start_date),
         "unit_moved_to_checking_date": _date_to_str(unit.unit_moved_to_checking_date),
@@ -58,39 +60,37 @@ def _apply_identicals(units: list[Unit]) -> None:
     """Apply the "Identicals" rule to target_department_hours in-place.
 
     When multiple units share the same order number (contract_number /
-    top_level_number), they are called "Identicals". The unit with the
-    earliest detailing_due_date is the *primary* and keeps its normal
-    target hour calculation. Every other identical gets
-    target_department_hours forced to 0.0.
+    top_level_number), they are called "Identicals" and only one of them is
+    detailed. The *primary* is the earliest unit on the schedule (earliest
+    detailing_due_date, undated last, then lowest COM) and carries the target
+    hours. Every other identical counts 0 and points at the primary through
+    detailed_on_com. Cancelled units are never the primary and never count.
 
-    Units with an empty contract_number or no due date are skipped.
-    If two identicals have the same due date, the one appearing first
-    (i.e. lowest COM number) wins — this ensures a deterministic primary.
+    SQL twin: data.db.COUNTED_TARGET_SQL (reporting feed, workbook export).
     """
     groups: dict[str, list[Unit]] = defaultdict(list)
     for u in units:
+        u.is_non_primary_identical = False
+        u.detailed_on_com = ""
         key = (u.contract_number or "").strip()
-        if key:
+        if key and not u.is_cancelled:
             groups[key].append(u)
 
-    for _order_number, group in groups.items():
+    def _sort_key(u: Unit) -> tuple:
+        dd = u.detailing_due_date
+        return (0 if dd is not None else 1, dd if dd is not None else date.min, u.com_number)
+
+    for group in groups.values():
         if len(group) < 2:
             continue  # not enough units to form identicals
-
-        # Primary = earliest detailing_due_date.
-        # Tie-break by com_number for determinism.
-        def _sort_key(u: Unit) -> tuple:
-            dd = u.detailing_due_date
-            # Put units without a due date at the end so they aren't primary
-            return (0 if dd is not None else 1, dd if dd is not None else date.min, u.com_number)
-
         primary = min(group, key=_sort_key)
-
         for u in group:
             if u is not primary:
-                u._original_target_department_hours = u.target_department_hours
-                u.target_department_hours = 0.0
                 u.is_non_primary_identical = True
+                u.detailed_on_com = primary.com_number
+
+    for u in units:
+        u.target_department_hours = u.counted_target_hours
 
 
 def load_units(

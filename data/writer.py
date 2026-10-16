@@ -106,8 +106,10 @@ def save_unit(
             department_hours = ?,
             percent_complete = ?,
             actual_hours = ?,
-            target_dept_hours = MAX(0, ?),
+            target_dept_hours = ?,
             iec_internal_hours = ?,
+            target_adjustment_hours = ?,
+            target_adjustment_reason = ?,
             dept_due_date_previous = ?,
             detailing_due_date = ?,
             build_date = ?,
@@ -138,13 +140,12 @@ def save_unit(
             unit.department_hours,
             unit.percent_complete / 100,
             unit.actual_hours,
-            # restore original target_dept_hours for non-primary identicals
-            (
-                unit._original_target_department_hours
-                if unit._original_target_department_hours is not None
-                else unit.target_department_hours
-            ),
+            # The DB keeps the unit's own target; identicals/cancelled are
+            # applied when it is read (loader, reporting view).
+            unit.unit_target_hours,
             unit.iec_internal_hours,
+            unit.target_adjustment_hours or 0.0,
+            unit.target_adjustment_reason or "",
             unit.dept_due_date_previous.isoformat() if unit.dept_due_date_previous else None,
             unit.detailing_due_date.isoformat() if unit.detailing_due_date else None,
             unit.build_date.isoformat() if unit.build_date else None,
@@ -195,8 +196,10 @@ def save_unit(
         "department_hours": unit.department_hours,
         "percent_complete": unit.percent_complete / 100,
         "actual_hours": unit.actual_hours,
-        "target_dept_hours": unit.target_department_hours,
+        "target_dept_hours": unit.unit_target_hours,
         "iec_internal_hours": unit.iec_internal_hours,
+        "target_adjustment_hours": unit.target_adjustment_hours or 0.0,
+        "target_adjustment_reason": unit.target_adjustment_reason or "",
         "dept_due_date_previous": unit.dept_due_date_previous.isoformat()
         if unit.dept_due_date_previous
         else None,
@@ -223,11 +226,6 @@ def save_unit(
         "remaining_demand": unit.remaining_demand,
         "hours_checking": unit.hours_checking,
     }
-    if unit.is_non_primary_identical:
-        # Non-primary identicals aren't detailed again and carry no target
-        # hours, so their stored (primary-fallback) value isn't audited.
-        del new_values["target_dept_hours"]
-
     # Same transaction as the UPDATE: one commit (one journal round-trip on the share).
     log_field_changes(conn, unit.com_number, old_row, new_values, commit=False)
 

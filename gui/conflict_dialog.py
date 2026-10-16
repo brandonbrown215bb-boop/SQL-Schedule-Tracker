@@ -31,6 +31,8 @@ _CONFLICT_FIELDS = [
     ("Actual Hours", "actual_hours"),
     ("Target Dept Hours", "target_department_hours"),
     ("IEC Internal Hours", "iec_internal_hours"),
+    ("Target Adjustment", "target_adjustment_hours"),
+    ("Adjustment Reason", "target_adjustment_reason"),
     ("Percent Complete", "percent_complete"),
     ("Detailing Start Date", "unit_detailing_start_date"),
     ("Moved to Checking Date", "unit_moved_to_checking_date"),

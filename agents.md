@@ -180,7 +180,7 @@ Location: `data/models.py`
 - `job_name`, `contract_number`, `description` — Identity fields
 - `detailer` — Assigned detailer name
 - `checking_status`, `notes` — Status & free-text
-- `department_hours`, `target_department_hours`, `iec_internal_hours` — Hours breakdown
+- `department_hours`, `iec_internal_hours`, `target_adjustment_hours`, `target_adjustment_reason` — Hours breakdown (target hours are derived, see §5.4)
 - `percent_complete` — 0-100 scale (stored 0-1.0 in SQLite)
 - `actual_hours` — Actual hours logged
 - Dates: `unit_detailing_start_date`, `unit_moved_to_checking_date`, `unit_detailing_completion_date`, `detailing_due_date`, `dept_due_date_previous`, `build_date`
@@ -192,7 +192,7 @@ Location: `data/models.py`
 - `working_days` — Detailer's schedule (loaded from config per detailer)
 - `due_date_changed` — Flag for UI indicator (cleared on selection)
 - `previous_detailing_due_date` — Previous due date when changed (for "due date changed" dialog)
-- `is_non_primary_identical` — Set by identicals rule
+- `is_non_primary_identical`, `detailed_on_com` — Set by identicals rule
 - `excel_row`, `fingerprint`, `base_revision` — Legacy Excel sync metadata
 - `_milestones_cache` — Cached milestone list
 
@@ -232,7 +232,7 @@ Mon-Fri count between `unit_moved_to_checking_date` and `unit_detailing_completi
 
 ### 5.4 `target_dept_hours` (Database-Persisted)
 
-`MAX(0, department_hours - iec_internal_hours)`. Forced to 0 for non-primary identicals.
+`MAX(0, department_hours - iec_internal_hours + target_adjustment_hours)` — the unit's own target, derived and rewritten on every import and save; never typed. Dept Hours comes only from SSRS; the scheduler corrects it with `target_adjustment_hours` (may be negative, needs `target_adjustment_reason`). In memory, `target_department_hours` is the *counted* value (`Unit.counted_target_hours`): 0 for cancelled units and non-primary identicals. `v_reporting_export` leaves out cancelled units.
 
 ### 5.5 `remaining_hours` (Database-Persisted, Import-Only)
 
@@ -240,7 +240,7 @@ Mon-Fri count between `unit_moved_to_checking_date` and `unit_detailing_completi
 
 ### 5.6 Identicals Rule
 
-Units sharing the same `contract_number` form a group. The unit with the earliest `detailing_due_date` is the **primary** (keeps normal target hours). All others get `target_department_hours = 0` and `is_non_primary_identical = True`. Applied in `data/loader.py` → `_apply_identicals()`, wrapped by `UnitService.apply_identicals()`. The DB keeps the real `target_dept_hours`. Anything that reads the DB directly for reporting must apply `NON_PRIMARY_IDENTICAL_SQL` (`data/db.py`), as `v_reporting_export` and `automation/export_to_workbook.py` do. That expression is a window function, so use it in a SELECT list, not in WHERE.
+Units sharing the same `contract_number` are detailed once. Cancelled units are left out of the group. The earliest unit on the schedule (earliest `detailing_due_date`, undated last, then lowest COM) is the **primary** and counts the target hours. All others count 0, get `is_non_primary_identical = True` and `detailed_on_com` = the primary's COM. Applied in `data/loader.py` → `_apply_identicals()`, wrapped by `UnitService.apply_identicals()`. The DB keeps the real `target_dept_hours`. Anything that reads the DB directly for reporting must use `COUNTED_TARGET_SQL` (`data/db.py`), as `v_reporting_export` and `automation/export_to_workbook.py` do. That expression is a window function, so use it in a SELECT list, not in WHERE.
 
 ### 5.7 Audit Trail (`_audit_log` table)
 

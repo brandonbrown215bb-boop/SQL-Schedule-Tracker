@@ -10,6 +10,7 @@ from services.pre_save_hooks import (
     non_negative_hours_hook,
     non_primary_identical_hook,
     percent_complete_range_hook,
+    target_adjustment_reason_hook,
     target_hours_hook,
 )
 from services.validation import ValidationError
@@ -154,12 +155,49 @@ class TestNonPrimaryIdenticalHook:
 
 
 class TestTargetHoursHook:
-    def test_preserves_manual_override(self, base_unit):
+    def test_derives_from_dept_iec_and_adjustment(self, base_unit):
         base_unit.department_hours = 100.0
         base_unit.iec_internal_hours = 30.0
-        base_unit.target_department_hours = 85.0
+        base_unit.target_adjustment_hours = 15.0
+        base_unit.target_department_hours = 999.0  # typed value is ignored
         target_hours_hook(base_unit, {})
-        assert base_unit.target_department_hours == 85.0
+        assert base_unit.target_department_hours == 85.0  # 100 - 30 + 15
+
+    def test_negative_adjustment(self, base_unit):
+        base_unit.department_hours = 100.0
+        base_unit.iec_internal_hours = 30.0
+        base_unit.target_adjustment_hours = -20.0
+        target_hours_hook(base_unit, {})
+        assert base_unit.target_department_hours == 50.0
+
+    def test_never_below_zero(self, base_unit):
+        base_unit.department_hours = 10.0
+        base_unit.iec_internal_hours = 5.0
+        base_unit.target_adjustment_hours = -50.0
+        target_hours_hook(base_unit, {})
+        assert base_unit.target_department_hours == 0.0
+
+    def test_zero_typed_target_is_not_special(self, base_unit):
+        base_unit.department_hours = 100.0
+        base_unit.iec_internal_hours = 30.0
+        base_unit.target_department_hours = 0.0
+        target_hours_hook(base_unit, {})
+        assert base_unit.target_department_hours == 70.0
+
+
+class TestTargetAdjustmentReasonHook:
+    def test_adjustment_without_reason_blocks_save(self, base_unit):
+        base_unit.target_adjustment_hours = 5.0
+        with pytest.raises(ValidationError):
+            target_adjustment_reason_hook(base_unit, {})
+
+    def test_adjustment_with_reason_passes(self, base_unit):
+        base_unit.target_adjustment_hours = -5.0
+        base_unit.target_adjustment_reason = "SSRS double-counted the casing"
+        assert target_adjustment_reason_hook(base_unit, {}) == []
+
+    def test_no_adjustment_needs_no_reason(self, base_unit):
+        assert target_adjustment_reason_hook(base_unit, {}) == []
 
     def test_non_primary_zeros_out(self, base_unit):
         base_unit.is_non_primary_identical = True

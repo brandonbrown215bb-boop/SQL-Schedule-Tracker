@@ -277,6 +277,7 @@ class ServiceRegistry:
             non_negative_hours_hook,
             non_primary_identical_hook,
             percent_complete_range_hook,
+            target_adjustment_reason_hook,
             target_hours_hook,
         )
 
@@ -285,6 +286,7 @@ class ServiceRegistry:
         registry.register("non_negative_hours", non_negative_hours_hook, priority=20)
         registry.register("non_primary_identical", non_primary_identical_hook, priority=30)
         registry.register("target_hours", target_hours_hook, priority=40)
+        registry.register("target_adjustment_reason", target_adjustment_reason_hook, priority=45)
         registry.register("date_order", date_order_hook, priority=50)
         return registry
 
@@ -1157,6 +1159,8 @@ class MainWindow(QMainWindow):
             "actual_hours": unit.actual_hours,
             "target_department_hours": unit.target_department_hours,
             "iec_internal_hours": unit.iec_internal_hours,
+            "target_adjustment_hours": unit.target_adjustment_hours,
+            "target_adjustment_reason": unit.target_adjustment_reason,
             "percent_complete": unit.percent_complete,
             "unit_detailing_start_date": unit.unit_detailing_start_date,
             "unit_moved_to_checking_date": unit.unit_moved_to_checking_date,
