@@ -57,7 +57,7 @@ class ReferenceDialog(QDialog):
 
         # 2. Glossary Tab
         self.glossary_tab = self._create_glossary_tab()
-        self.tabs.addTab(self.glossary_tab, "📖 Glossary & Terms")
+        self.tabs.addTab(self.glossary_tab, "📖 Glossary && Terms")
 
         # 3. Keyboard Shortcuts Tab
         self.shortcuts_tab = self._create_shortcuts_tab()
@@ -83,7 +83,7 @@ class ReferenceDialog(QDialog):
         scroll_layout.setSpacing(12)
 
         # Statuses Group
-        status_group = QGroupBox("Unit Status Indicators (Dots & Shapes)")
+        status_group = QGroupBox("Unit Status Indicators (Dots && Shapes)")
         status_layout = QVBoxLayout(status_group)
         status_layout.setContentsMargins(8, 12, 8, 8)
 
@@ -100,7 +100,7 @@ class ReferenceDialog(QDialog):
         scroll_layout.addWidget(status_group)
 
         # Alert Indicators Group
-        alert_group = QGroupBox("Alerts View Indicators & Capacity Warnings")
+        alert_group = QGroupBox("Alerts View Indicators && Capacity Warnings")
         alert_layout = QVBoxLayout(alert_group)
         alert_layout.setContentsMargins(8, 12, 8, 8)
 

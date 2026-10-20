@@ -58,8 +58,8 @@ ONBOARDING_STEPS: list[WalkthroughStep] = [
         description=(
             "Toggle between Calendar, List, and Alerts views. "
             "Your active view is saved automatically between sessions. "
-            "The list view includes COM search, detailer/status/date "
-            "filters, and a toggle to show/hide stale units."
+            "The list view includes Year, Detailer and Job Name "
+            "filters and a search box."
         ),
         position="top",
     ),
@@ -71,8 +71,7 @@ ONBOARDING_STEPS: list[WalkthroughStep] = [
             "The Calendar view shows colored dots on dates with units due. "
             "Click a date to see its units listed below the calendar. "
             "Date-cell dots are color-coded by status (green=done, red=overdue, "
-            "yellow=in-progress, purple=ready-for-checking, orange=nearly-done). "
-            "Stale units (past due >30 days) are hidden by default."
+            "yellow=in-progress, purple=ready-for-checking, orange=nearly-done)."
         ),
         position="top",
     ),
@@ -81,10 +80,10 @@ ONBOARDING_STEPS: list[WalkthroughStep] = [
         widget_name="list_view_btn",
         title="List View",
         description=(
-            "Sortable table of all units with multi-column filtering: "
-            "status, detailer, date presets (overdue/today/next 7-30 days/month), "
-            "custom date range, COM search, and alert-level filter. "
-            "Column widths are resizable. "
+            "Sortable table of all units. Filter with the Year (and month), "
+            "Detailer and Job Name checklists; each one only offers values "
+            "that match the others. Filters and your place in the list are "
+            "remembered between sessions. Column widths are resizable. "
             "Press Ctrl+F to jump to the COM search box."
         ),
         position="top",

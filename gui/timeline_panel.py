@@ -376,7 +376,9 @@ class TimelinePanel(QWidget):
         self._toggle_btn = QToolButton()
         self._toggle_btn.setArrowType(Qt.DownArrow)
         self._toggle_btn.setAutoRaise(True)
-        self._toggle_btn.setFixedSize(20, 20)
+        self._toggle_btn.setFixedSize(22, 22)
+        # The window-wide QToolButton padding leaves no room for the arrow
+        self._toggle_btn.setStyleSheet("padding: 0px;")
         self._toggle_btn.clicked.connect(self._on_toggle_collapse)
         header.addWidget(self._toggle_btn)
 

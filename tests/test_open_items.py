@@ -196,17 +196,17 @@ def test_alerts_picker_has_no_unassigned_or_cancelled_as_names(alerts):
     assert "Cancelled" not in names
 
 
-def test_show_stale_keeps_cancelled_and_mfg_state_filters():
-    from gui.list_panel import UnitListModel
+def test_list_reload_keeps_cancelled_detailer_filter(qtbot):
+    from gui.list_panel import ListPanel
 
     a, b = _u("10001", "Jackie H"), _u("10002", "Cancelled")
-    a.unit_state, b.unit_state = "Released", "Released"
-    model = UnitListModel([a, b])
-    model.apply_filters(show_cancelled=True, unit_state_filter="Released")
-    assert {u.com_number for u in model.filtered_units} == {"10001", "10002"}
-    model.set_show_stale(True)
-    assert {u.com_number for u in model.filtered_units} == {"10001", "10002"}
-    assert model._current_unit_state_filter == "Released"
+    panel = ListPanel([a, b])
+    qtbot.addWidget(panel)
+    panel.detailer_filter.set_selected({"Jackie H", "Cancelled"}, emit=True)
+    assert {u.com_number for u in panel._model.filtered_units} == {"10001", "10002"}
+    panel.refresh([_u("10001", "Jackie H"), _u("10002", "Cancelled")])
+    assert {u.com_number for u in panel._model.filtered_units} == {"10001", "10002"}
+    assert panel.detailer_filter.selected() == {"Jackie H", "Cancelled"}
 
 
 # ── #5 UI read timeout ────────────────────────────────────────────────

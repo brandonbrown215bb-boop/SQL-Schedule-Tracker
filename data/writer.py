@@ -23,7 +23,7 @@ class ConcurrentEditError(Exception):
     """Raised when optimistic locking detects a concurrent edit conflict."""
 
 
-def _validate_unit(unit: Unit) -> None:
+def _validate_unit(unit: Unit, existing_detailer: str | None = None) -> None:
     """Validate unit fields before saving using the validation layer.
 
     Raises:
@@ -33,7 +33,7 @@ def _validate_unit(unit: Unit) -> None:
     # data/writer -> services.validation -> services/__init__ -> services.unit_service -> data/writer
     from services.validation import ValidationError, validate_unit
 
-    valid, errors = validate_unit(unit)
+    valid, errors = validate_unit(unit, existing_detailer=existing_detailer)
     if not valid:
         raise ValidationError(errors)
 
@@ -63,8 +63,11 @@ def save_unit(
         ValidationError: If any field value is out of valid range.
         ConcurrentEditError: If another user modified the row after it was loaded.
     """
-    # Phase 1: Field-level validation
-    _validate_unit(unit)
+    # Phase 1: Field-level validation (the stored detailer may be a past, unlisted one)
+    stored = get_db(db_path).execute(
+        "SELECT detailer FROM units WHERE com_number = ?", (unit.com_number,)
+    ).fetchone()
+    _validate_unit(unit, existing_detailer=stored[0] if stored else None)
 
     # Phase 2: Pre-save hooks (business rules)
     warnings: list[str] = []

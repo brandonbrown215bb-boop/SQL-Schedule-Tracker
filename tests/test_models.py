@@ -180,6 +180,19 @@ class TestCalculatedStatusColor:
         assert not unit1.is_assigned
         assert not unit1.is_stale  # Should never be stale when unassigned
 
+        # Unassigned but finished and long past due: stale like any other unit
+        old_due = date.today() - timedelta(days=60)
+        open_unassigned = Unit(
+            com_number="X", job_name="Y", contract_number="Z", description="D",
+            detailer="", checking_status="", percent_complete=50.0, detailing_due_date=old_due,
+        )
+        done_unassigned = Unit(
+            com_number="X", job_name="Y", contract_number="Z", description="D",
+            detailer="", checking_status="", percent_complete=100.0, detailing_due_date=old_due,
+        )
+        assert not open_unassigned.is_stale
+        assert done_unassigned.is_stale
+
         # Assigned (has detailer)
         unit2 = Unit(
             com_number="X",

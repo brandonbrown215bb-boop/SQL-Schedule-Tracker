@@ -28,11 +28,14 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from collections.abc import Callable
 
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
+    QAbstractSpinBox,
     QCalendarWidget,
     QCheckBox,
     QComboBox,
@@ -81,7 +84,7 @@ _TOKENS_DARK: dict[str, str] = {
     "text_primary": "#f1f5f9",
     "text_secondary": "#94a3b8",
     "text_muted": "#64748b",
-    "text_on_accent": "#ffffff",
+    "text_on_accent": "#0f172a",  # dark text: white on the light dark-mode accents is ~2.5:1
     "text_error": "#f87171",
     "text_success": "#4ade80",
     "border": "#334155",
@@ -287,7 +290,6 @@ _TABLE = """\
         font-weight: 600;
         color: {text_secondary};
         text-transform: uppercase;
-        letter-spacing: 0.5px;
     }}
 """
 
@@ -341,6 +343,11 @@ _INPUT = """\
         border: none;
         border-left: 1px solid {border};
     }}
+    QComboBox::down-arrow, QDateEdit::down-arrow {{
+        image: url({arrow_icon});
+        width: 10px;
+        height: 6px;
+    }}
 
 
 
@@ -360,8 +367,10 @@ _INPUT = """\
     }}
 """
 
+# Matches only the frame itself: a bare "QFrame" selector would also hit every
+# descendant QLabel, QSplitter, QStackedWidget and scroll area (all QFrames).
 _CARD = """\
-    QFrame {{
+    QFrame[themeCard="true"] {{
         background: {bg_secondary};
         border: 1px solid {border};
         border-radius: 6px;
@@ -572,7 +581,28 @@ def _style_table(widget: QWidget, tokens: dict[str, str]) -> None:
 
 
 def _style_input(widget: QWidget, tokens: dict[str, str]) -> None:
-    widget.setStyleSheet(_stylesheet(tokens, _INPUT))
+    # The line edit inside a spin box, date edit or editable combo is styled by its owner
+    if isinstance(widget, QLineEdit) and isinstance(widget.parent(), (QAbstractSpinBox, QComboBox)):
+        return
+    widget.setStyleSheet(_INPUT.format(**tokens, arrow_icon=_arrow_icon(tokens["text_secondary"])))
+
+
+def _arrow_icon(color: str) -> str:
+    """Path (forward slashes, for QSS url()) to a small down-arrow SVG in *color*.
+
+    Styling ::drop-down removes the native arrow, so combos and date edits need one.
+    Written to the temp folder because a frozen build has no package data path.
+    """
+    folder = os.path.join(tempfile.gettempdir(), "unit_tracker_theme")
+    path = os.path.join(folder, f"down_arrow_{color.lstrip('#')}.svg")
+    if not os.path.exists(path):
+        os.makedirs(folder, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6">'
+                f'<path d="M0.5 0.5 L5 5 L9.5 0.5" fill="none" stroke="{color}" stroke-width="1.6"/></svg>'
+            )
+    return path.replace("\\", "/")
 
 
 def reset_input_style(widget: QWidget, theme_name: str = "light") -> None:
@@ -582,6 +612,11 @@ def reset_input_style(widget: QWidget, theme_name: str = "light") -> None:
 
 
 def _style_card(widget: QWidget, tokens: dict[str, str]) -> None:
+    # Plain frames only; QSplitter, QStackedWidget, scroll areas etc. reach here via the MRO
+    qt_class = next(c for c in type(widget).__mro__ if c.__module__.startswith("PyQt5"))
+    if qt_class is not QFrame or widget.frameShape() in (QFrame.HLine, QFrame.VLine):
+        return
+    widget.setProperty("themeCard", True)
     widget.setStyleSheet(_stylesheet(tokens, _CARD))
 
 

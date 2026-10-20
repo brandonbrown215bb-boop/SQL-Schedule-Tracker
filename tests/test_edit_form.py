@@ -91,6 +91,27 @@ class TestSetUnitPopulatesAllFields:
         edit_form.set_unit(sample_unit)
         assert edit_form.detailer_edit.currentText() == "Carl M"
 
+    def test_unlisted_detailer_kept_and_saved(self, edit_form, sample_unit):
+        """A detailer missing from the config list used to show Unassigned and save as blank."""
+        sample_unit.detailer = "Austin"
+        edit_form.set_unit(sample_unit)
+        assert edit_form.detailer_edit.currentText() == "Austin"
+
+        saved = []
+        edit_form.saved.connect(saved.append)
+        edit_form.dept_hours_spin.setValue(sample_unit.department_hours + 1)
+        edit_form._on_save()
+        assert saved and saved[0].detailer == "Austin"
+
+    def test_unlisted_detailer_item_dropped_for_next_unit(self, edit_form, sample_unit):
+        count = edit_form.detailer_edit.count()
+        sample_unit.detailer = "Austin"
+        edit_form.set_unit(sample_unit)
+        sample_unit.detailer = "Carl M"
+        edit_form.set_unit(sample_unit)
+        assert edit_form.detailer_edit.count() == count
+        assert edit_form.detailer_edit.findText("Austin") < 0
+
     def test_numeric_fields_populated(self, edit_form, sample_unit):
         edit_form.set_unit(sample_unit)
         assert edit_form.dept_hours_spin.value() == 40.0

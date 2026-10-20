@@ -27,7 +27,7 @@ class TestReferenceDialog:
     def test_tabs_content(self, dialog):
         # Verify the three tabs exist with their names
         assert dialog.tabs.tabText(0) == "🎨 Visual Legend"
-        assert dialog.tabs.tabText(1) == "📖 Glossary & Terms"
+        assert dialog.tabs.tabText(1) == "📖 Glossary && Terms"
         assert dialog.tabs.tabText(2) == "⌨ Keyboard Shortcuts"
 
         # Verify tables are populated

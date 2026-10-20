@@ -225,8 +225,13 @@ class ValidationError(Exception):
 def validate_unit(
     unit: Unit,
     rules: dict[str, FieldRule] | None = None,
+    existing_detailer: str | None = None,
 ) -> ValidationResult:
     """Validate a Unit against field rules.
+
+    *existing_detailer* is the name the unit already has. Keeping it passes even
+    when it is no longer in the configured (active) list, so an edit never has
+    to reassign units of past detailers; only a change must pick an active name.
 
     Returns:
         (is_valid, errors) tuple.
@@ -292,6 +297,7 @@ def validate_unit(
             rule.enum_values is not None
             and isinstance(value, str)
             and value not in rule.enum_values
+            and not (field_name == "detailer" and value == existing_detailer)
         ):
             errors.append(f"{field_name}: must be one of {rule.enum_values}, got '{value}'")
 

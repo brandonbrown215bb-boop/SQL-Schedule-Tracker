@@ -14,10 +14,11 @@ import pytest
 
 from data.models import Unit
 from gui.list_panel import (
+    CANCELLED_KEY,
     COLUMN_DEFS,
-    DATE_FILTER_PRESETS,
     SEVERITY_ORDER,
     STATUS_COLORS_FALLBACK,
+    UNASSIGNED_KEY,
     ListPanel,
     UnitListModel,
 )
@@ -162,29 +163,18 @@ class TestUnitListModelFiltering:
         self.model.apply_filters()
         assert len(self.model.filtered_units) == 6
 
-    def test_filter_by_status_red(self):
-        self.model.apply_filters(status="red")
-        assert len(self.model.filtered_units) == 1
-        assert self.model.filtered_units[0].com_number == "COM-100"
-
-    def test_filter_by_status_green(self):
-        self.model.apply_filters(status="green")
-        assert len(self.model.filtered_units) == 1
-        assert self.model.filtered_units[0].com_number == "COM-300"
-
-    def test_filter_by_status_gray(self):
-        self.model.apply_filters(status="gray")
-        assert len(self.model.filtered_units) == 1
-        assert self.model.filtered_units[0].com_number == "COM-400"
-
     def test_filter_by_detailer(self):
-        self.model.apply_filters(detailer="Jackie / IEC Internals")
+        self.model.apply_filters(detailers={"Jackie / IEC Internals"})
         assert len(self.model.filtered_units) == 2
         assert all(u.detailer == "Jackie / IEC Internals" for u in self.model.filtered_units)
 
-    def test_filter_by_detailer_maria(self):
-        self.model.apply_filters(detailer="Maria / RGV Team")
-        assert len(self.model.filtered_units) == 2
+    def test_filter_by_several_detailers(self):
+        self.model.apply_filters(detailers={"Jackie / IEC Internals", "Maria / RGV Team"})
+        assert len(self.model.filtered_units) == 4
+
+    def test_filter_by_job_name(self):
+        self.model.apply_filters(jobs={"Overdue Alpha", "Returned Zeta"})
+        assert {u.com_number for u in self.model.filtered_units} == {"COM-100", "COM-600"}
 
     def test_filter_by_com_search(self):
         self.model.apply_filters(com_search="Alpha")
@@ -202,78 +192,100 @@ class TestUnitListModelFiltering:
         assert self.model.filtered_units[0].com_number == "COM-500"
 
     def test_filter_combines_and_logic(self):
-        # Status=yellow AND Detailer=Maria
-        self.model.apply_filters(status="yellow", detailer="Maria / RGV Team")
+        self.model.apply_filters(detailers={"Maria / RGV Team"}, com_search="Beta")
         assert len(self.model.filtered_units) == 1
         assert self.model.filtered_units[0].com_number == "COM-200"
-
-    def test_filter_combines_and_no_match(self):
-        # Status=red AND Detailer=Maria → no units match both
-        self.model.apply_filters(status="red", detailer="Maria / RGV Team")
-        assert len(self.model.filtered_units) == 0
 
     def test_filter_empty_search_returns_all(self):
         self.model.apply_filters(com_search="")
         assert len(self.model.filtered_units) == 6
 
-    # ── Date filters ──
-
-    def test_filter_overdue(self):
-        self.model.apply_filters(date_preset="overdue")
-        assert len(self.model.filtered_units) == 1
-        assert self.model.filtered_units[0].com_number == "COM-100"
-
-    def test_filter_next_7_days(self):
-        self.model.apply_filters(date_preset="next_7_days")
-        # No units have due dates within the next 7 days
-        assert len(self.model.filtered_units) == 0
-
-    def test_filter_next_30_days(self):
-        self.model.apply_filters(date_preset="next_30_days")
-        # COM-300 (+10), COM-600 (+30)
-        assert len(self.model.filtered_units) == 2
-
-    def test_filter_excludes_null_due_dates(self):
-        # Units with no due date should not appear in date-filtered results
-        self.model.apply_filters(date_preset="next_365_days" if False else "overdue")
-        for u in self.model.filtered_units:
-            assert u.detailing_due_date is not None
-
-    def test_custom_date_range_ignores_stale_data_flag(self):
-        # Create a model with one stale unit and one non-stale unit
-        today = date.today()
-        stale_unit = _make_unit("COM-STALE", due=today - timedelta(days=45), detailer="Jackie")
-        non_stale_unit = _make_unit("COM-ACTIVE", due=today + timedelta(days=5), detailer="Jackie")
-
-        assert stale_unit.is_stale
-        assert not non_stale_unit.is_stale
-
-        model = UnitListModel([stale_unit, non_stale_unit], show_stale=False)
-
-        # 1. Normal filter (without date): stale unit is hidden when show_stale is False
+    def test_stale_units_are_shown(self):
+        """Nothing is hidden for being old any more."""
+        old = _make_unit("COM-OLD", due=date.today() - timedelta(days=200))
+        assert old.is_stale
+        model = UnitListModel([old])
         model.apply_filters()
-        assert len(model.filtered_units) == 1
-        assert model.filtered_units[0].com_number == "COM-ACTIVE"
+        assert [u.com_number for u in model.filtered_units] == ["COM-OLD"]
 
-        # 2. Custom date range filter that INCLUDES the stale unit:
-        # It should ignore the stale data flag and show both units!
-        model.apply_filters(
-            date_preset="custom",
-            date_from=today - timedelta(days=50),
-            date_to=today + timedelta(days=10)
-        )
-        assert len(model.filtered_units) == 2
 
-        # 3. Custom date range filter that EXCLUDES the stale unit:
-        # It should only show the active unit
-        model.apply_filters(
-            date_preset="custom",
-            date_from=today - timedelta(days=10),
-            date_to=today + timedelta(days=10)
-        )
-        assert len(model.filtered_units) == 1
-        assert model.filtered_units[0].com_number == "COM-ACTIVE"
+# ─── Year / Month / Cascading Filters ──────────────────────────────
 
+
+def _year_units() -> list[Unit]:
+    return [
+        _make_unit("A1", "Jane", due=date(2025, 3, 10), job_name="Alpha"),
+        _make_unit("A2", "Jane", due=date(2025, 7, 1), job_name="Beta"),
+        _make_unit("B1", "Tom", due=date(2026, 3, 5), job_name="Beta"),
+        _make_unit("C1", "Lee", due=date(2027, 1, 20), job_name="Gamma"),
+        _make_unit("U1", "", due=date(2026, 5, 1), job_name="Alpha"),
+    ]
+
+
+class TestYearAndCascadingFilters:
+    def setup_method(self):
+        self.model = UnitListModel(_year_units())
+
+    def _coms(self) -> set[str]:
+        return {u.com_number for u in self.model.filtered_units}
+
+    def test_filter_by_whole_year(self):
+        self.model.apply_filters(years={"2025"})
+        assert self._coms() == {"A1", "A2"}
+
+    def test_filter_by_month(self):
+        self.model.apply_filters(years={"2025-07", "2026-03"})
+        assert self._coms() == {"A2", "B1"}
+
+    def test_year_options_have_months(self):
+        options = self.model.filter_options("years")
+        assert [key for key, _, _ in options] == ["2025", "2026", "2027"]
+        months_2025 = options[0][2]
+        assert months_2025 == [("2025-03", "March"), ("2025-07", "July")]
+
+    def test_unassigned_is_a_detailer_option(self):
+        self.model.apply_filters(detailers={UNASSIGNED_KEY})
+        assert self._coms() == {"U1"}
+        keys = [key for key, _, _ in self.model.filter_options("detailers")]
+        assert keys[0] == UNASSIGNED_KEY
+
+    def test_checking_a_detailer_narrows_years(self):
+        self.model.apply_filters(detailers={"Jane"})
+        assert [key for key, _, _ in self.model.filter_options("years")] == ["2025"]
+
+    def test_checking_a_year_narrows_detailers(self):
+        self.model.apply_filters(years={"2026"})
+        keys = [key for key, _, _ in self.model.filter_options("detailers")]
+        assert keys == [UNASSIGNED_KEY, "Tom"]
+
+    def test_dropdown_not_narrowed_by_its_own_selection(self):
+        self.model.apply_filters(years={"2025"})
+        assert [key for key, _, _ in self.model.filter_options("years")] == ["2025", "2026", "2027"]
+
+    def test_unavailable_checks_are_dropped(self):
+        # 2025 + 2026 checked, then Jane (only in 2025): 2026 is no longer offered
+        self.model.apply_filters(years={"2025", "2026"}, detailers={"Jane"})
+        assert self.model.filters["years"] == {"2025"}
+        assert self._coms() == {"A1", "A2"}
+
+    def test_search_does_not_drop_checks(self):
+        self.model.apply_filters(detailers={"Jane"}, com_search="no such unit")
+        assert self.model.filters["detailers"] == {"Jane"}
+        assert self._coms() == set()
+
+    def test_checks_survive_an_empty_model(self):
+        model = UnitListModel([])
+        model.apply_filters(years={"2026"})
+        assert model.filters["years"] == {"2026"}
+
+    def test_cancelled_units_do_not_offer_their_years(self):
+        cancelled = _make_unit("X1", "Cancelled", due=date(2030, 1, 1))
+        model = UnitListModel([*_year_units(), cancelled])
+        model.apply_filters()
+        assert "2030" not in [key for key, _, _ in model.filter_options("years")]
+        assert [key for key, _, _ in model.filter_options("detailers")][-1] == CANCELLED_KEY
+        model.apply_filters(detailers={CANCELLED_KEY})
+        assert [key for key, _, _ in model.filter_options("years")] == ["2030"]
 
 # ─── UnitListModel Sorting ────────────────────────────────────────
 
@@ -397,24 +409,106 @@ class TestListPanelWidget:
 
     def test_refresh_preserves_filters(self, qapp):
         panel = ListPanel(self.units)
-        # Apply a filter
-        panel.status_combo.setCurrentIndex(panel.status_combo.findData("red"))
-        initial_count = panel.table.rowCount()
-        assert initial_count == 1
+        panel.detailer_filter.set_selected({"Maria / RGV Team"}, emit=True)
+        assert panel.table.rowCount() == 2
 
         # Refresh with same data
         panel.refresh(self.units)
-        assert panel.table.rowCount() == 1
+        assert panel.table.rowCount() == 2
+        assert panel.detailer_filter.selected() == {"Maria / RGV Team"}
 
     def test_clear_filters(self, qapp):
         panel = ListPanel(self.units)
-        # Apply a filter
-        panel.status_combo.setCurrentIndex(panel.status_combo.findData("red"))
+        panel.detailer_filter.set_selected({"Maria / RGV Team"}, emit=True)
+        panel.job_filter.set_selected({"In Progress Beta"}, emit=True)
+        panel.com_search.setText("Beta")
+        panel._on_filter_changed()
         assert panel.table.rowCount() == 1
 
-        # Clear
         panel._clear_filters()
         assert panel.table.rowCount() == 6
+        assert panel.com_search.text() == ""
+        assert not any(b.is_active() for b in panel._filter_buttons().values())
+
+    def test_filter_buttons_show_cascaded_options(self, qapp):
+        panel = ListPanel(_year_units())
+        panel.detailer_filter.set_selected({"Jane"}, emit=True)
+        assert [o.key for o in panel.year_filter.options()] == ["2025"]
+        assert panel.detailer_filter.options()[0].key == UNASSIGNED_KEY
+
+    def test_unavailable_check_is_cleared_on_button(self, qapp):
+        panel = ListPanel(_year_units())
+        panel.year_filter.set_selected({"2025", "2026"}, emit=True)
+        panel.detailer_filter.set_selected({"Jane"}, emit=True)
+        assert panel.year_filter.selected() == {"2025"}
+
+    def test_filter_state_round_trip(self, qapp):
+        panel = ListPanel(_year_units())
+        emitted = []
+        panel.filters_changed.connect(emitted.append)
+        panel.load_filter_state({"years": ["2026"], "detailers": ["Tom"], "search": "B1"})
+        assert {u.com_number for u in panel._model.filtered_units} == {"B1"}
+        assert panel.filter_state() == {
+            "years": ["2026"], "detailers": ["Tom"], "jobs": [], "search": "B1",
+        }
+        assert emitted == []  # loading is not a change to save
+        panel.job_filter.set_selected({"Beta"}, emit=True)
+        assert emitted[-1]["jobs"] == ["Beta"]
+
+    def test_load_filter_state_before_units(self, qapp):
+        panel = ListPanel()
+        panel.load_filter_state({"years": ["2026"]})
+        panel.set_units(_year_units())
+        assert {u.com_number for u in panel._model.filtered_units} == {"B1", "U1"}
+
+    def test_scroll_anchor_survives_reload(self, qapp):
+        from PyQt5.QtWidgets import QAbstractItemView
+
+        units = [_make_unit(f"COM-{i:03d}", due=date(2026, 1, 1) + timedelta(days=i)) for i in range(200)]
+        panel = ListPanel(units)
+        panel.resize(800, 400)
+        panel.show()
+        qapp.processEvents()
+        row = panel._model.filtered_units.index(next(u for u in units if u.com_number == "COM-080"))
+        panel.table.scrollToItem(panel.table.item(row, 0), QAbstractItemView.PositionAtTop)
+        qapp.processEvents()
+        assert panel.top_visible_com() == "COM-080"
+
+        # A reload that adds rows above it keeps COM-080 on top
+        extra = [_make_unit(f"NEW-{i}", due=date(2025, 12, 1)) for i in range(30)]
+        panel.refresh(extra + units)
+        qapp.processEvents()
+        top = panel._model.filtered_units[panel.table.rowAt(0)]
+        assert top.com_number == "COM-080"
+        panel.close()
+
+    def test_scroll_anchor_loaded_while_hidden(self, qapp):
+        units = [_make_unit(f"COM-{i:03d}", due=date(2026, 1, 1) + timedelta(days=i)) for i in range(200)]
+        panel = ListPanel(units)
+        panel.load_scroll_anchor("COM-120")
+        assert panel.top_visible_com() == "COM-120"
+        panel.resize(800, 400)
+        panel.show()
+        qapp.processEvents()
+        qapp.processEvents()
+        top = panel._model.filtered_units[panel.table.rowAt(0)]
+        assert top.com_number == "COM-120"
+        panel.close()
+
+    def test_scroll_anchor_falls_back_to_nearest_due_date(self, qapp):
+        units = [_make_unit(f"COM-{i:03d}", due=date(2026, 1, 1) + timedelta(days=i)) for i in range(200)]
+        panel = ListPanel(units)
+        panel.resize(800, 400)
+        panel.show()
+        qapp.processEvents()
+        panel.load_scroll_anchor("COM-100")
+        qapp.processEvents()
+        # COM-100 is removed by the next reload; its neighbour by due date takes its place
+        panel.refresh([u for u in units if u.com_number != "COM-100"])
+        qapp.processEvents()
+        top = panel._model.filtered_units[panel.table.rowAt(0)]
+        assert top.com_number in {"COM-099", "COM-101"}
+        panel.close()
 
     def test_signal_emitted_on_selection(self, qapp):
         panel = ListPanel(self.units)
@@ -453,16 +547,10 @@ class TestListPanelWidget:
         assert panel._search_debounce is not None
         assert panel._search_debounce.isSingleShot()
 
-    def test_status_combo_has_all_options(self, qapp):
-        """Filter combo has All + 7 status options = 8 options."""
+    def test_filter_buttons_exist(self, qapp):
         panel = ListPanel(self.units)
-        count = panel.status_combo.count()
-        assert count == 8  # "All" + 7 status options
-
-    def test_date_combo_has_presets(self, qapp):
-        panel = ListPanel(self.units)
-        count = panel.date_combo.count()
-        assert count == len(DATE_FILTER_PRESETS)
+        assert set(panel._filter_buttons()) == {"years", "detailers", "jobs"}
+        assert not hasattr(panel, "status_combo")
 
     def test_status_colors_complete(self, qapp):
         """Verify all status levels have color definitions."""
@@ -492,7 +580,6 @@ class TestListPanelWidget:
         u3.contract_number = "CON-2"  # singleton contract
 
         panel = ListPanel([u1, u2, u3])
-        panel.show_stale_checkbox.setChecked(True)
         panel._model.sort_by("detailing_due_date", True)
         panel._refresh_table_full()
 
@@ -526,7 +613,6 @@ class TestListPanelWidget:
         u3.contract_number = "CON-3"
 
         panel = ListPanel([u1, u2, u3])
-        panel.show_stale_checkbox.setChecked(True)
         panel._model.sort_by("detailing_due_date", True)
         panel._refresh_table_full()
 
@@ -549,7 +635,6 @@ class TestListPanelWidget:
             u.contract_number = "SHARED"
 
         panel = ListPanel([u1, u2, u3])
-        panel.show_stale_checkbox.setChecked(True)
 
         # Sort ascending — capture COM colors at each position
         panel._model.sort_by("detailing_due_date", True)
@@ -595,46 +680,30 @@ class TestConstants:
         for color in ["gray", "yellow", "purple", "orange", "green", "red"]:
             assert color in STATUS_LABELS
 
-    def test_date_presets_non_empty(self):
-        assert len(DATE_FILTER_PRESETS) >= 5
-
-
 # ─── Integration: Model + Sorting + Filtering ──────────────────────
 
 
 class TestFilterSortIntegration:
     """End-to-end: apply filter then sort, verify correct order."""
 
-    def test_filter_overdue_sort_by_com(self):
-        units = _build_unit_list()
-        model = UnitListModel(units)
-        model.apply_filters(date_preset="overdue")
-        model.sort_by("com_number", ascending=True)
-        assert len(model.filtered_units) == 1
-        assert model.filtered_units[0].com_number == "COM-100"
-
-    def test_filter_next_7_days_sort_by_status(self):
-        units = _build_unit_list()
-        model = UnitListModel(units)
-        model.apply_filters(date_preset="next_7_days")
-        model.sort_by("status_color", ascending=True)
-        colors = [u.status_color for u in model.filtered_units]
-        # Should be sorted by severity
-        severity_values = [SEVERITY_ORDER[c] for c in colors]
-        assert severity_values == sorted(severity_values)
+    def test_filter_year_sort_by_com(self):
+        model = UnitListModel(_year_units())
+        model.apply_filters(years={"2025", "2026"})
+        model.sort_by("com_number", ascending=False)
+        assert [u.com_number for u in model.filtered_units] == ["U1", "B1", "A2", "A1"]
 
     def test_filter_jackie_sort_by_pct(self):
         units = _build_unit_list()
         model = UnitListModel(units)
-        model.apply_filters(detailer="Jackie / IEC Internals")
+        model.apply_filters(detailers={"Jackie / IEC Internals"})
         model.sort_by("percent_complete", ascending=True)
         pcts = [u.percent_complete for u in model.filtered_units]
         assert pcts == sorted(pcts)
 
-    def test_search_combined_with_status_filter(self):
+    def test_search_combined_with_job_filter(self):
         units = _build_unit_list()
         model = UnitListModel(units)
-        model.apply_filters(status="yellow", com_search="Beta")
+        model.apply_filters(jobs={"In Progress Beta"}, com_search="Beta")
         assert len(model.filtered_units) == 1
         assert model.filtered_units[0].com_number == "COM-200"
 
@@ -642,7 +711,6 @@ class TestFilterSortIntegration:
         """Verify that detailing_due_date always displays the suffix (e.g. ' (W1)')."""
         u1 = _make_unit(com="COM-A", due=date(2026, 7, 3))  # July 3, 2026 is Week 1
         panel = ListPanel([u1])
-        panel.show_stale_checkbox.setChecked(True)
         panel._refresh_table_full()
 
         col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
@@ -654,11 +722,11 @@ class TestFilterSortIntegration:
 
     def test_due_date_week_colors(self, qapp):
         """Verify due date week highlight colors update dynamically based on theme/CVD mode."""
-        u1 = _make_unit(com="COM-A", due=date(2026, 7, 3))  # July 3, 2026 -> Week 1
-        u2 = _make_unit(com="COM-B", due=date(2026, 7, 10)) # July 10, 2026 -> Week 2
+        # Complete, so the past dates are not overdue (overdue cells drop the week fill)
+        u1 = _make_unit(com="COM-A", due=date(2026, 7, 3), pct=100.0)  # July 3, 2026 -> Week 1
+        u2 = _make_unit(com="COM-B", due=date(2026, 7, 10), pct=100.0) # July 10, 2026 -> Week 2
 
         panel = ListPanel([u1, u2])
-        panel.show_stale_checkbox.setChecked(True)
         panel._refresh_table_full()
 
         col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
@@ -700,6 +768,25 @@ class TestFilterSortIntegration:
         assert color_w1_hc_dark == "#2563eb", "Week 1 high contrast dark color mismatch"
         assert color_w2_hc_dark == "#0d9488", "Week 2 high contrast dark color mismatch"
 
+    def test_overdue_due_date_is_red_without_week_fill(self, qapp):
+        """Red text on a week colour is unreadable, so an overdue date has no fill."""
+        from PyQt5.QtCore import Qt
+
+        late = _make_unit(com="COM-LATE", due=date.today() - timedelta(days=3), pct=50.0)
+        done = _make_unit(com="COM-DONE", due=date.today() - timedelta(days=3), pct=100.0)
+        panel = ListPanel([late, done])
+        panel._refresh_table_full()
+        col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]
+        due_col = col_keys.index("detailing_due_date")
+        rows = {panel.table.item(r, due_col).data(Qt.UserRole).com_number: r for r in range(2)}
+
+        late_item = panel.table.item(rows["COM-LATE"], due_col)
+        assert late_item.background().style() == Qt.NoBrush
+        assert late_item.foreground().color().name() == "#dc2626"
+        done_item = panel.table.item(rows["COM-DONE"], due_col)
+        assert done_item.background().style() != Qt.NoBrush
+        assert done_item.foreground().color().name() != "#dc2626"
+
     def test_highlight_delegate_is_applied(self, qapp):
         """Verify that HighlightDelegate is set on the list panel's table."""
         from gui.list_panel import HighlightDelegate
@@ -722,7 +809,6 @@ class TestFilterSortIntegration:
         u4.contract_number = "SHARED-2"
 
         panel = ListPanel([u1, u2, u3, u4])
-        panel.show_stale_checkbox.setChecked(True)
         panel._refresh_table_full()
 
         col_keys = [d[0] for d in COLUMN_DEFS if d[0] in panel._model.visible_columns]

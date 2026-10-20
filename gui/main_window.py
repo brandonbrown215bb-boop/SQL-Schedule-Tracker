@@ -9,8 +9,10 @@ import logging
 import os
 import sys
 import time
+from datetime import date
 
 from PyQt5.QtCore import QFileSystemWatcher, Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QAction,
     QFileDialog,
@@ -546,6 +548,11 @@ class MainWindow(QMainWindow):
         self.a11y_btn.setToolTip("Accessibility settings")
         self.a11y_btn.clicked.connect(self._open_a11y_dialog)
         toggle_layout.addWidget(self.a11y_btn)
+        glyph_font = QFont(self.theme_btn.font())
+        glyph_font.setPointSize(13)
+        for btn in (self.theme_btn, self.a11y_btn):
+            btn.setFont(glyph_font)
+            btn.setFixedWidth(40)
         left_container.addLayout(toggle_layout)
 
         # View title label (P16)
@@ -571,7 +578,7 @@ class MainWindow(QMainWindow):
         self.list_panel.units_saved.connect(self.on_save_units)
         self.list_panel.inline_dirty_changed.connect(self._on_inline_dirty_changed)
         self.list_panel.show_inline_edit_changed.connect(self._on_show_inline_edit_changed)
-        self.list_panel.stale_changed.connect(self._on_stale_changed)
+        self.list_panel.filters_changed.connect(self._on_list_filters_changed)
         self.list_panel.column_widths_changed.connect(self._on_column_widths_changed)
         self.list_panel.column_visibility_changed.connect(self._on_column_visibility_changed)
         self.list_panel.column_order_changed.connect(self._on_column_order_changed)
@@ -598,6 +605,12 @@ class MainWindow(QMainWindow):
         saved_sort_col = self._services.config.get("ui", {}).get("list_sort_column", "detailing_due_date")
         saved_sort_asc = self._services.config.get("ui", {}).get("list_sort_ascending", True)
         self.list_panel.load_sort_config(saved_sort_col, saved_sort_asc)
+        # First launch (nothing saved yet): show the current year
+        saved_filters = self._services.config.get("ui", {}).get("list_filters")
+        if saved_filters is None:
+            saved_filters = {"years": [str(date.today().year)]}
+        self.list_panel.load_filter_state(saved_filters)
+        self.list_panel.load_scroll_anchor(self._services.config.get("ui", {}).get("list_top_com"))
 
     def _init_right_panel(self) -> None:
         right_widget = QWidget()
@@ -856,9 +869,9 @@ class MainWindow(QMainWindow):
             self.edit_form.setEnabled(True)
             self.timeline_panel.setEnabled(True)
 
-    def _on_stale_changed(self, show_stale: bool) -> None:
-        self.calendar_panel.calendar.set_show_stale(show_stale)
-        self.calendar_panel.refresh(self.units)
+    def _on_list_filters_changed(self, state: dict) -> None:
+        self._services.config.setdefault("ui", {})["list_filters"] = state
+        self._save_ui_config()
 
     def _update_dirty_title(self) -> None:
         is_dirty = self._form_dirty or getattr(self, "_inline_dirty", False)
@@ -1930,6 +1943,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "list_panel") and self.list_panel._model is not None:
             ui["list_sort_column"] = self.list_panel._sort_column
             ui["list_sort_ascending"] = self.list_panel._sort_ascending
+            ui["list_top_com"] = self.list_panel.top_visible_com()
         config_path = self._services.config_path
         if config_path and os.path.exists(os.path.dirname(config_path)):
             try:

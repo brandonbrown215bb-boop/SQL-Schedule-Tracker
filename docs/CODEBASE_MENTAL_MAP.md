@@ -588,7 +588,15 @@ In manufacturing scheduling, tracking historical completed units is necessary, b
 * **The Critical Invariant Exceptions:**
   * **Unassigned Units are NEVER Stale:** If a unit has not been assigned to a detailer (`is_assigned == False`), `is_stale` strictly returns `False`. Unassigned work must never vanish silently into an archive view.
   * **Cancelled Units are NEVER Stale:** Cancelled orders (`is_cancelled == True`) are exempted from stale archiving so schedulers can search and review cancelled contracts on demand.
-* **UI Behavior & Toggling:** Stale units are hidden by default in `ListPanel` and `CalendarPanel`. Schedulers can toggle the **"Show Stale"** button or apply custom date ranges to inspect archived projects.
+* **UI Behavior:** Only the Alerts panel hides stale units. `ListPanel` and `CalendarPanel` show every unit; the List narrows with its Year / Detailer / Job Name filters instead and remembers the unit at the top of the table (`ui.list_top_com`) so a long year does not mean scrolling from the top.
+
+### List View Filters (`gui/list_panel.py`, `gui/checklist_filter.py`)
+
+* Three Excel-style checklist dropdowns: **Year** (expands into months of the due date), **Detailer** (includes `(Unassigned)` and `Cancelled`), **Job Name** (type to search). Plus the free-text search box.
+* Nothing checked = no filter. Checking every value is stored as nothing checked.
+* **Cascading:** each dropdown only offers values present in the units matching the *other* dropdowns (search does not narrow the dropdowns). A checked value that is no longer offered is unchecked (`UnitListModel._drop_unavailable`), so what is checked is always what is applied.
+* Cancelled units are hidden unless `Cancelled` is checked under Detailer.
+* Saved in `ui.list_filters` (`{"years", "detailers", "jobs", "search"}`). With no saved value (first launch) the current year is checked.
 
 ---
 

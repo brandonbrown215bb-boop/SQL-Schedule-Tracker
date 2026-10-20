@@ -190,9 +190,12 @@ class Unit:
     def is_stale(self) -> bool:
         """True if due date is more than STALE_THRESHOLD_DAYS in the past.
 
-        Unassigned and cancelled units are never marked stale to prevent them from being hidden unexpectedly.
+        Cancelled units and unfinished unassigned units are never marked stale to prevent
+        them from being hidden unexpectedly. Finished (100%) unassigned units can go stale.
         """
-        if not self.is_assigned or self.is_cancelled:
+        if self.is_cancelled:
+            return False
+        if not self.is_assigned and self.percent_complete < 100.0:
             return False
         if self.detailing_due_date:
             return self.detailing_due_date < date.today() - timedelta(days=STALE_THRESHOLD_DAYS)

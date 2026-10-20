@@ -42,6 +42,29 @@ def _get_invalid_style(theme_name: str = "light") -> str:
     )
 
 
+_EXTRA_DETAILER_ROLE = Qt.UserRole + 1
+
+
+def set_detailer_combo(combo: QComboBox, text: str) -> None:
+    """Show *text* in a detailer combo; blank selects index 0 (the unassigned option).
+
+    A name missing from the configured list (an old or SSRS-only name) is added
+    as an extra item, so saving the unit keeps it instead of unassigning it.
+    The extra item is dropped again when the next unit is loaded.
+    """
+    for i in range(combo.count() - 1, -1, -1):
+        if combo.itemData(i, _EXTRA_DETAILER_ROLE):
+            combo.removeItem(i)
+    text = (text or "").strip()
+    idx = combo.findText(text) if text else 0
+    if idx < 0:
+        combo.addItem(text)
+        idx = combo.count() - 1
+        combo.setItemData(idx, True, _EXTRA_DETAILER_ROLE)
+        combo.setItemData(idx, "Not in the configured detailer list", Qt.ToolTipRole)
+    combo.setCurrentIndex(idx)
+
+
 class ClearableDateEdit(QDateEdit):
     """QDateEdit that clears to the 'unset' sentinel on Delete/Backspace."""
 
@@ -374,8 +397,7 @@ class EditForm(QWidget):
                 self.job_name_edit.setText("")
                 self.contract_edit.setText("")
                 self.description_edit.setText("")
-                # self.detailer_edit.setText("") # REMOVED: Replaced with QComboBox
-                self.detailer_edit.setCurrentIndex(0)
+                set_detailer_combo(self.detailer_edit, "")
                 self.unit_state_edit.setText("")
                 self.checking_status_edit.setText("")
                 self.dr_checks_edit.setText("")
@@ -405,10 +427,7 @@ class EditForm(QWidget):
             self.job_name_edit.setText(unit.job_name)
             self.contract_edit.setText(unit.contract_number)
             self.description_edit.setText(unit.description)
-            if unit.detailer and self.detailer_edit.findText(unit.detailer) >= 0:
-                self.detailer_edit.setCurrentText(unit.detailer)
-            else:
-                self.detailer_edit.setCurrentIndex(0)
+            set_detailer_combo(self.detailer_edit, unit.detailer)
             self.unit_state_edit.setText(unit.unit_state or "")
             self.checking_status_edit.setText(unit.checking_status)
             self.dr_checks_edit.setText(unit.dr_checks)
@@ -467,7 +486,8 @@ class EditForm(QWidget):
 
 
         # Use the validation layer for field-level checks
-        valid, validation_errors = validate_unit(unit)
+        existing = self.current_unit.detailer if self.current_unit else None
+        valid, validation_errors = validate_unit(unit, existing_detailer=existing)
         if not valid:
             invalid_style = _get_invalid_style(self._theme_name)
             # Map validation errors to visual indicators

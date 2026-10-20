@@ -101,19 +101,22 @@ def test_list_model_cancelled_filtering():
 
     model = UnitListModel([u1, u_cancelled])
 
-    # Default (show_cancelled = False): cancelled excluded
-    model.apply_filters(show_cancelled=False)
+    # Nothing checked under Detailer: cancelled excluded
+    model.apply_filters()
     assert len(model.filtered_units) == 1
     assert model.filtered_units[0].com_number == "101"
 
-    # With show_cancelled = True: cancelled included
-    model.apply_filters(show_cancelled=True)
-    assert len(model.filtered_units) == 2
+    # "Cancelled" is still offered under Detailer
+    assert "Cancelled" in [key for key, _, _ in model.filter_options("detailers")]
 
-    # With detailer filter = "Cancelled": cancelled included even if show_cancelled=False
-    model.apply_filters(detailer="Cancelled", show_cancelled=False)
+    # Checking "Cancelled" shows the cancelled units
+    model.apply_filters(detailers={"Cancelled"})
     assert len(model.filtered_units) == 1
     assert model.filtered_units[0].com_number == "102"
+
+    # Checking it with another detailer shows both
+    model.apply_filters(detailers={"Cancelled", "Jackie H"})
+    assert len(model.filtered_units) == 2
 
 
 def test_calendar_widget_cancelled_filtering():

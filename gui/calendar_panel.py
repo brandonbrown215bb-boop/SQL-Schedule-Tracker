@@ -2,7 +2,7 @@
 from collections import defaultdict
 
 from PyQt5.QtCore import QDate, QEvent, QRect, Qt, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QPainter
+from PyQt5.QtGui import QBrush, QColor, QPainter, QTextCharFormat
 from PyQt5.QtWidgets import (
     QCalendarWidget,
     QCheckBox,
@@ -34,7 +34,6 @@ class EventCalendarWidget(QCalendarWidget):
         self.clicked.connect(self._emit_date_clicked)
         self._theme_name = "light"
         self._cvd_mode = "none"
-        self._show_stale = False
         self._show_cancelled = False
         self._highlighted_com: str | None = None  # P18
         # Fix: install event filter to reposition month/year QMenu popups
@@ -60,9 +59,6 @@ class EventCalendarWidget(QCalendarWidget):
                 menu.move(pos)
                 return
 
-    def set_show_stale(self, show: bool) -> None:
-        self._show_stale = show
-
     def set_show_cancelled(self, show: bool) -> None:
         self._show_cancelled = show
 
@@ -75,8 +71,6 @@ class EventCalendarWidget(QCalendarWidget):
         """Build the date→units map — only the detailing due date."""
         self.events_by_date.clear()
         for unit in units:
-            if not self._show_stale and unit.is_stale:
-                continue
             if not self._show_cancelled and unit.is_cancelled:
                 continue
             if unit.detailing_due_date is not None:
@@ -91,6 +85,13 @@ class EventCalendarWidget(QCalendarWidget):
     def set_theme(self, theme_name: str, cvd_mode: str = "none") -> None:
         self._theme_name = theme_name
         self._cvd_mode = cvd_mode
+        # Qt's default weekend red is unreadable on the dark theme; mute weekends instead
+        from gui.theme import THEMES
+
+        weekend = QTextCharFormat()
+        weekend.setForeground(QColor(THEMES[theme_name]["text_secondary"]))
+        for day in (Qt.Saturday, Qt.Sunday):
+            self.setWeekdayTextFormat(day, weekend)
         self.updateCells()
 
     def paintCell(self, painter: QPainter, rect: QRect, date: QDate) -> None:

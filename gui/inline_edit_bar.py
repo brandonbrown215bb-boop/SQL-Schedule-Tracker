@@ -25,7 +25,7 @@ from PyQt5.QtWidgets import (
 )
 
 from data.models import Unit
-from gui.edit_form import ClearableDateEdit, _get_invalid_style
+from gui.edit_form import ClearableDateEdit, _get_invalid_style, set_detailer_combo
 from gui.no_scroll_filter import install_no_scroll_filter
 from gui.theme import reset_input_style
 from services.validation import validate_unit
@@ -430,7 +430,8 @@ class InlineEditBar(QWidget):
 
 
 
-        valid, validation_errors = validate_unit(unit)
+        existing = self._unit.detailer if self._unit else None
+        valid, validation_errors = validate_unit(unit, existing_detailer=existing)
         if not valid:
             invalid_style = _get_invalid_style(self._theme_name)
             for err in validation_errors:
@@ -595,12 +596,4 @@ class InlineEditBar(QWidget):
 
     @staticmethod
     def _set_combo_text(combo: QComboBox, text: str) -> None:
-        idx = combo.findText(text)
-        if idx >= 0:
-            combo.setCurrentIndex(idx)
-        else:
-            # This is a non-editable combo.  setCurrentText() does not clear a
-            # previous selection when ``text`` is absent, so a unit with no
-            # detailer could inherit the last unit's displayed detailer on save.
-            # Index 0 is the configured unassigned option.
-            combo.setCurrentIndex(0)
+        set_detailer_combo(combo, text)

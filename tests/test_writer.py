@@ -124,6 +124,23 @@ class TestValidation:
         with pytest.raises(ValidationError, match="percent_complete: minimum 0"):
             save_unit(db_with_units, unit)
 
+    def test_past_detailer_kept_on_save(self, db_with_units, unit_to_save):
+        """A detailer no longer in the active list saves if the unit already had it."""
+        conn = sqlite3.connect(db_with_units)
+        conn.execute("UPDATE units SET detailer = 'Past Detailer' WHERE com_number = '14201'")
+        conn.commit()
+        unit_to_save.updated_at = conn.execute(
+            "SELECT updated_at FROM units WHERE com_number = '14201'"
+        ).fetchone()[0]
+        conn.close()
+        unit_to_save.detailer = "Past Detailer"
+        save_unit(db_with_units, unit_to_save)
+
+    def test_unlisted_detailer_rejected_as_new_assignment(self, db_with_units, unit_to_save):
+        unit_to_save.detailer = "Past Detailer"
+        with pytest.raises(ValidationError):
+            save_unit(db_with_units, unit_to_save)
+
     def test_percent_complete_zero_passes(self, db_with_units, unit_to_save):
         """Percent 0 should validly save."""
         unit_to_save.percent_complete = 0.0

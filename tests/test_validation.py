@@ -97,6 +97,16 @@ class TestValidateUnit:
         assert valid is False
         assert any("detailer" in e for e in errors)
 
+    def test_existing_unlisted_detailer_is_valid(self, valid_unit):
+        valid_unit.detailer = "Past Detailer"
+        valid, _errors = validate_unit(valid_unit, existing_detailer="Past Detailer")
+        assert valid is True
+
+    def test_unlisted_detailer_other_than_existing_is_invalid(self, valid_unit):
+        valid_unit.detailer = "Past Detailer"
+        valid, _errors = validate_unit(valid_unit, existing_detailer="Other Past Detailer")
+        assert valid is False
+
     def test_valid_detailer(self, valid_unit):
         valid_unit.detailer = "Brandon B"
         valid, _errors = validate_unit(valid_unit)

@@ -19,18 +19,15 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from PyQt5.QtCore import QDate, QItemSelection, QItemSelectionModel, Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QItemSelection, QItemSelectionModel, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QBrush, QColor, QFont
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QAction,
     QApplication,
     QCheckBox,
-    QComboBox,
-    QDateEdit,
     QDialog,
     QDialogButtonBox,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -49,6 +46,7 @@ from PyQt5.QtWidgets import (
 
 from data.models import Unit
 from data.tag_parser import UnitTagRepository, parse_description
+from gui.checklist_filter import ChecklistFilterButton, FilterOption
 from gui.inline_edit_bar import InlineEditBar
 from services.assignment import UNASSIGNED, UNASSIGNED_LABELS, assign_detailer, mark_cancelled
 
@@ -110,17 +108,6 @@ UNIT_STATE_COLORS: dict[str, QColor] = {
     "Pre-Load": QColor(100, 116, 139), # Slate
 }
 
-STATUS_LABELS: dict[str, str] = {
-    "All": "All Statuses",
-    "unassigned": "Unassigned",
-    "gray": "Not Started",
-    "yellow": "In Progress",
-    "purple": "Ready for Checking",
-    "orange": "Checked & Returned",
-    "green": "Released",
-    "red": "Overdue/Potential Miss",
-}
-
 SEVERITY_ORDER: dict[str, int] = {
     "red": 0,
     "orange": 1,
@@ -132,20 +119,60 @@ SEVERITY_ORDER: dict[str, int] = {
 }
 
 
-# ─── Filter Presets ─────────────────────────────────────────────────
+# ─── Filter Keys ────────────────────────────────────────────────────
+# The List view filters on Year (with months), Detailer and Job Name.
+# An empty selection means "no filter". Each dropdown only offers values
+# present in the units matching the *other* dropdowns; a checked value
+# that is no longer offered is dropped.
 
-DATE_FILTER_PRESETS: list[tuple[str, str | None]] = [
-    ("All", None),
-    ("Custom Range", "custom"),
-    ("Overdue", "overdue"),
-    ("Today", "today"),
-    ("Next 3 Days", "next_3_days"),
-    ("Next 7 Days", "next_7_days"),
-    ("Next 30 Days", "next_30_days"),
-    ("This Month", "this_month"),
-    ("Next Month", "next_month"),
-    ("Past 30 Days", "past_30_days"),
-]
+FILTER_DIMENSIONS: tuple[str, ...] = ("years", "detailers", "jobs")
+UNASSIGNED_KEY = "(Unassigned)"
+CANCELLED_KEY = "Cancelled"
+BLANK_JOB_KEY = "(Blank)"
+NO_DATE_KEY = "(No date)"
+
+MONTH_NAMES = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+def year_key(unit: Unit) -> str:
+    due = unit.detailing_due_date
+    return str(due.year) if due else NO_DATE_KEY
+
+
+def month_key(unit: Unit) -> str | None:
+    due = unit.detailing_due_date
+    return f"{due.year}-{due.month:02d}" if due else None
+
+
+def detailer_key(unit: Unit) -> str:
+    if unit.is_cancelled:
+        return CANCELLED_KEY
+    if not unit.is_assigned:
+        return UNASSIGNED_KEY
+    return unit.detailer.strip()
+
+
+def job_key(unit: Unit) -> str:
+    return (unit.job_name or "").strip() or BLANK_JOB_KEY
+
+
+def _unit_keys(unit: Unit, dimension: str) -> tuple[str, ...]:
+    """Every filter key under which *unit* is offered for *dimension*."""
+    if dimension == "years":
+        month = month_key(unit)
+        return (year_key(unit), month) if month else (year_key(unit),)
+    if dimension == "detailers":
+        return (detailer_key(unit),)
+    return (job_key(unit),)
+
+
+def _matches(unit: Unit, dimension: str, selected: set[str]) -> bool:
+    if not selected:
+        return True
+    return any(k in selected for k in _unit_keys(unit, dimension))
 
 
 # ─── UnitListModel ──────────────────────────────────────────────────
@@ -154,22 +181,13 @@ DATE_FILTER_PRESETS: list[tuple[str, str | None]] = [
 class UnitListModel:
     """In-memory model: holds all units, applies filters + sort."""
 
-    def __init__(self, units: list[Unit], show_stale: bool = False):
+    def __init__(self, units: list[Unit]):
         self._all_units: list[Unit] = list(units)
-        self._filtered_units: list[Unit] = list(units)
+        self._filtered_units: list[Unit] = [u for u in units if not u.is_cancelled]
         self._column_order: list[str] = [key for key, _, _, _ in COLUMN_DEFS]
         self._visible_columns_set: set[str] = {key for key, _, _, visible in COLUMN_DEFS if visible}
-        self._show_stale: bool = show_stale
-        # Current filter state for re-application
-        self._current_status: str = "All"
-        self._current_detailer: str = "All"
-        self._current_date_preset: str | None = None
-        self._current_date_from: date | None = None
-        self._current_date_to: date | None = None
-        self._current_com_search: str = ""
-        self._current_alert_filter: str = "All"
-        self._current_show_cancelled: bool = False
-        self._current_unit_state_filter: str = "All"
+        self._filters: dict[str, set[str]] = {dim: set() for dim in FILTER_DIMENSIONS}
+        self._com_search: str = ""
 
     @property
     def all_units(self) -> list[Unit]:
@@ -178,6 +196,11 @@ class UnitListModel:
     @property
     def filtered_units(self) -> list[Unit]:
         return self._filtered_units
+
+    @property
+    def filters(self) -> dict[str, set[str]]:
+        """Current selection per dimension, after unavailable values were dropped."""
+        return {dim: set(keys) for dim, keys in self._filters.items()}
 
     @property
     def column_order(self) -> list[str]:
@@ -204,85 +227,24 @@ class UnitListModel:
 
     def apply_filters(
         self,
-        status: str = "All",
-        detailer: str = "All",
-        date_preset: str | None = None,
-        date_from: date | None = None,
-        date_to: date | None = None,
+        years=None,
+        detailers=None,
+        jobs=None,
         com_search: str = "",
-        alert_filter: str = "All",
-        show_cancelled: bool = False,
-        unit_state_filter: str = "All",
     ) -> None:
-        """Apply all active filters with AND logic."""
-        # Store current filter state for re-application
-        self._current_status = status
-        self._current_detailer = detailer
-        self._current_date_preset = date_preset
-        self._current_date_from = date_from
-        self._current_date_to = date_to
-        self._current_com_search = com_search
-        self._current_alert_filter = alert_filter
-        self._current_show_cancelled = show_cancelled
-        self._current_unit_state_filter = unit_state_filter
+        """Apply Year, Detailer, Job Name and search with AND logic.
 
-        result = list(self._all_units)
+        Cancelled units are left out unless "Cancelled" is checked under Detailer.
+        """
+        self._filters = {
+            "years": set(years or ()),
+            "detailers": set(detailers or ()),
+            "jobs": set(jobs or ()),
+        }
+        self._com_search = com_search
+        self._drop_unavailable()
 
-        # Cancelled filter: exclude cancelled units unless explicitly shown or filtered by Cancelled detailer
-        if not show_cancelled and detailer != "Cancelled":
-            result = [u for u in result if not u.is_cancelled]
-
-        # Stale filter: when show_stale is False, exclude stale units,
-        # unless a custom date range is active and includes this unit.
-        if not self._show_stale:
-            def is_in_custom_range(u: Unit) -> bool:
-                if date_preset != "custom":
-                    return False
-                if u.detailing_due_date is None:
-                    return False
-                if date_from and date_to:
-                    return date_from <= u.detailing_due_date <= date_to
-                elif date_from:
-                    return u.detailing_due_date >= date_from
-                elif date_to:
-                    return u.detailing_due_date <= date_to
-                return False
-
-            result = [u for u in result if not u.is_stale or is_in_custom_range(u)]
-
-        if status != "All":
-            result = [u for u in result if u.status_color_name == status]
-
-        if detailer != "All":
-            result = [u for u in result if u.detailer == detailer]
-
-        if unit_state_filter != "All":
-            result = [u for u in result if u.unit_state == unit_state_filter]
-
-        if alert_filter != "All":
-            result = [u for u in result if u.alert_level == alert_filter]
-
-        if date_preset and date_preset != "custom":
-            result = self._filter_by_date(result, date_preset, date.today())
-        elif date_preset == "custom" and date_from and date_to:
-            result = [
-                u
-                for u in result
-                if u.detailing_due_date is not None and date_from <= u.detailing_due_date <= date_to
-            ]
-        elif date_preset == "custom" and date_from:
-            result = [
-                u
-                for u in result
-                if u.detailing_due_date is not None and u.detailing_due_date >= date_from
-            ]
-        elif date_preset == "custom" and date_to:
-            result = [
-                u
-                for u in result
-                if u.detailing_due_date is not None and u.detailing_due_date <= date_to
-            ]
-
+        result = self._matching()
         if com_search:
             query = com_search.lower().strip()
             result = [
@@ -294,88 +256,71 @@ class UnitListModel:
                 or query in u.description.lower()
                 or query in u.notes.lower()
             ]
-
         self._filtered_units = result
 
-    def set_show_stale(self, show: bool) -> None:
-        """Update the stale flag and re-apply current filters."""
-        self._show_stale = show
-        self.apply_filters(
-            status=self._current_status,
-            detailer=self._current_detailer,
-            date_preset=self._current_date_preset,
-            date_from=self._current_date_from,
-            date_to=self._current_date_to,
-            com_search=self._current_com_search,
-            alert_filter=self._current_alert_filter,
-            show_cancelled=self._current_show_cancelled,
-            unit_state_filter=self._current_unit_state_filter,
-        )
+    def _matching(self, skip: str | None = None) -> list[Unit]:
+        """Units passing every dropdown except *skip* (search is not applied)."""
+        show_cancelled = skip == "detailers" or CANCELLED_KEY in self._filters["detailers"]
+        result = []
+        for u in self._all_units:
+            if u.is_cancelled and not show_cancelled:
+                continue
+            if all(
+                _matches(u, dim, self._filters[dim])
+                for dim in FILTER_DIMENSIONS
+                if dim != skip
+            ):
+                result.append(u)
+        return result
 
-    def _filter_by_date(self, units: list[Unit], preset: str, today: date) -> list[Unit]:
-        if preset == "overdue":
+    def _available_keys(self, dimension: str) -> set[str]:
+        keys: set[str] = set()
+        for u in self._matching(skip=dimension):
+            keys.update(_unit_keys(u, dimension))
+        return keys
+
+    def _drop_unavailable(self) -> None:
+        """Uncheck values the other dropdowns no longer offer (until stable)."""
+        if not self._all_units:
+            return
+        for _ in range(len(FILTER_DIMENSIONS) + 1):
+            changed = False
+            for dim in FILTER_DIMENSIONS:
+                if not self._filters[dim]:
+                    continue
+                kept = self._filters[dim] & self._available_keys(dim)
+                if kept != self._filters[dim]:
+                    self._filters[dim] = kept
+                    changed = True
+            if not changed:
+                return
+
+    def filter_options(self, dimension: str) -> list[tuple[str, str, list[tuple[str, str]]]]:
+        """Values *dimension*'s dropdown offers: (key, label, [(child_key, child_label)])."""
+        units = self._matching(skip=dimension)
+        if dimension == "years":
+            months: dict[str, set[int]] = {}
+            for u in units:
+                months.setdefault(year_key(u), set())
+                if u.detailing_due_date:
+                    months[year_key(u)].add(u.detailing_due_date.month)
+            ordered = sorted(k for k in months if k != NO_DATE_KEY)
+            if NO_DATE_KEY in months:
+                ordered.append(NO_DATE_KEY)
             return [
-                u
-                for u in units
-                if u.detailing_due_date is not None and u.detailing_due_date < today
+                (y, y, [(f"{y}-{m:02d}", MONTH_NAMES[m - 1]) for m in sorted(months[y])])
+                for y in ordered
             ]
-        if preset == "today":
-            return [
-                u
-                for u in units
-                if u.detailing_due_date is not None and u.detailing_due_date == today
-            ]
-        if preset == "next_3_days":
-            end = today + timedelta(days=3)
-            return [
-                u
-                for u in units
-                if u.detailing_due_date is not None and today <= u.detailing_due_date <= end
-            ]
-        if preset == "next_7_days":
-            end = today + timedelta(days=7)
-            return [
-                u
-                for u in units
-                if u.detailing_due_date is not None and today <= u.detailing_due_date <= end
-            ]
-        if preset == "next_30_days":
-            end = today + timedelta(days=30)
-            return [
-                u
-                for u in units
-                if u.detailing_due_date is not None and today <= u.detailing_due_date <= end
-            ]
-        if preset == "this_month":
-            return [
-                u
-                for u in units
-                if u.detailing_due_date is not None
-                and u.detailing_due_date.month == today.month
-                and u.detailing_due_date.year == today.year
-            ]
-        if preset == "next_month":
-            if today.month < 12:
-                next_m = today.month + 1
-                next_y = today.year
-            else:
-                next_m = 1
-                next_y = today.year + 1
-            return [
-                u
-                for u in units
-                if u.detailing_due_date is not None
-                and u.detailing_due_date.month == next_m
-                and u.detailing_due_date.year == next_y
-            ]
-        if preset == "past_30_days":
-            start = today - timedelta(days=30)
-            return [
-                u
-                for u in units
-                if u.detailing_due_date is not None and start <= u.detailing_due_date <= today
-            ]
-        return units
+        if dimension == "detailers":
+            values = {detailer_key(u) for u in units}
+            first, last = [UNASSIGNED_KEY], [CANCELLED_KEY]
+        else:
+            values = {job_key(u) for u in units}
+            first, last = [BLANK_JOB_KEY], []
+        ordered = [v for v in first if v in values]
+        ordered += sorted((v for v in values if v not in first + last), key=str.lower)
+        ordered += [v for v in last if v in values]
+        return [(v, v, []) for v in ordered]
 
     # ── Sorting ─────────────────────────────────────────────────────
 
@@ -556,7 +501,7 @@ class ListPanel(QWidget):
     unit_saved = pyqtSignal(object)  # Unit (from inline edit bar)
     units_saved = pyqtSignal(list)  # list[Unit] (right-click actions; saved as one batch)
     inline_dirty_changed = pyqtSignal(bool)
-    stale_changed = pyqtSignal(bool)  # show_stale
+    filters_changed = pyqtSignal(dict)  # filter_state()
     column_order_changed = pyqtSignal(list)  # list of column keys in full order
     column_widths_changed = pyqtSignal(dict)  # {key: width}
     column_visibility_changed = pyqtSignal(list)  # list of visible column keys
@@ -587,7 +532,11 @@ class ListPanel(QWidget):
         self._default_detailers: list[str] = default_detailers or []
         self._db_path: str = db_path
         self._show_inline_edit: bool = show_inline_edit
-        self._show_cancelled: bool = False
+        self._last_filter_state: dict = {}
+        # (com_number, due date) of the unit kept at the top of the table
+        self._scroll_anchor: tuple[str, date | None] | None = None
+        self._anchor_pending: bool = False
+        self._restoring_scroll: bool = False
         self._last_emitted_com: str | None = None
         # Cache of pre-computed tag display strings, keyed by com_number.
         # Invalidated when the model (unit set) changes, preserved across
@@ -650,104 +599,20 @@ class ListPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        # ── Filter bar ──
-        filter_group = QGroupBox("Filters")
-        filter_group.setStyleSheet(
-            "QGroupBox { "
-            "  border: 1px solid palette(mid); "
-            "  border-radius: 6px; "
-            "  margin-top: 10px; "
-            "  padding-top: 14px; "
-            "} "
-            "QGroupBox::title { "
-            "  subcontrol-origin: margin; "
-            "  left: 10px; "
-            "  padding: 0 4px; "
-            "}"
-        )
-        filter_layout = QVBoxLayout()
-        filter_layout.setSpacing(4)
+        # ── Filter bar (Excel-style checklists; empty selection = no filter) ──
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(6)
+        self.year_filter = ChecklistFilterButton("Year")
+        self.detailer_filter = ChecklistFilterButton("Detailer")
+        self.job_filter = ChecklistFilterButton("Job Name")
+        self.job_filter.setMinimumWidth(170)
+        for button in (self.year_filter, self.detailer_filter, self.job_filter):
+            button.selection_changed.connect(self._on_filter_changed)
+            filter_row.addWidget(button)
 
-        # Row 1: Status + Detailer + Alert
-        row1 = QHBoxLayout()
-        row1.addWidget(QLabel("Status:"))
-        self.status_combo = QComboBox()
-        self.status_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        for key, label in STATUS_LABELS.items():
-            self.status_combo.addItem(label, key)
-        self.status_combo.currentIndexChanged.connect(self._on_filter_changed)
-        row1.addWidget(self.status_combo, 1)
-
-        row1.addWidget(QLabel("Detailer:"))
-        self.detailer_combo = QComboBox()
-        self.detailer_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.detailer_combo.addItem("All", "All")
-        self.detailer_combo.currentIndexChanged.connect(self._on_filter_changed)
-        row1.addWidget(self.detailer_combo, 1)
-
-        row1.addWidget(QLabel("Mfg State:"))
-        self.unit_state_combo = QComboBox()
-        self.unit_state_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.unit_state_combo.addItem("All States", "All")
-        from data.models import VALID_UNIT_STATES
-        for state_val in VALID_UNIT_STATES:
-            self.unit_state_combo.addItem(state_val, state_val)
-        self.unit_state_combo.currentIndexChanged.connect(self._on_filter_changed)
-        row1.addWidget(self.unit_state_combo, 1)
-        filter_layout.addLayout(row1)
-
-        # Row 1.5: Alert filter + Stale checkbox
-        row1_5 = QHBoxLayout()
-        row1_5.addWidget(QLabel("Alert:"))
-        self.alert_combo = QComboBox()
-        self.alert_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.alert_combo.addItem("All", "All")
-        for alert_key in ("OVERDUE", "URGENT", "APPROACHING", "ON_TRACK", "COMPLETE", "UNSET"):
-            self.alert_combo.addItem(alert_key.capitalize(), alert_key)
-        self.alert_combo.currentIndexChanged.connect(self._on_filter_changed)
-        row1_5.addWidget(self.alert_combo, 1)
-
-        self.show_stale_checkbox = QCheckBox("Show stale data")
-        self.show_stale_checkbox.setChecked(False)
-        self.show_stale_checkbox.stateChanged.connect(self._on_stale_toggled)
-        row1_5.addWidget(self.show_stale_checkbox)
-
-        self.show_cancelled_checkbox = QCheckBox("Show Cancelled")
-        self.show_cancelled_checkbox.setChecked(False)
-        self.show_cancelled_checkbox.stateChanged.connect(self._on_cancelled_toggled)
-        row1_5.addWidget(self.show_cancelled_checkbox)
-
-        filter_layout.addLayout(row1_5)
-
-        # Row 2: Date range + Search
-        row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Date:"))
-        self.date_combo = QComboBox()
-        self.date_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        for label, key in DATE_FILTER_PRESETS:
-            self.date_combo.addItem(label, key)
-        self.date_combo.currentIndexChanged.connect(self._on_filter_changed)
-        row2.addWidget(self.date_combo, 1)
-
-        row2.addWidget(QLabel("Due from:"))
-        self.date_from = QDateEdit()
-        self.date_from.setCalendarPopup(True)
-        self.date_from.setDate(QDate.currentDate().addDays(-30))
-        self.date_from.setDisplayFormat("MM/dd/yyyy")
-        self.date_from.dateChanged.connect(self._on_filter_changed)
-        row2.addWidget(self.date_from)
-
-        row2.addWidget(QLabel("to:"))
-        self.date_to = QDateEdit()
-        self.date_to.setCalendarPopup(True)
-        self.date_to.setDate(QDate.currentDate().addDays(90))
-        self.date_to.setDisplayFormat("MM/dd/yyyy")
-        self.date_to.dateChanged.connect(self._on_filter_changed)
-        row2.addWidget(self.date_to)
-
-        row2.addWidget(QLabel("Search:"))
+        filter_row.addWidget(QLabel("Search:"))
         self.com_search = QLineEdit()
-        self.com_search.setPlaceholderText("COM #, job name, or contract #...")
+        self.com_search.setPlaceholderText("COM #, job, contract #, description, notes...")
         self.com_search.setClearButtonEnabled(True)
         self._search_debounce = QTimer(self)
         self._search_debounce.setSingleShot(True)
@@ -755,29 +620,12 @@ class ListPanel(QWidget):
         self._search_debounce.timeout.connect(self._on_filter_changed)
         self.com_search.textChanged.connect(self._on_search_text_changed)
         self.com_search.returnPressed.connect(self._on_search_return_pressed)
-        row2.addWidget(self.com_search)
-        filter_layout.addLayout(row2)
+        filter_row.addWidget(self.com_search, 1)
 
-        # Row 3: Clear filters + column chooser
-        row3 = QHBoxLayout()
         self.clear_btn = QPushButton("Clear Filters")
         self.clear_btn.clicked.connect(self._clear_filters)
-        row3.addWidget(self.clear_btn)
-        row3.addStretch()
-
-        self.columns_btn = QPushButton("Columns...")
-        self.columns_btn.clicked.connect(self._show_column_chooser)
-        row3.addWidget(self.columns_btn)
-
-        self.inline_edit_toggle = QCheckBox("Inline Edit Bar")
-        self.inline_edit_toggle.setToolTip("Show/hide the inline editing bar at the bottom of the table")
-        self.inline_edit_toggle.setChecked(self._show_inline_edit)
-        self.inline_edit_toggle.toggled.connect(self._on_inline_toggle_clicked)
-        row3.addWidget(self.inline_edit_toggle)
-        filter_layout.addLayout(row3)
-
-        filter_group.setLayout(filter_layout)
-        layout.addWidget(filter_group)
+        filter_row.addWidget(self.clear_btn)
+        layout.addLayout(filter_row)
 
         # ── Table ──
         self.table = QTableWidget()
@@ -788,6 +636,8 @@ class ListPanel(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
+        # Narrow columns show "STAT…" rather than clipping the header mid-letter
+        self.table.horizontalHeader().setTextElideMode(Qt.ElideRight)
         self.table.horizontalHeader().setSectionsClickable(True)
         self.table.horizontalHeader().setSectionsMovable(True)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
@@ -801,6 +651,7 @@ class ListPanel(QWidget):
         self.table.setItemDelegate(HighlightDelegate(self.table))
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
+        self.table.verticalScrollBar().valueChanged.connect(self._on_table_scrolled)
 
         # ── Ctrl+A Select All ──
         select_all_action = QAction("Select All", self.table)
@@ -825,10 +676,22 @@ class ListPanel(QWidget):
         self._selection_label.setVisible(False)
         layout.addWidget(self._selection_label)
 
-        # ── Status label ──
+        # ── Status row: unit count + view options ──
+        status_row = QHBoxLayout()
         self.status_label = QLabel("No units loaded")
         self.status_label.setObjectName("list_status_label")
-        layout.addWidget(self.status_label)
+        status_row.addWidget(self.status_label, 1)
+
+        self.columns_btn = QPushButton("Columns...")
+        self.columns_btn.clicked.connect(self._show_column_chooser)
+        status_row.addWidget(self.columns_btn)
+
+        self.inline_edit_toggle = QCheckBox("Inline Edit Bar")
+        self.inline_edit_toggle.setToolTip("Show/hide the inline editing bar at the bottom of the table")
+        self.inline_edit_toggle.setChecked(self._show_inline_edit)
+        self.inline_edit_toggle.toggled.connect(self._on_inline_toggle_clicked)
+        status_row.addWidget(self.inline_edit_toggle)
+        layout.addLayout(status_row)
 
         # ── Blame label ──
         self.blame_label = QLabel("")
@@ -881,22 +744,18 @@ class ListPanel(QWidget):
         elif self._saved_visible_columns:
             self._model.set_visible_columns(self._saved_visible_columns)
         self._tag_strings_cache.clear()
-        self._populate_detailer_combo()
         self._apply_filters_and_refresh()
 
     def refresh(self, units: list[Unit]) -> None:
         """Reload data (called after save/external change).
 
-        Preserves filter state, sort selection, scroll position, and visible columns.
-        US-020b: Uses incremental diffing to avoid full table rebuild.
+        Preserves filters, sort, the top visible unit, and visible columns.
         """
         if self._model is None:
             self.set_units(units)
             return
 
-        # Save scroll position, visible columns, and column order
-        # (the table rebuild preserves the selection itself)
-        scroll_pos = self.table.verticalScrollBar().value()
+        # The table rebuild preserves the selection and scroll anchor itself
         old_visible = self._model.visible_columns
         old_order = self._model.column_order
 
@@ -904,28 +763,6 @@ class ListPanel(QWidget):
         self._model.set_column_order(old_order)
         self._model.set_visible_columns(old_visible)
         self._tag_strings_cache.clear()
-        self._populate_detailer_combo()
-
-        # Apply current filters and sort
-        status = self.status_combo.currentData() or "All"
-        detailer = self.detailer_combo.currentData() or "All"
-        date_preset = self.date_combo.currentData()
-        date_from = self.date_from.date().toPyDate()
-        date_to = self.date_to.date().toPyDate()
-        com_search = self.com_search.text()
-        alert_filter = self.alert_combo.currentData() or "All"
-        self._model.apply_filters(
-            status=status,
-            detailer=detailer,
-            date_preset=date_preset,
-            date_from=date_from,
-            date_to=date_to,
-            com_search=com_search,
-            alert_filter=alert_filter,
-        )
-        self._model.sort_by(self._sort_column, self._sort_ascending)
-
-        # new_units unused, removed
 
         # Always do a full refresh after save to ensure changes are visible.
         # The incremental diff path had edge cases where changed rows were
@@ -947,10 +784,6 @@ class ListPanel(QWidget):
                     self._inline_edit_bar._unit = u
                     self._inline_edit_bar.set_unit(u)
                     break
-
-        # The rebuild above already restored the (possibly multi-row) selection;
-        # re-selecting a single COM here would collapse it. Restore scroll only.
-        self.table.verticalScrollBar().setValue(scroll_pos)
 
     def _format_cell(self, key: str, value) -> str:
         """Format a Unit attribute for display."""
@@ -1015,56 +848,131 @@ class ListPanel(QWidget):
             self._select_com(first_unit.com_number)
             self.table.setFocus()
 
-    def _on_stale_toggled(self, state: int) -> None:
-        """Handle 'Show stale data' checkbox toggle."""
-        if self._model is None:
-            return
-        show_stale = state == Qt.Checked
-        self._model.set_show_stale(show_stale)
-        self._model.sort_by(self._sort_column, self._sort_ascending)
-        self._refresh_table_full()
-        self.stale_changed.emit(show_stale)
-
-    def _on_cancelled_toggled(self, state: int) -> None:
-        """Handle 'Show Cancelled' checkbox toggle."""
-        if self._model is None:
-            return
-        self._show_cancelled = (state == Qt.Checked)
-        self._apply_filters_and_refresh()
-
     def _on_filter_changed(self) -> None:
         """Called when any filter widget changes (or debounce fires)."""
         if self._model is None:
+            self._emit_filters_if_changed()
             return
         self._apply_filters_and_refresh()
+
+    def _filter_buttons(self) -> dict[str, ChecklistFilterButton]:
+        return {
+            "years": self.year_filter,
+            "detailers": self.detailer_filter,
+            "jobs": self.job_filter,
+        }
 
     def _apply_filters_and_refresh(self) -> None:
         """Read filter widget state → apply to model → refresh table."""
         if self._model is None:
             return
 
-        status = self.status_combo.currentData() or "All"
-        detailer = self.detailer_combo.currentData() or "All"
-        unit_state_filter = self.unit_state_combo.currentData() or "All"
-        date_preset = self.date_combo.currentData()
-        date_from = self.date_from.date().toPyDate()
-        date_to = self.date_to.date().toPyDate()
-        com_search = self.com_search.text()
-        alert_filter = self.alert_combo.currentData() or "All"
-
+        buttons = self._filter_buttons()
         self._model.apply_filters(
-            status=status,
-            detailer=detailer,
-            date_preset=date_preset,
-            date_from=date_from,
-            date_to=date_to,
-            com_search=com_search,
-            alert_filter=alert_filter,
-            show_cancelled=self._show_cancelled,
-            unit_state_filter=unit_state_filter,
+            years=buttons["years"].selected(),
+            detailers=buttons["detailers"].selected(),
+            jobs=buttons["jobs"].selected(),
+            com_search=self.com_search.text(),
         )
+        # Show what is actually applied: values no longer offered were dropped
+        applied = self._model.filters
+        for dim, button in buttons.items():
+            button.set_options(
+                [
+                    FilterOption(key, label, [FilterOption(ck, cl) for ck, cl in children])
+                    for key, label, children in self._model.filter_options(dim)
+                ]
+            )
+            button.set_selected(applied[dim])
+        self._emit_filters_if_changed()
         self._model.sort_by(self._sort_column, self._sort_ascending)
         self._refresh_table_full()
+
+    def filter_state(self) -> dict:
+        """Current filters as plain lists, for saving to config."""
+        state: dict = {dim: sorted(b.selected()) for dim, b in self._filter_buttons().items()}
+        state["search"] = self.com_search.text()
+        return state
+
+    def load_filter_state(self, state: dict | None) -> None:
+        """Restore saved filters (dimension → list of keys, plus "search")."""
+        state = state or {}
+        for dim, button in self._filter_buttons().items():
+            button.set_selected(state.get(dim) or [])
+        self.com_search.blockSignals(True)
+        self.com_search.setText(state.get("search") or "")
+        self.com_search.blockSignals(False)
+        self._last_filter_state = self.filter_state()
+        self._apply_filters_and_refresh()
+
+    def _emit_filters_if_changed(self) -> None:
+        state = self.filter_state()
+        if state != self._last_filter_state:
+            self._last_filter_state = state
+            self.filters_changed.emit(state)
+
+    # ── Scroll anchor: keep the same unit at the top across rebuilds ──
+
+    def top_visible_com(self) -> str | None:
+        """COM of the unit at the top of the table (or the one waiting to be restored)."""
+        return self._scroll_anchor[0] if self._scroll_anchor else None
+
+    def load_scroll_anchor(self, com_number: str | None) -> None:
+        """Scroll to *com_number* once the table is shown (saved from the last session)."""
+        if not com_number:
+            return
+        self._scroll_anchor = (com_number, None)
+        self._anchor_pending = True
+        self._restore_scroll_anchor()
+
+    def _on_table_scrolled(self, _value: int) -> None:
+        if self._restoring_scroll or not self.table.isVisible() or self._model is None:
+            return
+        row = self.table.rowAt(0)
+        units = self._model.filtered_units
+        if 0 <= row < len(units):
+            unit = units[row]
+            self._scroll_anchor = (unit.com_number, unit.detailing_due_date)
+            self._anchor_pending = False
+
+    def _restore_scroll_anchor(self) -> None:
+        """Put the anchor unit at the top; fall back to the nearest due date."""
+        if self._scroll_anchor is None or self._model is None:
+            return
+        if not self.table.isVisible():
+            # Hidden tables have no usable scroll range; retry in showEvent
+            self._anchor_pending = True
+            return
+        com, due = self._scroll_anchor
+        units = self._model.filtered_units
+        if due is None:
+            due = next(
+                (u.detailing_due_date for u in self._model.all_units if u.com_number == com),
+                None,
+            )
+            if due is not None:
+                self._scroll_anchor = (com, due)
+        row = next((i for i, u in enumerate(units) if u.com_number == com), -1)
+        if row < 0 and due is not None:
+            dated = [(abs((u.detailing_due_date - due).days), i)
+                     for i, u in enumerate(units) if u.detailing_due_date]
+            row = min(dated)[1] if dated else -1
+        self._anchor_pending = False
+        if row < 0:
+            return
+        self._restoring_scroll = True
+        try:
+            item = self.table.item(row, 0)
+            if item is not None:
+                self.table.scrollToItem(item, QAbstractItemView.PositionAtTop)
+        finally:
+            self._restoring_scroll = False
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._anchor_pending:
+            # Wait for the layout to give the table its real height
+            QTimer.singleShot(0, self._restore_scroll_anchor)
 
     def _refresh_table_full(self) -> None:
         """Rebuild the entire table from scratch (fallback for small tables or large diffs)."""
@@ -1072,6 +980,8 @@ class ListPanel(QWidget):
             return
 
         self._emitting_order = True
+        # Row changes during the rebuild move the scrollbar; keep the anchor
+        self._restoring_scroll = True
         try:
             # Capture the selection before rebuilding: every selected COM (so a
             # multi-selection survives sorting/reloads) and the current one
@@ -1275,7 +1185,11 @@ class ListPanel(QWidget):
                         and value
                         and isinstance(value, date)
                         and value < date.today()
+                        and unit.percent_complete < 100.0
+                        and not unit.is_cancelled
                     ):
+                        # Red on the week colour is unreadable; overdue drops the week fill
+                        item.setBackground(QBrush())
                         item.setForeground(QBrush(QColor("#dc2626")))
                         item.setFont(bold_font)
 
@@ -1303,18 +1217,8 @@ class ListPanel(QWidget):
 
             total = len(self._model.all_units)
             showing = len(units)
-            shown_ids = {id(u) for u in units}
-            stale_count = sum(
-                1 for u in self._model.all_units if id(u) not in shown_ids and u.is_stale
-            )
-            if self._model._show_stale:
-                stale_note = ""
-            elif stale_count > 0:
-                stale_note = f" ({stale_count} stale hidden)"
-            else:
-                stale_note = ""
             self.status_label.setText(
-                f"Showing {showing} of {total} units{stale_note}"
+                f"Showing {showing} of {total} units"
                 f" | sorted by {self._sort_column}"
                 f" {'asc' if self._sort_ascending else 'desc'}"
             )
@@ -1332,9 +1236,13 @@ class ListPanel(QWidget):
                 self._update_batch_bar()
             else:
                 self._on_selection_changed()
+
+            # Selection restore can auto-scroll; the anchor decides what is on top
+            self._restore_scroll_anchor()
         finally:
             self.table.blockSignals(False)
             self._emitting_order = False
+            self._restoring_scroll = False
 
     def _refresh_inline_bar_unit(self) -> None:
         """Point the inline bar at the reloaded copy of the selected unit.
@@ -1400,32 +1308,14 @@ class ListPanel(QWidget):
         return -1
 
     def _clear_filters(self) -> None:
-        """Reset all filter widgets to defaults."""
-        self.status_combo.setCurrentIndex(0)
-        self.detailer_combo.setCurrentIndex(0)
-        self.alert_combo.setCurrentIndex(0)
-        self.show_stale_checkbox.setChecked(False)
-        self.date_combo.setCurrentIndex(0)
-        self.date_from.setDate(QDate.currentDate().addDays(-30))
-        self.date_to.setDate(QDate.currentDate().addDays(90))
+        """Reset every dropdown and the search box, then refilter once."""
+        for button in self._filter_buttons().values():
+            button.set_selected(set())
+        self._search_debounce.stop()
+        self.com_search.blockSignals(True)
         self.com_search.clear()
-        # _on_filter_changed fires from com_search.clear()
-
-    def _populate_detailer_combo(self) -> None:
-        """Refresh the Detailer dropdown from model data."""
-        if self._model is None:
-            return
-        current = self.detailer_combo.currentData()
-        self.detailer_combo.blockSignals(True)
-        self.detailer_combo.clear()
-        self.detailer_combo.addItem("All", "All")
-        for d in self._model.get_unique_detailers():
-            self.detailer_combo.addItem(d, d)
-        # Restore previous selection if still valid
-        idx = self.detailer_combo.findData(current)
-        if idx >= 0:
-            self.detailer_combo.setCurrentIndex(idx)
-        self.detailer_combo.blockSignals(False)
+        self.com_search.blockSignals(False)
+        self._on_filter_changed()
 
     # ── Column Width Persistence ──────────────────────────────────────
 
