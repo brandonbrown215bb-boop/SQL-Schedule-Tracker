@@ -60,13 +60,13 @@ class TestLoadAll:
         assert due_dates == sorted(due_dates)
 
     def test_load_with_detailer_schedules(self, db_with_units):
-        schedules = {"Carl M": [0, 1, 2, 3], "Matthew E": [1, 2, 3, 4]}
+        schedules = {"Carl M": [0, 1, 2, 3], "Matt E": [1, 2, 3, 4]}
         svc = UnitService(db_with_units, detailer_schedules=schedules)
         units = svc.load_all()
         for u in units:
             if u.detailer == "Carl M":
                 assert u.working_days == [0, 1, 2, 3]
-            elif u.detailer == "Matthew E":
+            elif u.detailer == "Matt E":
                 assert u.working_days == [1, 2, 3, 4]
 
 

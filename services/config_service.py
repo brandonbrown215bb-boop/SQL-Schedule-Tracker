@@ -26,13 +26,23 @@ DEFAULTS: dict = {
     "update_source_dir": "P:\\Detailing Schedule 2019\\Schedule App",
     "ssrs_lookback_days": 30,
     "ssrs_lookahead_days": 365,
+    # Checking Status dropdown; the first entry is blank (no status).
+    "checking_statuses": [
+        "",
+        "Waiting to be checked",
+        "Assigned to checker",
+        "In checking",
+        "Sent back from checking",
+        "Re-check needed",
+        "Checked",
+    ],
     "default_detailers": [
         "— Unassigned —",
         "Cancelled",
         "Jackie H",
         "Tommy N",
         "Matthew S",
-        "Matthew E",
+        "Matt E",
         "Carl M",
         "Stewart D",
         "Austin K",
@@ -51,7 +61,7 @@ DEFAULTS: dict = {
         "Jackie H": [0, 1, 2, 3],
         "Jeremy B": [0, 1, 2, 3],
         "Kris L": [0, 1, 2, 3],
-        "Matthew E": [1, 2, 3, 4],
+        "Matt E": [1, 2, 3, 4],
         "Matthew S": [1, 2, 3, 4],
         "Stewart D": [1, 2, 3, 4],
         "Tanner D": [0, 1, 2, 3],
@@ -97,6 +107,7 @@ DEFAULTS: dict = {
             "actual_hours",
             "target_department_hours",
             "checking_status",
+            "checker",
             "dr_checks",
             "dvl_checks",
             "contract_number",
@@ -118,6 +129,7 @@ DEFAULTS: dict = {
             "actual_hours",
             "target_department_hours",
             "checking_status",
+            "checker",
             "dr_checks",
             "dvl_checks",
             "contract_number",
@@ -228,6 +240,8 @@ class ConfigService:
             ConfigService._deep_merge(config, template)
             ConfigService._deep_merge(config, raw)
 
+        ConfigService.apply_detailer_renames(config)
+
         try:
             from services.validation import update_allowed_detailers
             update_allowed_detailers(config.get("default_detailers", []))
@@ -235,6 +249,30 @@ class ConfigService:
             logger.warning(f"Failed to update allowed detailers in validation rules: {e}")
 
         return config
+
+    @staticmethod
+    def apply_detailer_renames(config: dict) -> None:
+        """Replace renamed detailers (e.g. "Matthew E" → "Matt E") in place.
+
+        Older config.yaml files and the network template still use the old
+        names. The old name's schedule is kept under the new name.
+        """
+        from data.db import DETAILER_RENAMES
+
+        detailers = config.get("default_detailers")
+        if isinstance(detailers, list):
+            renamed: list = []
+            for name in detailers:
+                name = DETAILER_RENAMES.get(name, name)
+                if name not in renamed:
+                    renamed.append(name)
+            config["default_detailers"] = renamed
+
+        schedules = config.get("detailer_schedules")
+        if isinstance(schedules, dict):
+            for old, new in DETAILER_RENAMES.items():
+                if old in schedules:
+                    schedules[new] = schedules.pop(old)
 
     @staticmethod
     def validate(config: dict) -> list[str]:

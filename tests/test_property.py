@@ -41,7 +41,7 @@ def _any_unit() -> st.SearchStrategy[Unit]:
                 "Jackie H",
                 "Tommy N",
                 "Matthew S",
-                "Matthew E",
+                "Matt E",
                 "Carl M",
                 "Stewart D",
                 "David K",

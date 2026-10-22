@@ -62,7 +62,7 @@ class TestInlineEditBarSetUnit:
         bar.set_unit(sample_unit)
         assert bar.com_label.text() == "14201"
         assert bar.pct_spin.value() == 50.0
-        assert bar.checking_status_edit.text() == "In Progress"
+        assert bar.checking_status_edit.currentText() == "In Progress"
         assert bar.dr_checks_edit.text() == "Pending"
         assert bar.dvl_checks_edit.text() == "N/A"
         assert bar.target_hours_spin.value() == 40.0
@@ -121,7 +121,7 @@ class TestInlineEditBarDirty:
 
     def test_checking_status_change_marks_dirty(self, bar, sample_unit):
         bar.set_unit(sample_unit)
-        bar.checking_status_edit.setText("Done")
+        bar.checking_status_edit.setCurrentText("Checked")
         assert bar.is_dirty is True
 
     def test_dirty_changed_signal_on_edit(self, bar, sample_unit):
@@ -165,14 +165,14 @@ class TestInlineEditBarSave:
         bar.unit_saved.connect(lambda u: received.append(u))
         bar.set_unit(sample_unit)
         bar.pct_spin.setValue(75.0)
-        bar.checking_status_edit.setText("Reviewed")
+        bar.checking_status_edit.setCurrentText("Sent back from checking")
         bar._on_save()
         emitted_unit = received[0]
         assert emitted_unit.com_number == "14201"
         assert emitted_unit.job_name == "Test Job"
         assert emitted_unit.unit_state == "Fab-Lock"
         assert emitted_unit.percent_complete == 75.0
-        assert emitted_unit.checking_status == "Reviewed"
+        assert emitted_unit.checking_status == "Sent back from checking"
 
     def test_save_clears_dirty(self, bar, sample_unit):
         bar.set_unit(sample_unit)
@@ -189,10 +189,10 @@ class TestInlineEditBarRevert:
     def test_revert_resets_fields(self, bar, sample_unit):
         bar.set_unit(sample_unit)
         bar.pct_spin.setValue(75.0)
-        bar.checking_status_edit.setText("Changed")
+        bar.checking_status_edit.setCurrentText("Checked")
         bar._on_revert()
         assert bar.pct_spin.value() == 50.0
-        assert bar.checking_status_edit.text() == "In Progress"
+        assert bar.checking_status_edit.currentText() == "In Progress"
         assert bar.is_dirty is False
 
 

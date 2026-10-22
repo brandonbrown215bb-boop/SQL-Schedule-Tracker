@@ -83,7 +83,7 @@ class TestSetUnitPopulatesAllFields:
         assert edit_form.job_name_edit.text() == "Test Job Alpha"
         assert edit_form.contract_edit.text() == "CNT-2024-001"
         assert edit_form.description_edit.text() == "A sample unit"
-        assert edit_form.checking_status_edit.text() == "In Progress"
+        assert edit_form.checking_status_edit.currentText() == "In Progress"
         assert edit_form.dr_checks_edit.text() == "Done"
         assert edit_form.dvl_checks_edit.text() == "Pending"
 

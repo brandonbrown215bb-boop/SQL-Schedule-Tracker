@@ -435,12 +435,12 @@ def test_save_unit_roundtrip(db_with_units):
 
     units = load_units(db_with_units)
     unit = next(u for u in units if u.com_number == "14201")
-    unit.detailer = "Matthew E"
+    unit.detailer = "Matt E"
     unit.percent_complete = 75.0
     save_unit(db_with_units, unit)
 
     # Reload and verify
     units2 = load_units(db_with_units)
     unit2 = next(u for u in units2 if u.com_number == "14201")
-    assert unit2.detailer == "Matthew E"
+    assert unit2.detailer == "Matt E"
     assert unit2.percent_complete == 75.0

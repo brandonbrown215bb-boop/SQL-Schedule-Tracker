@@ -76,6 +76,7 @@ COLUMN_DEFS: list[tuple[str, str, int, bool]] = [
     ("actual_hours", "Actual Hours", 70, False),
     ("target_department_hours", "Target Hrs", 70, False),
     ("checking_status", "Checking", 80, False),
+    ("checker", "Checker", 90, False),
     ("dr_checks", "DR Check", 80, False),
     ("dvl_checks", "DVL Check", 80, False),
     ("contract_number", "Contract #", 90, False),
@@ -515,6 +516,7 @@ class ListPanel(QWidget):
         db_path: str = "",
         show_inline_edit: bool = True,
         parent=None,
+        checking_statuses: list[str] | None = None,
     ):
         super().__init__(parent)
         self._model: UnitListModel | None = None
@@ -530,6 +532,7 @@ class ListPanel(QWidget):
         self._emitting_widths: bool = False
         self._emitting_order: bool = False
         self._default_detailers: list[str] = default_detailers or []
+        self._checking_statuses: list[str] | None = checking_statuses
         self._db_path: str = db_path
         self._show_inline_edit: bool = show_inline_edit
         self._last_filter_state: dict = {}
@@ -662,7 +665,9 @@ class ListPanel(QWidget):
         layout.addWidget(self.table, stretch=1)
 
         # ── Inline Edit Bar ──
-        self._inline_edit_bar = InlineEditBar(self._default_detailers)
+        self._inline_edit_bar = InlineEditBar(
+            self._default_detailers, checking_statuses=self._checking_statuses
+        )
         self._inline_edit_bar.unit_saved.connect(self._on_inline_save)
         self._inline_edit_bar.dirty_changed.connect(self.inline_dirty_changed)
         if not self._show_inline_edit:

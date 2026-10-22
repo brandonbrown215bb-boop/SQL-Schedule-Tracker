@@ -17,7 +17,8 @@ The primary entity is the `Unit` dataclass (defined in [models.py](file:///c:/Us
 | `top_level_number` | `contract_number` | `TEXT` | Identity | Contract or order number. |
 | `description` | `description` | `TEXT` | Identity | Free-text description of the unit from the SSRS report. |
 | `detailer` | `detailer` | `TEXT` | Assignment | Name of the assigned detailer. |
-| `checking_status` | `checking_status` | `TEXT` | Assignment | Status description for the checking pipeline. |
+| `checking_status` | `checking_status` | `TEXT` | Assignment | Checking pipeline status, picked from `checking_statuses` in config.yaml (older free-text values are kept). |
+| `checker` | `checker` | `TEXT` | Assignment | Detailer who checks the unit (any detailer). In the reporting feed. |
 | `unit_state` | `unit_state` | `TEXT` | Status | Manufacturing Order Management State provided directly in `SCHDetailingReport` (`LineItemStateDesc` or `UnitState`: `Done`, `Fab-Eng`, `Fab-Load`, `Fab-Lock`, `Pre-Eng`, `Pre-Load`). |
 | `notes` | `notes` | `TEXT` | Assignment | Free-text notes. |
 | `dr_checks` | `dr_checks` | `TEXT` | Assignment | Status/log comments for Design Review checks. |
@@ -87,7 +88,8 @@ The primary visual indicator. Recalculated at runtime by `Unit.calculated_status
 * **Trigger:** Executed during `load_units()` in [loader.py](file:///c:/Users/jbrow263/Downloads/Code%20Projects/SQL-Schedule-App/SQL-Schedule-Tracker/data/loader.py).
 * **Logic:**
   * Units sharing a `contract_number` are detailed once. Groups units by `contract_number` (ignoring blanks), **leaving out cancelled units**.
-  * Within each group, the earliest unit on the schedule (earliest `detailing_due_date`, undated last, then lowest `com_number`) is the **primary**. A cancelled unit is never the primary.
+  * Within each group, the earliest unit on the schedule is the **primary**: units the old workbook flagged `same_as` ("same-as…") go last, then earliest `detailing_due_date`, undated last, then lowest `com_number`. A cancelled unit is never the primary.
+  * Contract numbers starting with `WO` are service-order buckets, not identicals: every unit under one counts its own target.
   * Non-primary units are flagged `is_non_primary_identical = True`, count `0.0` target hours, and get `detailed_on_com` = the primary's COM.
   * **The DB keeps each unit's own target** (`units.target_dept_hours`); the rule is applied whenever target hours are read, so it follows due-date changes automatically.
   * **SQL twin:** `COUNTED_TARGET_SQL` / `NON_PRIMARY_IDENTICAL_SQL` / `DETAILED_ON_COM_SQL` in `data/db.py`, used by `v_reporting_export` and the workbook export (column V). The view carries a version marker and is recreated automatically when its definition changes.

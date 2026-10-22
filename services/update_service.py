@@ -358,6 +358,7 @@ class UpdateService:
             # personal settings), merge local user config on top
             merged_cfg = ConfigService.strip_personal(remote_cfg)
             ConfigService._deep_merge(merged_cfg, local_cfg)
+            ConfigService.apply_detailer_renames(merged_cfg)
 
             # Save merged config back locally
             ConfigService.save(local_config_path, merged_cfg)

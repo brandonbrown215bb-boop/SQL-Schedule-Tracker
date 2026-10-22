@@ -25,7 +25,13 @@ from PyQt5.QtWidgets import (
 )
 
 from data.models import Unit
-from gui.edit_form import ClearableDateEdit, _get_invalid_style, set_detailer_combo
+from gui.edit_form import (
+    ClearableDateEdit,
+    _get_invalid_style,
+    checker_choices,
+    checking_status_choices,
+    set_detailer_combo,
+)
 from gui.no_scroll_filter import install_no_scroll_filter
 from gui.theme import reset_input_style
 from services.validation import validate_unit
@@ -60,7 +66,12 @@ class InlineEditBar(QWidget):
     unit_saved = pyqtSignal(object)  # Unit
     dirty_changed = pyqtSignal(bool)
 
-    def __init__(self, default_detailers: list[str], parent=None):
+    def __init__(
+        self,
+        default_detailers: list[str],
+        parent=None,
+        checking_statuses: list[str] | None = None,
+    ):
         super().__init__(parent)
         self._unit: Unit | None = None
         self._notes: str = ""
@@ -210,7 +221,7 @@ class InlineEditBar(QWidget):
         self.revert_btn.clicked.connect(self._on_revert)
         row1_layout.addWidget(self.revert_btn)
 
-        # ─── Row 2: Dates, Status Checks & Wide Notes ──────────────────
+        # ─── Row 2: Dates ─────────────────────────────────────────────
         row2_widget = QWidget()
         row2_layout = QHBoxLayout(row2_widget)
         row2_layout.setContentsMargins(0, 0, 0, 0)
@@ -261,41 +272,61 @@ class InlineEditBar(QWidget):
         self.due_date_edit.installEventFilter(self._enter_filter)
         row2_layout.addWidget(self.due_date_edit)
 
+        row2_layout.addStretch(1)
+
+        # ─── Row 3: Checking & Wide Notes ─────────────────────────────
+        # Own row so the date boxes on row 2 are never squeezed (agents.md §16.5).
+        row3_widget = QWidget()
+        row3_layout = QHBoxLayout(row3_widget)
+        row3_layout.setContentsMargins(0, 0, 0, 0)
+        row3_layout.setSpacing(6)
+
         # Checking Status
-        row2_layout.addWidget(QLabel("Checking Status:"))
-        self.checking_status_edit = QLineEdit()
-        self.checking_status_edit.setMinimumWidth(95)
-        self.checking_status_edit.textChanged.connect(self._on_field_changed)
-        self.checking_status_edit.returnPressed.connect(self._on_save)
-        row2_layout.addWidget(self.checking_status_edit)
+        row3_layout.addWidget(QLabel("Checking Status:"))
+        self.checking_status_edit = QComboBox()
+        self.checking_status_edit.addItems(checking_status_choices(checking_statuses))
+        self.checking_status_edit.setMinimumWidth(150)
+        self.checking_status_edit.currentIndexChanged.connect(self._on_field_changed)
+        self.checking_status_edit.installEventFilter(self._enter_filter)
+        row3_layout.addWidget(self.checking_status_edit)
+
+        # Checker
+        row3_layout.addWidget(QLabel("Checker:"))
+        self.checker_combo = QComboBox()
+        self.checker_combo.addItems(checker_choices(default_detailers))
+        self.checker_combo.setMinimumWidth(110)
+        self.checker_combo.currentIndexChanged.connect(self._on_field_changed)
+        self.checker_combo.installEventFilter(self._enter_filter)
+        row3_layout.addWidget(self.checker_combo)
 
         # DR Checks
-        row2_layout.addWidget(QLabel("DR Check:"))
+        row3_layout.addWidget(QLabel("DR Check:"))
         self.dr_checks_edit = QLineEdit()
         self.dr_checks_edit.setMinimumWidth(50)
         self.dr_checks_edit.textChanged.connect(self._on_field_changed)
         self.dr_checks_edit.returnPressed.connect(self._on_save)
-        row2_layout.addWidget(self.dr_checks_edit)
+        row3_layout.addWidget(self.dr_checks_edit)
 
         # DVL Checks
-        row2_layout.addWidget(QLabel("DVL Check:"))
+        row3_layout.addWidget(QLabel("DVL Check:"))
         self.dvl_checks_edit = QLineEdit()
         self.dvl_checks_edit.setMinimumWidth(50)
         self.dvl_checks_edit.textChanged.connect(self._on_field_changed)
         self.dvl_checks_edit.returnPressed.connect(self._on_save)
-        row2_layout.addWidget(self.dvl_checks_edit)
+        row3_layout.addWidget(self.dvl_checks_edit)
 
-        # Notes inline text edit (stretches to fill all remaining horizontal space on Row 2)
-        row2_layout.addWidget(QLabel("Notes:"))
+        # Notes inline text edit (stretches to fill all remaining horizontal space on Row 3)
+        row3_layout.addWidget(QLabel("Notes:"))
         self.notes_edit = QLineEdit()
         self.notes_edit.setPlaceholderText("Notes...")
         self.notes_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.notes_edit.textChanged.connect(self._on_field_changed)
         self.notes_edit.returnPressed.connect(self._on_save)
-        row2_layout.addWidget(self.notes_edit, 1)
+        row3_layout.addWidget(self.notes_edit, 1)
 
         main_layout.addWidget(row1_widget)
         main_layout.addWidget(row2_widget)
+        main_layout.addWidget(row3_widget)
 
         install_no_scroll_filter(self)
         self.setVisible(False)
@@ -330,7 +361,10 @@ class InlineEditBar(QWidget):
             self.com_label.setText(unit.com_number)
             self._set_combo_text(self.detailer_combo, unit.detailer or "")
             self.pct_spin.setValue(unit.percent_complete)
-            self.checking_status_edit.setText(unit.checking_status or "")
+            set_detailer_combo(
+                self.checking_status_edit, unit.checking_status, "Not in the status list"
+            )
+            set_detailer_combo(self.checker_combo, unit.checker)
             self.dr_checks_edit.setText(unit.dr_checks or "")
             self.dvl_checks_edit.setText(unit.dvl_checks or "")
 
@@ -473,7 +507,9 @@ class InlineEditBar(QWidget):
             contract_number=self._unit.contract_number,
             description=self._unit.description,
             detailer=detailer,
-            checking_status=self.checking_status_edit.text(),
+            checking_status=self.checking_status_edit.currentText().strip(),
+            checker=self.checker_combo.currentText().strip(),
+            same_as=self._unit.same_as,
             unit_state=self._unit.unit_state,
             dr_checks=self.dr_checks_edit.text(),
             dvl_checks=self.dvl_checks_edit.text(),
@@ -557,7 +593,8 @@ class InlineEditBar(QWidget):
         self.com_label.setText("")
         self.detailer_combo.setCurrentIndex(0)
         self.pct_spin.setValue(0.0)
-        self.checking_status_edit.setText("")
+        set_detailer_combo(self.checking_status_edit, "")
+        set_detailer_combo(self.checker_combo, "")
         self.dr_checks_edit.setText("")
         self.dvl_checks_edit.setText("")
         self._set_date(self.start_date_edit, None)

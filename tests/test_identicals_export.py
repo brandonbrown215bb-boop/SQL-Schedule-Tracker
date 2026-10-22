@@ -79,6 +79,31 @@ def test_primary_change_restores_sibling_target(db):
     assert targets["1001"] == 0.0
 
 
+def test_same_as_flag_is_never_the_primary(db):
+    # The old workbook marked 1001 "same-as" and detailed 1002 instead.
+    conn = get_db(db)
+    conn.execute("UPDATE units SET same_as = 'Same-as' WHERE com_number = '1001'")
+    conn.commit()
+    targets = _view_targets(db)
+    assert targets["1002"] == 30.0
+    assert targets["1001"] == 0.0
+    in_app = {u.com_number for u in load_units(db) if u.is_non_primary_identical}
+    assert in_app == {"1001", "1003"}
+
+
+def test_service_orders_are_never_identicals(db):
+    conn = get_db(db)
+    conn.executemany(
+        "INSERT INTO units (com_number, top_level_number, detailing_due_date, "
+        "department_hours, target_dept_hours, detailer) VALUES (?, 'WO4000005058', ?, ?, ?, '')",
+        [("4001", "2026-11-03", 7.0, 7.0), ("4002", "2026-11-10", 4.0, 4.0)],
+    )
+    conn.commit()
+    targets = _view_targets(db)
+    assert (targets["4001"], targets["4002"]) == (7.0, 4.0)
+    assert not any(u.is_non_primary_identical for u in load_units(db) if u.com_number in ("4001", "4002"))
+
+
 def test_old_view_definition_is_upgraded(tmp_path):
     path = str(tmp_path / "old.db")
     create_database(path)

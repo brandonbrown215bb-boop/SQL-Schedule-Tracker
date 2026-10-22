@@ -30,6 +30,7 @@ def unit_fingerprint(unit: Unit) -> str:
         "description": unit.description,
         "detailer": unit.detailer,
         "checking_status": unit.checking_status,
+        "checker": unit.checker,
         "unit_state": unit.unit_state,
         "dr_checks": unit.dr_checks,
         "dvl_checks": unit.dvl_checks,
@@ -61,9 +62,9 @@ def _apply_identicals(units: list[Unit]) -> None:
 
     When multiple units share the same order number (contract_number /
     top_level_number), they are called "Identicals" and only one of them is
-    detailed. The *primary* is the earliest unit on the schedule (earliest
-    detailing_due_date, undated last, then lowest COM) and carries the target
-    hours. Every other identical counts 0 and points at the primary through
+    detailed. The *primary* is the earliest unit on the schedule (units the old
+    workbook flagged "same-as" last, then earliest detailing_due_date, undated
+    last, then lowest COM) and carries the target hours. Every other identical counts 0 and points at the primary through
     detailed_on_com. Cancelled units are never the primary and never count.
 
     SQL twin: data.db.COUNTED_TARGET_SQL (reporting feed, workbook export).
@@ -73,12 +74,15 @@ def _apply_identicals(units: list[Unit]) -> None:
         u.is_non_primary_identical = False
         u.detailed_on_com = ""
         key = (u.contract_number or "").strip()
-        if key and not u.is_cancelled:
+        # WO- numbers group unrelated service orders, never identicals.
+        if key and not u.is_cancelled and not key.upper().startswith("WO"):
             groups[key].append(u)
 
     def _sort_key(u: Unit) -> tuple:
+        # Units the old workbook flagged "same-as" go last.
+        same_as = u.same_as.strip().lower().startswith("same")
         dd = u.detailing_due_date
-        return (0 if dd is not None else 1, dd if dd is not None else date.min, u.com_number)
+        return (same_as, dd is None, dd if dd is not None else date.min, u.com_number)
 
     for group in groups.values():
         if len(group) < 2:

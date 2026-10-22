@@ -235,12 +235,9 @@ def test_migration_carries_open_overrides_and_drops_closed_ones(tmp_path):
 
 
 @pytest.fixture
-def edit_form():
-    from PyQt5.QtWidgets import QApplication
-
+def edit_form(qapp):
     from gui.edit_form import EditForm
 
-    QApplication.instance() or QApplication([])
     form = EditForm(default_detailers=["— Unassigned —", "Carl M", "Cancelled"])
     yield form
     form.deleteLater()

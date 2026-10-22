@@ -72,6 +72,7 @@ class AuditDialog(QDialog):
             "contract_number",
             "notes",
             "checking_status",
+            "checker",
             "actual_hours",
             "target_dept_hours",
             "iec_internal_hours",

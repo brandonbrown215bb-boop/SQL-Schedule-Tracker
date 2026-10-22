@@ -33,7 +33,8 @@ No ORM — raw SQL with manual row-to-dataclass mapping. No async — everything
 │   ├── create_db.py              # Schema creation + detailer seeding
 │   ├── import_csv.py             # CSV-to-SQLite import pipeline
 │   ├── analyze_detailers.py      # Detailer load analysis
-│   ├── cleanup_detailers.py      # Detailer cleanup operations
+│   ├── cleanup_detailers.py      # Detailer cleanup operations + name matcher (Matt = Matt E, Matthew = Matthew S)
+│   ├── reconcile_workbook.py     # One-off: re-map Matt/Matthew, import FY26+ workbook target edits, backfill checkers
 │   ├── export_to_workbook.py     # Export to Excel workbook
 │   ├── import_preview.py         # Import diff/staging preview (FEAT-019)
 │   ├── import_atomsvc.py         # Alternate import format
@@ -179,7 +180,7 @@ Location: `data/models.py`
 - `com_number` (TEXT, PK) — Unique COM identifier
 - `job_name`, `contract_number`, `description` — Identity fields
 - `detailer` — Assigned detailer name
-- `checking_status`, `notes` — Status & free-text
+- `checking_status`, `checker`, `notes` — Checking status (dropdown from `checking_statuses`), checker (any detailer) & free-text
 - `department_hours`, `iec_internal_hours`, `target_adjustment_hours`, `target_adjustment_reason` — Hours breakdown (target hours are derived, see §5.4)
 - `percent_complete` — 0-100 scale (stored 0-1.0 in SQLite)
 - `actual_hours` — Actual hours logged
@@ -240,7 +241,7 @@ Mon-Fri count between `unit_moved_to_checking_date` and `unit_detailing_completi
 
 ### 5.6 Identicals Rule
 
-Units sharing the same `contract_number` are detailed once. Cancelled units are left out of the group. The earliest unit on the schedule (earliest `detailing_due_date`, undated last, then lowest COM) is the **primary** and counts the target hours. All others count 0, get `is_non_primary_identical = True` and `detailed_on_com` = the primary's COM. Applied in `data/loader.py` → `_apply_identicals()`, wrapped by `UnitService.apply_identicals()`. The DB keeps the real `target_dept_hours`. Anything that reads the DB directly for reporting must use `COUNTED_TARGET_SQL` (`data/db.py`), as `v_reporting_export` and `automation/export_to_workbook.py` do. That expression is a window function, so use it in a SELECT list, not in WHERE.
+Units sharing the same `contract_number` are detailed once, except `WO…` service-order numbers, which are never identicals. Cancelled units are left out of the group. The earliest unit on the schedule (units flagged `same_as` by the old workbook last, then earliest `detailing_due_date`, undated last, then lowest COM) is the **primary** and counts the target hours. All others count 0, get `is_non_primary_identical = True` and `detailed_on_com` = the primary's COM. Applied in `data/loader.py` → `_apply_identicals()`, wrapped by `UnitService.apply_identicals()`. The DB keeps the real `target_dept_hours`. Anything that reads the DB directly for reporting must use `COUNTED_TARGET_SQL` (`data/db.py`), as `v_reporting_export` and `automation/export_to_workbook.py` do. That expression is a window function, so use it in a SELECT list, not in WHERE.
 
 ### 5.7 Audit Trail (`_audit_log` table)
 
@@ -361,6 +362,7 @@ Even without multi-user sync, the writer implements optimistic locking via the `
 | `sqlite_path` | Path to SQLite database |
 | `default_detailers` | Ordered list of detailer names for dropdown |
 | `detailer_schedules` | Per-detailer working weekday arrays (0=Mon..4=Fri) |
+| `checking_statuses` | Checking Status dropdown values (blank is always first) |
 | `csv_output_dir` | Directory for cached CSV exports |
 | `ssrs_url` | SSRS report URL |
 | `ui.theme` | "dark" or "light" |

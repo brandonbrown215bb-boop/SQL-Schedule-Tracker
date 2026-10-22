@@ -57,7 +57,7 @@ _DEFAULT_DETAILERS: list[str] = [
     "Jackie H",
     "Tommy N",
     "Matthew S",
-    "Matthew E",
+    "Matt E",
     "Carl M",
     "Stewart D",
     "David K",
@@ -106,6 +106,12 @@ UNIT_FIELD_RULES: dict[str, FieldRule] = {
         max_length=100,
         enum_values=_DEFAULT_DETAILERS,
         description="Assigned detailer name",
+    ),
+    # Free text: anyone can check, and older units name past checkers.
+    "checker": FieldRule(
+        type_check=str,
+        max_length=100,
+        description="Detailer who checks the unit",
     ),
     "department_hours": FieldRule(
         type_check=(int, float),

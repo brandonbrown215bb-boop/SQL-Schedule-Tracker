@@ -570,6 +570,7 @@ class MainWindow(QMainWindow):
         self.list_panel = ListPanel(
             self.units,
             default_detailers=self._services.config.get("default_detailers", []),
+            checking_statuses=self._services.config.get("checking_statuses"),
             db_path=self._services.db_path,
             show_inline_edit=show_inline,
         )
@@ -631,7 +632,8 @@ class MainWindow(QMainWindow):
         right_panel.addWidget(self._batch_banner)
 
         self.edit_form = EditForm(
-            default_detailers=self._services.config.get("default_detailers", [])
+            default_detailers=self._services.config.get("default_detailers", []),
+            checking_statuses=self._services.config.get("checking_statuses"),
         )
         self.edit_form.saved.connect(self.on_save_unit)
         self.edit_form.dirty_changed.connect(self._on_dirty_changed)

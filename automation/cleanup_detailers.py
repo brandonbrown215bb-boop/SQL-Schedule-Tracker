@@ -18,23 +18,53 @@ import sqlite3
 from collections import defaultdict
 
 
+# How the old workbook spelled detailers whose first names collide:
+# "Matt" was Matt E and "Matthew" was Matthew S.
+LEGACY_ALIASES = {
+    "matt": "Matt E",
+    "matt e": "Matt E",
+    "matthew e": "Matt E",
+    "matthew erp": "Matt E",
+    "matthew": "Matthew S",
+    "matthew s": "Matthew S",
+}
+
+
+def build_canonical(names: list[str]) -> dict[str, str]:
+    """Map lowercase base and full names to canonical detailer names.
+
+    A first name shared by two detailers is left out, so it can never pick
+    one of them silently. Legacy aliases are added for detailers that exist.
+    """
+    canonical: dict[str, str] = {}
+    bases: dict[str, set[str]] = defaultdict(set)
+    for raw in names:
+        name = raw.strip()
+        # "Brandon B" → base = "brandon"
+        base = name.rsplit(" ", 1)[0].lower() if " " in name else name.lower()
+        bases[base].add(name)
+    for base, owners in bases.items():
+        if len(owners) == 1:
+            canonical[base] = next(iter(owners))
+    for raw in names:
+        # Also map the full name (lowercase) for direct matches
+        canonical[raw.strip().lower()] = raw.strip()
+    present = set(canonical.values())
+    for alias, name in LEGACY_ALIASES.items():
+        if name in present:
+            canonical[alias] = name
+    return canonical
+
+
 def load_canonical_detailers(conn: sqlite3.Connection) -> dict[str, str]:
     """Load canonical detailer names from the detailers table.
 
     Returns mapping of lowercase base name → canonical name.
-    e.g. {"brandon": "Brandon B", "matthew e": "Matthew E", ...}
+    e.g. {"brandon": "Brandon B", "matt": "Matt E", ...}
     """
     cur = conn.cursor()
     cur.execute("SELECT name FROM detailers ORDER BY display_order")
-    canonical = {}
-    for row in cur.fetchall():
-        name = row[0].strip()
-        # "Brandon B" → base = "brandon"
-        base = name.rsplit(" ", 1)[0].lower() if " " in name else name.lower()
-        canonical[base] = name
-        # Also map the full name (lowercase) for direct matches
-        canonical[name.lower()] = name
-    return canonical
+    return build_canonical([row[0] for row in cur.fetchall()])
 
 
 # ── Name extraction ────────────────────────────────────────────────────

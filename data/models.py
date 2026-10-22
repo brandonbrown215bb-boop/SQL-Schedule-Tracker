@@ -46,6 +46,8 @@ class Unit:
     description: str
     detailer: str
     checking_status: str
+    checker: str = ""  # Detailer who checks the unit
+    same_as: str = ""  # Old workbook "same-as" flag; such units are never the identicals primary
     unit_state: str = ""  # Manufacturing Order Management State (LineItemStateDesc)
     notes: str = ""
     dr_checks: str = ""

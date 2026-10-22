@@ -45,7 +45,27 @@ def _get_invalid_style(theme_name: str = "light") -> str:
 _EXTRA_DETAILER_ROLE = Qt.UserRole + 1
 
 
-def set_detailer_combo(combo: QComboBox, text: str) -> None:
+# Detailer-list entries that are not people, so they can't be a checker.
+_NOT_A_PERSON = {"", "— Unassigned —", "Unassigned", "Cancelled"}
+
+
+def checker_choices(default_detailers: list[str]) -> list[str]:
+    """Checker dropdown items: blank first, then every configured detailer."""
+    return [""] + [d for d in default_detailers if d.strip() not in _NOT_A_PERSON]
+
+
+def checking_status_choices(statuses: list[str] | None = None) -> list[str]:
+    """Checking Status dropdown items from config, always with blank first."""
+    if statuses is None:
+        from services.config_service import DEFAULTS
+
+        statuses = DEFAULTS["checking_statuses"]
+    return [""] + [s for s in statuses if s.strip()]
+
+
+def set_detailer_combo(
+    combo: QComboBox, text: str, extra_tip: str = "Not in the configured detailer list"
+) -> None:
     """Show *text* in a detailer combo; blank selects index 0 (the unassigned option).
 
     A name missing from the configured list (an old or SSRS-only name) is added
@@ -61,7 +81,7 @@ def set_detailer_combo(combo: QComboBox, text: str) -> None:
         combo.addItem(text)
         idx = combo.count() - 1
         combo.setItemData(idx, True, _EXTRA_DETAILER_ROLE)
-        combo.setItemData(idx, "Not in the configured detailer list", Qt.ToolTipRole)
+        combo.setItemData(idx, extra_tip, Qt.ToolTipRole)
     combo.setCurrentIndex(idx)
 
 
@@ -104,7 +124,12 @@ class EditForm(QWidget):
     dirty_changed = pyqtSignal(bool)
     history_requested = pyqtSignal(object)  # Unit
 
-    def __init__(self, default_detailers: list[str], parent=None):
+    def __init__(
+        self,
+        default_detailers: list[str],
+        parent=None,
+        checking_statuses: list[str] | None = None,
+    ):
         super().__init__(parent)
         self.setObjectName("edit_form")
         self._theme_name = "light"
@@ -152,8 +177,13 @@ class EditForm(QWidget):
         self.unit_state_edit.setReadOnly(True)
         self.form.addRow(QLabel("Mfg State:"), self.unit_state_edit)
 
-        self.checking_status_edit = QLineEdit()
+        self.checking_status_edit = QComboBox()
+        self.checking_status_edit.addItems(checking_status_choices(checking_statuses))
         self.form.addRow(QLabel("Checking Status:"), self.checking_status_edit)
+
+        self.checker_edit = QComboBox()
+        self.checker_edit.addItems(checker_choices(default_detailers))
+        self.form.addRow(QLabel("Checker:"), self.checker_edit)
 
         self.dr_checks_edit = QLineEdit()
         self.form.addRow(QLabel("DR Check:"), self.dr_checks_edit)
@@ -285,6 +315,7 @@ class EditForm(QWidget):
             self.description_edit,
             self.detailer_edit,
             self.checking_status_edit,
+            self.checker_edit,
             self.dr_checks_edit,
             self.dvl_checks_edit,
             self.notes_edit,
@@ -372,6 +403,7 @@ class EditForm(QWidget):
             self.description_edit,
             self.detailer_edit,
             self.checking_status_edit,
+            self.checker_edit,
             self.dr_checks_edit,
             self.dvl_checks_edit,
             self.notes_edit,
@@ -399,7 +431,8 @@ class EditForm(QWidget):
                 self.description_edit.setText("")
                 set_detailer_combo(self.detailer_edit, "")
                 self.unit_state_edit.setText("")
-                self.checking_status_edit.setText("")
+                set_detailer_combo(self.checking_status_edit, "")
+                set_detailer_combo(self.checker_edit, "")
                 self.dr_checks_edit.setText("")
                 self.dvl_checks_edit.setText("")
                 self.notes_edit.setPlainText("")
@@ -429,7 +462,10 @@ class EditForm(QWidget):
             self.description_edit.setText(unit.description)
             set_detailer_combo(self.detailer_edit, unit.detailer)
             self.unit_state_edit.setText(unit.unit_state or "")
-            self.checking_status_edit.setText(unit.checking_status)
+            set_detailer_combo(
+                self.checking_status_edit, unit.checking_status, "Not in the status list"
+            )
+            set_detailer_combo(self.checker_edit, unit.checker)
             self.dr_checks_edit.setText(unit.dr_checks)
             self.dvl_checks_edit.setText(unit.dvl_checks)
             self.notes_edit.setPlainText(unit.notes)
@@ -560,7 +596,9 @@ class EditForm(QWidget):
             contract_number=self.contract_edit.text(),
             description=self.description_edit.text(),
             detailer=detailer,
-            checking_status=self.checking_status_edit.text(),
+            checking_status=self.checking_status_edit.currentText().strip(),
+            checker=self.checker_edit.currentText().strip(),
+            same_as=orig.same_as if orig else "",
             unit_state=self.unit_state_edit.text().strip(),
             dr_checks=self.dr_checks_edit.text(),
             dvl_checks=self.dvl_checks_edit.text(),

@@ -20,21 +20,30 @@ _audit_user = "local"
 #   unit target    = MAX(0, dept - IEC + adjustment)   (stored in units.target_dept_hours)
 #   counted target = unit target for the one unit per contract that gets detailed,
 #                    0 for the other identicals and for cancelled units.
-# The primary of a contract is the earliest unit on the schedule: earliest due
-# date, undated last, then lowest COM. Cancelled units are never the primary.
+# The primary of a contract is the earliest unit on the schedule: units flagged
+# same-as last, then earliest due date, undated last, then lowest COM.
+# Cancelled units are never the primary.
 UNIT_TARGET_SQL = (
     "MAX(0.0, COALESCE(department_hours, 0) - COALESCE(iec_internal_hours, 0)"
     " + COALESCE(target_adjustment_hours, 0))"
 )
 IS_CANCELLED_SQL = "(TRIM(COALESCE(detailer, '')) = 'Cancelled')"
+# Units the old workbook flagged "same-as" are never picked as the primary
+# while an unflagged unit exists in the contract.
+IS_SAME_AS_SQL = "(LOWER(TRIM(COALESCE(same_as, ''))) LIKE 'same%')"
+# WO- numbers are service-order buckets: every unit under one is its own job,
+# so they are never identicals.
+IS_SERVICE_ORDER_SQL = "(UPPER(TRIM(COALESCE(top_level_number, ''))) LIKE 'WO%')"
 _IDENTICALS_WINDOW = f"""(
         PARTITION BY TRIM(top_level_number), {IS_CANCELLED_SQL}
-        ORDER BY date(detailing_due_date) IS NULL, date(detailing_due_date), com_number
+        ORDER BY {IS_SAME_AS_SQL}, date(detailing_due_date) IS NULL, date(detailing_due_date),
+                 com_number
     )"""
 # True for every identical except the primary. A window function: use it in a
 # SELECT list, not in WHERE.
 NON_PRIMARY_IDENTICAL_SQL = f"""(
     TRIM(COALESCE(top_level_number, '')) <> ''
+    AND NOT {IS_SERVICE_ORDER_SQL}
     AND ROW_NUMBER() OVER {_IDENTICALS_WINDOW} > 1
 )"""
 COUNTED_TARGET_SQL = (
@@ -47,7 +56,7 @@ DETAILED_ON_COM_SQL = (
     f" THEN FIRST_VALUE(com_number) OVER {_IDENTICALS_WINDOW} ELSE '' END"
 )
 
-_REPORTING_VIEW_VERSION = "v_reporting_export:target-adjustment-v2"
+_REPORTING_VIEW_VERSION = "v_reporting_export:checker-wo-v4"
 _REPORTING_VIEW_SQL = (
     f"""CREATE VIEW v_reporting_export AS
             -- {_REPORTING_VIEW_VERSION}
@@ -59,15 +68,16 @@ _REPORTING_VIEW_SQL = (
                 u.notes,
                 CASE
                     WHEN u.notes IS NOT NULL AND u.notes != '' AND u.detailer IS NOT NULL AND u.detailer != ''
-                        THEN (CASE WHEN u.detailer = 'Matthew E' THEN 'Matt' WHEN u.detailer = 'Matthew S' THEN 'Matthew' ELSE u.detailer END) || ' / ' || u.notes
+                        THEN (CASE WHEN u.detailer = 'Matt E' THEN 'Matt' WHEN u.detailer = 'Matthew S' THEN 'Matthew' ELSE u.detailer END) || ' / ' || u.notes
                     WHEN u.notes IS NOT NULL AND u.notes != '' THEN u.notes
-                    ELSE (CASE WHEN u.detailer = 'Matthew E' THEN 'Matt' WHEN u.detailer = 'Matthew S' THEN 'Matthew' ELSE COALESCE(u.detailer, '') END)
+                    ELSE (CASE WHEN u.detailer = 'Matt E' THEN 'Matt' WHEN u.detailer = 'Matthew S' THEN 'Matthew' ELSE COALESCE(u.detailer, '') END)
                 END AS detailer_display,
                 u.percent_complete,
                 u.remaining_hours,
                 u.department_hours,
                 {COUNTED_TARGET_SQL} AS target_dept_hours,
                 u.checking_status,
+                COALESCE(u.checker, '') AS checker,
                 u.unit_detailing_start_date,
                 u.unit_moved_to_checking_date,
                 u.unit_detailing_completion_date,
@@ -252,6 +262,29 @@ def _migrate_target_adjustment(conn: sqlite3.Connection) -> None:
     )
 
 
+# Detailer names that were renamed: old name → new name.
+DETAILER_RENAMES = {"Matthew E": "Matt E"}
+
+
+def _migrate_detailer_renames(conn: sqlite3.Connection) -> None:
+    """Move units, checkers and the detailers table to renamed detailer names."""
+    has_detailers = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='detailers'"
+    ).fetchone()
+    for old, new in DETAILER_RENAMES.items():
+        if has_detailers and conn.execute(
+            "SELECT 1 FROM detailers WHERE name = ?", (old,)
+        ).fetchone():
+            if conn.execute("SELECT 1 FROM detailers WHERE name = ?", (new,)).fetchone():
+                conn.execute("DELETE FROM detailers WHERE name = ?", (old,))
+            else:
+                conn.execute("UPDATE detailers SET name = ? WHERE name = ?", (new, old))
+        moved = conn.execute("UPDATE units SET detailer = ? WHERE detailer = ?", (new, old)).rowcount
+        moved += conn.execute("UPDATE units SET checker = ? WHERE checker = ?", (new, old)).rowcount
+        if moved:
+            logger.info("Migration: renamed detailer %r to %r on %d field(s)", old, new, moved)
+
+
 def _migrate_schema(conn: sqlite3.Connection) -> None:
     """Add columns to existing databases that were created before these migrations."""
     try:
@@ -295,6 +328,12 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
 
         if "target_adjustment_hours" not in cols:
             _migrate_target_adjustment(conn)
+
+        if "checker" not in cols:
+            conn.execute("ALTER TABLE units ADD COLUMN checker TEXT DEFAULT ''")
+            logger.info("Migration: added checker column")
+
+        _migrate_detailer_renames(conn)
 
         # ── Database indexes for common query filters ────────────
         desired_indexes = {
@@ -588,6 +627,8 @@ def row_to_unit(row: sqlite3.Row) -> Unit:
         description=row["description"] or "",
         detailer=row["detailer"] or "",
         checking_status=row["checking_status"] or "",
+        checker=(row["checker"] or "") if "checker" in row_keys else "",
+        same_as=(row["same_as"] or "") if "same_as" in row_keys else "",
         unit_state=(row["unit_state"] or "") if "unit_state" in row_keys else "",
         notes=row["notes"] or "",
         dr_checks=(row["dr_checks"] or "") if "dr_checks" in row_keys else "",
